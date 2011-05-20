@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.45 2010/02/08 21:01:30 horne Exp $ ;
-my $REV = q$Revision: 3.45 $;
-# $Date: 2010/02/08 21:01:30 $
+my $ID  = q$Id: ibcli,v 3.46 2010/03/22 02:32:45 horne Exp $ ;
+my $REV = q$Revision: 3.46 $;
+# $Date: 2010/03/22 02:32:45 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2009
@@ -406,7 +406,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.45 $.
+$Revision: 3.46 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1253,6 +1253,7 @@ sub do_func {
     my ( $method , @data ) = @_ ;
 
     &debug_cli (2,"session method = ($method)");
+    &debug_cli (3,"scheduled at = ($data[1])");
 
     # if we are doing an add or a modify, we should be passing a single
     # object, and if so we need to do some post processing cleanup
@@ -1308,7 +1309,6 @@ sub do_func {
             print Dumper ( \@data ) ;
         }
     }
-
 
     my @ret_objects ;
 
@@ -1668,6 +1668,7 @@ sub cli_add_zone {
         # check the view
         if ( @views ) { 
             my $view = $views[0] ;
+            $view = decode_comment ( $view ) ;
             $opthash{'view'} = $view 
         }
 
@@ -1948,6 +1949,7 @@ sub cli_add_zone {
     if ( @views ) {
         my @view_objs ;
         foreach my $vname ( @views ) {
+            $vname = decode_comment ( $vname ) ;
             my $view = Infoblox::DNS::View->new ( "name" => $vname );
             push @view_objs , $view ;
         }
@@ -2008,7 +2010,8 @@ sub cli_delete_zone {
     # do we remove it to a view ?
     my @view_objs ;
     foreach my $vname ( @views ) {
-        my $view = Infoblox::DNS::View->new ( "name" => $vname );
+        my $vstring = decode_comment( $vname ) ;
+        my $view = Infoblox::DNS::View->new ( "name" => $vstring );
         push @view_objs , $view ;
     }
     $obj->views ( \@view_objs ) ;
@@ -2267,10 +2270,13 @@ Add hosts with aliases (CNAMES)
 
    conf zone foo.com add host test 1.2.3.4 alias www alias ftp
 
-Adding hosts with IPAM information ( quotes may be required )
+Adding hosts with IPAM or Extensible Attributes
 You add multiple fields with additional 'info <name=value>' pairs
 
    conf zone info.com add host pc1 2.3.3.3 info Asset=23456-06
+
+Quotes are required of your value has spaces in it :
+
    conf zone info.com add host pc2 2.3.3.3 info Custom1="Room 207"
 
 =head2 Modifying hosts
@@ -2452,7 +2458,15 @@ sub cli_add_host {
     $obj = add_ipam( $obj , @ipam ) ;
 
     # addit ( the method is defined in $type );
-    &do_func($type,$obj);
+    # make it schedulable
+    my ( $at ) = $line =~/\bat (\S+)/ ;
+    &debug_cli(1,"addh at($at)");
+    if ( $at ) {
+        &do_func($type,$obj, scheduled_at => $at);
+    }
+    else {
+        &do_func($type,$obj);
+    }
 
 }
 
@@ -3203,7 +3217,7 @@ sub cli_add_network_view {
     my @settings  = $line =~/ set (\S+)/g ;
 
     # get and de-urlencode the comment string
-    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    my ( $comment ) = $line =~/comment (\S+)/ ;
     $comment = &decode_comment ( $comment ) ;
 
     &debug_cli(1,"addnv v($view) c($comment)");
@@ -3287,6 +3301,10 @@ Add a network witwith a reverse zone
 
    conf network add 1.1.1.0/24 addreverse
 
+Add a network to a network_view
+
+   conf network add 1.1.1.0/24 view default
+
 Add a network with members
 
    conf network add 1.1.1.0/24 member 10.1.1.20 member 10.1.1.40
@@ -3330,7 +3348,12 @@ You cannot renumber a network, only modify the contents of it.
 
    conf network modify 1.1.1.0/24 option 82="some data"
 
-if you change things like options arrays, ALL the existing values will be
+You also can't change the network_view, but you will have to specify
+the view to find the network to modify
+
+   conf network modify 1.1.1.0/24 view default
+
+If you change things like options arrays, ALL the existing values will be
 replaced by the new list. See 'addoption' below if you want to just apend
 new options to the list :
 
@@ -3339,7 +3362,6 @@ one of the current options you can use 'addoption'. This will KEEP the
 current options array intact.
 
    conf network modify 1.1.1.0/24 addoption 82="some data"
-
 
 =cut
 
@@ -3360,7 +3382,8 @@ sub cli_add_network {
     my ( $parent )  = $line =~/ parent (\S+)/ ;
     my ( $view )  = $line =~/ view (\S+)/ ;
     my ( $template )  = $line =~/ template (\S+)/ ;
-    my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+#     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+    my ( $comment ) = $line =~/comment (\S+)/ ;
     my ( $addrev ) = $line =~/ (addreverse)/ ;
     my ( $disable ) = $line =~/\b(disabled)\b/ ;
     my ( $disable ) = $line =~/\b(disabled)\b/ ;
@@ -3392,6 +3415,10 @@ sub cli_add_network {
             "object" => "Infoblox::DHCP::Network", 
             "network" => $network
         );
+
+        if ( $view ) {
+            $opthash{'network_view'} = $view ;
+        }
 
         ( $net ) = &do_func("get", %opthash );
 
@@ -4060,6 +4087,7 @@ sub cli_split_network {
     my ( $network ) = $line =~/ network (\S+)/ ;
     my ( $ncidr ) = $line =~/ split \/(\S+)/ ;
     my ( $type )  = $line =~/ split \/\S+ (\S+)/ ;
+    my ( $view )  = $line =~/ view (\S+)/ ;
 
     &debug_cli(1,"splitnet n($network) s($ncidr) t($type)");
 
@@ -4068,6 +4096,12 @@ sub cli_split_network {
                    "network" => $network ,
                    "prefix" => $ncidr ,
                 );
+
+    # views
+    if ( $view ) {
+        my $viewobj = Infoblox::DHCP::View->new("name"=>$view);
+        $obj->network_view ( $viewobj ) ;
+    }
 
     # check the type
     if ( $type eq "required" ) { 
@@ -4170,6 +4204,10 @@ The 'network' is actually optional, this syntax also works :
 
    conf network add fixed 10.0.1.4 aa:bb:cc:11:22:33 
 
+To add the fixed addr to a specific view
+
+   conf network add fixed 10.0.1.4 aa:bb:cc:11:22:33 view default
+
 Add a fixed address with a Fixed Address Template
 
    conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 template mytemp
@@ -4190,6 +4228,11 @@ You can also modify existing addresses with the same syntax
 
    conf network 10.0.1.0/24 modify fixed 10.0.1.4 aa:bb:cc:11:22:33 ...
 
+You also can't change the network_view, but you will have to specify
+the view to find the range to modify
+
+   conf network modify fixed 10.0.1.4 view default
+
 =cut
 
 sub cli_add_fixed_address {
@@ -4199,6 +4242,7 @@ sub cli_add_fixed_address {
     my ( $type , $ip , $mac ) = $line =~/ (add|modify) fixed (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my ( $template ) = $line =~/ template "?([^"]+)"?/ ;
+    my ( $view )  = $line =~/ view (\S+)/ ;
     my @settings  = $line =~/ set (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
 
@@ -4229,6 +4273,10 @@ sub cli_add_fixed_address {
         else {
             # roaming host?
             $opthash{'roaming_host_name'} = $ip ;
+        }
+
+        if ( $view ) {
+            $opthash{'network_view'} = $view ;
         }
 
         ( $obj ) = &do_func("get", %opthash ) ;
@@ -4275,6 +4323,12 @@ sub cli_add_fixed_address {
 
     if ( $comment ) { $obj->comment ( $comment ) }
     if ( $template ) { $obj->template ( $template ) }
+
+    # network view
+    if ( $view ) {
+        my $viewobj = Infoblox::DHCP::View->new("name"=>$view);
+        $obj->network_view ( $viewobj ) ;
+    }
 
     # options
     if ( @options ) {
@@ -4496,6 +4550,10 @@ override that setting with the 'member <ip>' syntax
 
    conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40
 
+Add a range to a network view
+
+   conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40 view default
+
 Failover associations are an additional argument
 
    conf net 10.1.1.1/24 add range 10... failover "my_peering"
@@ -4529,7 +4587,12 @@ You cannot renumber a range, only modify the contents of it.
 
    conf network 1.1.1.0/24 modify range 10.. option 82="some data"
 
-if you change things like options arrays, ALL the existing values will be
+You also can't change the network_view, but you will have to specify
+the view to find the range to modify
+
+   conf network 1.1.1.0/24 modify range 10.. view default ...
+
+If you change things like options arrays, ALL the existing values will be
 replaced by the new list. 'modify' does not append to existing lists, it
 does a complete replacement of it.
 
@@ -4547,6 +4610,7 @@ sub cli_add_dhcp_range {
     my ( $failover )  = $line =~/ failover (\S+)/ ;
     my ( $member )  = $line =~/ member (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+    my ( $view )  = $line =~/ view (\S+)/ ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -4577,6 +4641,10 @@ sub cli_add_dhcp_range {
             "end_addr" => $lip ,
         );
 
+        if ( $view ) {
+            $opthash{'network_view'} = $view ;
+        }
+
         ( $obj ) = &do_func("get", %opthash );
 
         # check errors
@@ -4596,6 +4664,12 @@ sub cli_add_dhcp_range {
 #                    "options" => \@opt_list ,
 #                    "member" => $member ,
                 );
+    }
+
+    # views
+    if ( $view ) {
+        my $viewobj = Infoblox::DHCP::View->new("name"=>$view);
+        $obj->network_view ( $viewobj ) ;
     }
 
     # add the optional extras
@@ -5092,6 +5166,30 @@ sub cli_show_device_types {
 
 =cut
 
+=head2 Showing scheduled updates
+
+    show grid schedule
+
+=cut
+
+sub cli_show_schedule {
+
+    my ( $line ) = @_ ;
+
+    # are we getting all or just some devices
+    my $regex = ".*";
+
+    # create the search
+    my %opthash = (
+        object => "Infoblox::Grid::ScheduledTask", 
+        submitter => $regex,
+    );
+
+    # get what we need
+    my @dobjs = &do_func("search", %opthash );
+
+    &dump_object ( @dobjs ) ;
+}
 
 
 # Radius functions
@@ -5351,6 +5449,7 @@ You can also modify admin groups (to add roles or perms)
 This will ADD to the current list(s), not replace it
 
    configure admin modify admin_group locals role "DNS Admin"
+
 =cut
 
 sub cli_add_admin_group {
@@ -7010,12 +7109,12 @@ sub cli_show_record {
     # set up the object
     my $olist = {
         cname => "Infoblox::DNS::Record::CNAME",
+        bulkhost => "Infoblox::DNS::BulkHost",
         a_record => "Infoblox::DNS::Record::A",
+        aaaa => "Infoblox::DNS::Record::AAAA",
         mx => "Infoblox::DNS::Record::MX",
         txt => "Infoblox::DNS::Record::TXT",
-        aaaa => "Infoblox::DNS::Record::AAAA",
         srv => "Infoblox::DNS::Record::SRV",
-        bulkhost => "Infoblox::DNS::BulkHost",
     } ;
 
     my $otype = $olist->{"$type"};
@@ -7039,16 +7138,24 @@ sub cli_show_record {
             );
         }
     
+        print "Search records :\n";
         my @records = &do_func("search", %opthash );
+        &dump_object ( @records ) ;
 
-        # and do the search again for shared records
-        $otype=~s/::Record/::SharedRecord/;
-        $opthash{'object'} = $otype;
+        unless ( $otype =~ /cname|bulk/i ) {
+            # and do the search again for shared records
+            $otype=~s/::Record/::SharedRecord/;
+            $opthash{'object'} = $otype;
 
-        my @srecords = &do_func("search", %opthash );
+            print "Search shared records :\n";
+            my @srecords = &do_func("search", %opthash );
 
-        # report everything
-        &dump_object ( @records , @srecords ) ;
+            &dump_object ( @srecords ) ;
+        }
+
+#         print "Results :\n";
+#         # report everything
+#         &dump_object ( @records , @srecords ) ;
 
     }
 }
@@ -7130,12 +7237,15 @@ sub cli_show_network {
     if ( $net ) { $search = $net ; }
 
     # get all the networks
+    print "Search : Infoblox::DHCP::Network:\n";
     my %opthash = (
            "object" => "Infoblox::DHCP::Network", 
            "network" => $search,
     );
     my @nets = &do_func("search", %opthash );
 
+    # search for containers..
+    print "Search : Infoblox::DHCP::NetworkContainer:\n";
     if ( require_api ( "4.3r4-0" ) ) {
         # and all the containers
         my %opthash = (
@@ -7411,9 +7521,17 @@ List ALL the used and unused addresses in a subnet
 
    show network 45.200.100.128/25 ipam
 
-Show just the unused addresses
+Show just the used addresses
 
    show network 45.200.100.128/25 ipam used
+
+Show just the used or free addresses
+
+   show network 45.200.100.128/25 ipam unused
+
+Show just the next available IP address
+
+   show network 45.200.100.128/25 ipam next_available
 
 =cut
 
@@ -7425,6 +7543,27 @@ sub cli_show_ipam {
     my ( $type ) = $line =~/ ipam (\S+)/ ;
 
     &debug_cli(2,"netipam n($subnet) t($type)");
+
+    if ( $type =~ /next_available/ ) {
+        # just get the next IP
+        if ( require_api ( "4.3r2-0" ) ) {
+            my ( $nobj ) = &do_func("get", (
+                    object   => "Infoblox::DHCP::Network",
+                    network  => $subnet,
+                    )
+                 );
+            if ( $nobj ) {
+                my $nip = $nobj->next_available_ip();
+                print "  $subnet : $nip\n";
+
+            }
+        }
+        else {
+            print "  Next IP not available in this version of NIOS\n";
+        }
+
+        return ;
+    }
 
     # create an hash of used ip addrs
     my %used_ip ;
@@ -7603,11 +7742,14 @@ sub cli_show_range {
         my @rangelist ;
         foreach my $nobj (@ranges) {
             my $net = $nobj->network();
-            my $mem = $nobj->member()->name();
+            my $mem ;
+            if ( $nobj->member() ) {
+                $mem = $nobj->member()->name();
+            }
             my $fail = $nobj->failover_assoc();
             my $fip = $nobj->start_addr();
             my $lip = $nobj->end_addr();
-            push @rangelist , "  $net : $fip - $lip : $mem $fail\n";
+            push @rangelist , "  $net : $fip - $lip : $mem : $fail\n";
         }
 
         # now print them (sorted)
@@ -8092,7 +8234,7 @@ sub cli_add_server {
 If you are connecting to the MGMT port, you need to define the GRID MASTER
 IP address.  This is because it is different from the MGMT port and it is
 autoassigned to any zones, networks or ranges that do not specifically
-have a ember assignment
+have a member assignment
 
     configure master <ip>
 
@@ -8839,7 +8981,7 @@ sub require_api {
         return ( 0 ) ;
     }
     else {
-        debug_cli(1,"version OK : server($needed) server($rev)");
+        debug_cli(1,"version OK : need($needed) server($rev)");
         return ( 1 ) ;
     }
     
@@ -8894,6 +9036,14 @@ sub dump_data {
     my ( $obj ) = @_ ;
 
     print Dumper ( \$obj ) if $DEBUG > 3 ;
+
+    # identify networks or containers
+    if ( $obj->{__type} =~ /Infoblox.DHCP.NetworkContainer/ ) {
+            printf ( "%30s : %s\n", "type" , "NetworkContainer" ) ;
+    }
+    if ( $obj->{__type} =~ /Infoblox.DHCP.Network/ ) {
+            printf ( "%30s : %s\n", "type" , "Network" ) ;
+    }
 
     # nasty hack to insert the hostname into a fixed address
     if ( $obj->{__type} =~ /Infoblox.DHCP.FixedAddr/ ) {
@@ -8993,7 +9143,7 @@ sub dump_data {
                 if ( $val =~ /ARRAY/ ) { $val = join( "," , @{$val}) }
 #                 push @values , "$field=$val";
                 # print the line directly
-                printf ( "%35s : %s = %s\n", $key , $field,$val ) ;
+                printf ( "%35s : %s=%s\n", $key , $field,$val ) ;
             }
 
 #             # remember it
@@ -9181,6 +9331,12 @@ sub dump_data {
 
                 my $name = $sobj->{'name'};
                 my $ip = $sobj->{'ipv4addr'};
+
+                # check for lead secondaries
+                if ( $sobj->{'lead'} =~ /true/i ) {
+                    $type = "*LEAD $type";
+                }
+
                 printf ( "%30s : %s(%s)\n", $type , $name,$ip ) ;
             }
         }
@@ -10219,7 +10375,7 @@ my %COMMANDS = (
 # [x] show admins and groups
 
     'show grid' => { 
-           words => "<name> attribute device_type",  },
+           words => "<name> schedule attribute device_type",  },
 
     'show grid attribute' => { 
            words => "<cr> <name>",  
@@ -10232,6 +10388,9 @@ my %COMMANDS = (
            func => "cli_show_device_types", },
     'show grid device_type <name>' => { 
            func => "cli_show_device_types", },
+
+    'show grid schedule' => { 
+           func => "cli_show_schedule", },
 
     'show grid <name>' => { 
            words => "<cr> dhcp dns member",  
@@ -10361,12 +10520,15 @@ my %COMMANDS = (
            func => "cli_show_netstats", },
 
     'show network <n.n.n.n/mm> ipam' => { 
-           words => "used unused",
+           words => "used unused next_available",
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam used' => { 
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam unused' => { 
            func => "cli_show_ipam", },
+    'show network <n.n.n.n/mm> ipam next_available' => { 
+           func => "cli_show_ipam", },
+
 
     'show network <n.n.n.n/mm> fixed' => { 
            words => "<cr> <ip> <mac>",  
@@ -10867,16 +11029,16 @@ my %COMMANDS = (
     # [ ] need to all add/then modify
     #   aka cli_add_sub_network
     'configure zone <zone> insert host <name>' => { 
-           words => "<cr> template=<name>|<ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
+           words => "<cr> at=<value>|template=<name>|<ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_ins_host", },
     'configure zone <zone> modify host <name>' => { 
-           words => "<cr> template=<name>|<ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
+           words => "<cr> at=<value>|template=<name>|<ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
 
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
-           words => "<cr> template=<name>|view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|option=<name=value>", 
+           words => "<cr> at=<value>|template=<name>|view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|option=<name=value>", 
            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
@@ -11061,7 +11223,7 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> split' => { 
            words => "</cidr>",  },
     'configure network <n.n.n.n/mm> split </cidr>' => { 
-           words => "<cr> required all",  
+           words => "<cr> required all view=<name>",
            func => "cli_split_network", },
     'configure network <n.n.n.n/mm> split </cidr> required' => { 
            func => "cli_split_network", },
@@ -11102,10 +11264,10 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
-           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
     'configure network <n.n.n.n/mm> modify fixed <ip> <mac>' => { 
-           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     #  - fixed without parent
@@ -11114,10 +11276,10 @@ my %COMMANDS = (
     'configure network modify fixed' => { 
            words => "<ip_or_name>=<mac>",  },
     'configure network add fixed <ip_or_name> <mac>' => { 
-           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
     'configure network modify fixed <ip_or_name> <mac>' => { 
-           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     'configure network delete fixed <ip_or_name>' => { 
@@ -11127,12 +11289,12 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
-           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
+           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value> view=<name>",
            func => "cli_add_dhcp_range", },
     'configure network <n.n.n.n/mm> modify range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> modify range <ip> <ip>' => { 
-           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
+           words => "<cr> view=name|disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
     # radius comm
@@ -11248,6 +11410,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.46  2010/03/22 02:32:45  horne
+# *** empty log message ***
+#
 # Revision 3.45  2010/02/08 21:01:30  horne
 # *** empty log message ***
 #
