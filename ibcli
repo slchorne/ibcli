@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.19 2007/01/12 22:33:24 horne Exp $ ;
-my $REV = q$Revision: 3.19 $;
-# $Date: 2007/01/12 22:33:24 $
+my $ID  = q$Id: ibcli,v 3.20 2007/02/08 04:55:01 horne Exp $ ;
+my $REV = q$Revision: 3.20 $;
+# $Date: 2007/02/08 04:55:01 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -321,7 +321,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.19 $.
+$Revision: 3.20 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2864,6 +2864,7 @@ sub cli_add_admin_group {
     # get the args from the line
     my ( $name ) = $line =~/ admin_group (\S+)/ ;
     my ( $su ) = $line =~/\b(superuser)\b/ ;
+    my ( $disable ) = $line =~/\b(disabled)\b$/ ;
 
     &debug_cli (1,"addgrp g($name)");
 
@@ -2878,6 +2879,7 @@ sub cli_add_admin_group {
     if ( $comment ) { $obj->comment ( $comment ) }
 
     if ( $su ) { $obj->superuser ( "TRUE" ) }
+    if ( $disable ) { $obj->disabled ( "TRUE" ) }
 
     &do_func("add",$obj);
 
@@ -2899,6 +2901,7 @@ sub cli_add_user {
     my ( $pass ) = $line =~/ password (\S+)/ ;
     my ( $group ) = $line =~/ group (\S+)/ ;
     my ( $email ) = $line =~/ email (\S+)/ ;
+    my ( $disable ) = $line =~/\b(disabled)\b$/ ;
 
     &debug_cli (1,"adduser u($user) p($pass) g($group)");
 
@@ -2910,6 +2913,7 @@ sub cli_add_user {
 
     # set some variables
     if ( $email ) { $obj->email ( $email ) }
+    if ( $disable ) { $obj->disabled ( "TRUE" ) }
 
     # de-urlencode the comment string
     # and add an optional comment
@@ -3177,6 +3181,13 @@ sub cli_mod_member {
 =head2 Adding members
 
    configure grid Infoblox add member ns1.foo.com ipaddress 1.2.3.20/24
+
+Add a member as an HA pair
+
+   configure grid Infoblox add member ns1.foo.com \
+      ipaddress 192.168.1.100/24 gateway 192.168.1.1 \
+      hapair 192.168.1.101,192.168.1.102,192.168.1.103,192.168.1.104 \
+      routerid 100
 
 =cut
 
@@ -4077,6 +4088,7 @@ sub dump_object {
         # hash arrays by key 'ipv4addr'
         elsif ( $key eq "syslog_server"
              or $key eq "forward_to"
+#              or $key eq "delegate_to"
              or $key eq "match_members" ) {
             my @values ;
             # find all the names only
@@ -4149,6 +4161,7 @@ sub dump_object {
         # nested sub objects
         elsif ( $key eq "secondaries"
              or $key eq "members"
+             or $key eq "delegate_to"
             ) {
             my @values ;
             # find all the sub objects
@@ -4987,7 +5000,7 @@ my %COMMANDS = (
            words => "user=<name>|admin_group=<name>", },
 
     'configure admin add user <name>' => { 
-           words => "password=<value>|group=<name>|comment=<comment>|email=<name>",
+           words => "disabled|password=<value>|group=<name>|comment=<comment>|email=<name>",
            func => "cli_add_user", },
 
     'configure admin add admin_group <name>' => { 
@@ -5401,6 +5414,12 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.20  2007/02/08 04:55:01  horne
+# BugId: 8205
+# Reviewer(s): Geoff (as usual)
+# Description: added more vervose docs on adding members
+# added 'disabled' for admins.
+#
 # Revision 3.19  2007/01/12 22:33:24  horne
 # BugId: 8205
 # Reviewer(s): geoff
