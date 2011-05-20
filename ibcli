@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.21 2007/03/28 19:47:28 horne Exp $ ;
-my $REV = q$Revision: 3.21 $;
-# $Date: 2007/03/28 19:47:28 $
+my $ID  = q$Id: ibcli,v 3.22 2007/03/29 11:14:32 rpashby Exp $ ;
+my $REV = q$Revision: 3.22 $;
+# $Date: 2007/03/29 11:14:32 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -346,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.21 $.
+$Revision: 3.22 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1545,11 +1545,20 @@ sub cli_delete_zone {
 
     # get the args from the line
     ( my $zone)     = $line =~/zone delete (\S+)/ ;
+    my (@views) = $line =~/ view (\S+)/g ;
     &debug_cli(1,"remz n($zone)");
 
     my $obj = Infoblox::DNS::Zone->new (
                   "name" => $zone,
     );
+
+    # do we remove it to a view ?
+    my @view_objs ;
+    foreach my $vname ( @views ) {
+        my $view = Infoblox::DNS::View->new ( "name" => $vname );
+        push @view_objs , $view ;
+    }
+    $obj->views ( \@view_objs ) ;
 
     &do_func("remove",$obj);
 
@@ -5981,6 +5990,8 @@ my %COMMANDS = (
     'configure zone delete' => { 
            words => "<zone>|view=<name>", },
     'configure zone delete <zone>' => { 
+           words => "<cr>
+                    view=<name>",
            func => "cli_delete_zone", },
 
     'configure zone add' => { 
@@ -6279,6 +6290,15 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.22  2007/03/29 11:14:32  rpashby
+# BugId: 8205
+# Added view selection for delete zone
+#
+# Revision 3.22  2007/03/29 07:05:00  pashby
+# BugId: 8205
+# Reviewer(s): Ron
+# Description: Added view selection for removing zones
+#
 # Revision 3.21  2007/03/28 19:47:28  horne
 # BugId: 8205
 # Reviewer(s): Geoff
