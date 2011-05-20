@@ -1,0 +1,209 @@
+= The Tao of the CLI =
+
+== How does a CLI work ? ==
+
+Like it nor not, the combination of a structured database and a command
+set implies that you have to look at commands from an Object Oriented
+perspective. For any single operation you have to declare where in the OO
+hierarchy you want this operation performed and what parameters you want
+to pass to the command. in some cases this can be a very simple
+operation, but in other's you will need to provide a lot of detail.
+
+== What has gone before. ==
+
+Historically, you can distill down all CLIs into 2 basic types :
+
+=== Object Oriented ===
+
+each command builds on the previous command. every time you press <cr>
+you branch deeper into the command tree, but to get the entire context
+of what you are doing you have to look at a history of commands.
+
+Examples of this include IOS :
+
+  interface Vlan1
+   ip address 10.0.1.62 255.255.255.0
+
+=== fixed command ===
+
+Each command is a standalone operation. how far down you progress into
+the command tree depends on how much detail you add to the command.
+
+Examples of this include ExtremeWare :
+
+  configure vlan Vlan1 ipaddress 10.0.1.62/24
+
+== What is the right thing to do. ==
+
+This is a highly debatable subject, but consider the following command :
+
+   configure vlan Default add port 24
+
+This achieves a very detailed function, is self explanatory and has no
+dependencies on previous history. While it has limitations when you need
+to add a lot of detail, and single command can be examined without loss
+of context.
+
+== Tenets of a good CLI==
+
+Another way to look at this is to consider that would make a good CLI :
+
+# Few top level commands
+# Few branches per node
+# Be intuitive
+# Be lazy
+# Be sane
+# 1 line to rule them all
+# Minimize regressions
+
+=== In detail these are :===
+
+; Few top level commands :
+Users are lazy and never read the manuals. If there are very few
+commands to start with then there is less chance for a user to try the
+wrong one from the beginning
+
+; Few branches per node :
+The minimalist rule at the top level should continue to apply at all
+levels. If we are to assume that the user never reads the manual then
+we have to assume they they will be guessing the command at every
+level. Again, the fewer options the user has, the fewer chances they
+have to make a mistake
+   
+; Be intuitive :
+This is the obvious extension of the first 2 rules. If we are assume
+that the user doesn't read the manual, then we have to make the
+commands as guessable as possible.  
+  "line vty 0 4" 
+makes a lot less sense than
+  "configure telnet"
+
+; Be lazy :
+IF we extent the first 3 rules even further then we we should not only
+be intuitive, but ambiguous. If a command can have variants in the
+syntax, then why not support all the variants
+     "conf vlan"
+and
+     "set vlan"
+should both be acceptable commands.
+
+; Be sane :
+When you create a command, not only make it intuitive, but make it
+sensible. Avoid commands that are confusing or destructive
+     "No Shut"
+Is not only a double negative, but should be inverted
+     "Enable"
+Makes more sense.
+
+; 1 line to rule them all :
+A single command should be examinable and understood without context. 
+If a command carries over many lines then a loss of context leads to
+ambiguity and other errors.
+
+; Minimize regressions :
+Pick a command and stick with it. Think about all the variants and
+the future.
+     "reset"
+Has no room to move and risks problems later then you want variable
+reset command.
+
+== Building a better CLI ==
+
+So, if you apply the basic tenets of a good CLI to a design we would get
+something like this :
+
+; Few top level commands :
+We keep the top level as simple as possible. 
+
+      set
+      show
+      exit
+      restart
+      history
+
+if we never need to add a command we ask ourselves 
+
+     "Could this live under an existing command ?"
+   
+; Few branches per node :
+IF you wanted to create a function that added a vlan, what would make
+more sense
+     "add vlan <foo>"
+or
+     "set vlan add <foo>"
+
+The first option seems better because it is simpler, but it breaks the
+first rule (by adding another top level command), and it breaks the second
+rule adding a lot of second level 'add' commands. "add vlan" by itself
+seems harmless, but what about when you need to add networks or zones
+or hosts or interfaces or ipaddresses or ACLS etc etc.
+
+By putting all vlan specific commands under the 'set vlan' you can now
+build a better tree commands and start to put things into context. you
+can break your commands out like this :
+
+   configure zone add <zonevalue>
+   configure zone <zonevalue> add host
+   configure zone <zonevalue> add ptr
+   configure zone <zonevalue> delete host
+   configure network add <networkvalue>
+   configure network <networkvalue> add dhcprange
+
+; Be intuitive :
+Again, putting a command in context helps make it intuitive and
+reduces the number of branches. Why create a lot of 'add' commands
+when you can instead create a lot of context specific add commands
+
+; Be lazy :
+Some people use 'set', some people use 'configure'. Some people use
+'get' some people use 'show'. IF the commands don't conflict then let
+the parser do all the heavy lifting and support both :
+
+   conf zone add <zonevalue>
+   conf network add <networkvalue>
+   set zone add <zonevalue>
+   set network add <networkvalue>
+
+; Be sane :
+This is too broad a concept to get into detail here, but the classic
+flaw is to avoid double negatives, in fact avoid negative commands
+altogether, every command does something so they are always positive
+operations, leverage that :
+
+     "no shut" - bad
+     "enable"  - better
+
+     "enable disable" - bad
+     "disable"        - better
+
+     "unconfigure all" - bad
+     "reset all"       - better
+
+     "no vlan Default"                - bad
+     "delete vlan Default"            - better
+     "configure vlan delete Default"  - Even better
+
+     "Disable DHCP"  - bad
+     "set dhcp off"  - better
+
+; 1 line to rule them all :
+IF you are going to do something, do it in one line. As you are more
+words to the command you are really adding more details, you are
+making a command more specific and giving it more context.
+ 
+Taken out of context, the following commands make no sense
+
+   conf zone
+   add foo.com
+   zone foo.com
+   add www 1.2.3.4
+   zone bah.com
+   add www 1.2.3.4
+
+So it makes more sense to make these single line explicit commands :
+
+   conf zone add foo.com
+   conf zone foo.com add host www 1.2.3.4
+   conf zone bah.com add host www 1.2.3.4
+
+
