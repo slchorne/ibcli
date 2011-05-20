@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.2.2.2 2005/11/23 23:52:14 horne Exp $ ;
-my $REV = q$Revision: 3.2.2.2 $;
-# $Date: 2005/11/23 23:52:14 $
+my $ID  = q$Id: ibcli,v 3.2.2.3 2006/02/16 21:46:14 horne Exp $ ;
+my $REV = q$Revision: 3.2.2.3 $;
+# $Date: 2006/02/16 21:46:14 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -61,11 +61,15 @@ no strict "refs" ;
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-BEGIN {
-   push (@INC, "lib");
-   push (@INC, "$FindBin::Bin");
-   push (@INC, "$FindBin::Bin/lib");
-};
+use lib "lib" ;
+use lib "$FindBin::Bin" ;
+use lib "$FindBin::Bin/lib" ;
+
+# BEGIN {
+#    push (@INC, "lib");
+#    push (@INC, "$FindBin::Bin");
+#    push (@INC, "$FindBin::Bin/lib");
+# };
 
 # use Term::EditLine qw(CC_EOF CC_NEWLINE CC_ARGHACK CC_CURSOR CC_REDISPLAY);
 use Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
@@ -129,9 +133,12 @@ my %COMMANDS = (
 
     'show debug' => { 
            words => "session commands",  },
-    'show debug commands' => { 
-           func => "debug_commands", },
     'show debug session' => { 
+           func => "debug_commands", },
+    'show debug commands' => { 
+           words => "<cr> detailed",
+           func => "debug_commands", },
+    'show debug commands detailed' => { 
            func => "debug_commands", },
 
     'show views' => { 
@@ -172,7 +179,7 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "debug server zone network" , },
+           words => "debug server zone network grid" , },
 
     'configure debug' => { 
            words => "<num>", },
@@ -188,6 +195,30 @@ my %COMMANDS = (
            words => "password=<value>", 
            func => "cli_add_server", },
 
+    'configure grid' => { 
+           words => "<name>", },
+
+    'configure grid <name>' => { 
+           words => "add delete", },
+    'configure grid <name> add' => { 
+           words => "dns dhcp", },
+    'configure grid <name> add dns' => { 
+           words => "nsgroup=<name> acl", },
+
+    'configure grid <name> add dns nsgroup <name>' => { 
+           words => "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>", 
+           func => "cli_add_grid_nsgroup", },
+
+    'configure grid <name> add dns acl' => { 
+           words => "allow deny", },
+
+    'configure grid <name> add dns acl allow' => { 
+           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           func => "cli_add_grid_dns_acl", },
+    'configure grid <name> add dns acl deny' => { 
+           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           func => "cli_add_grid_dns_acl", },
+
     'configure zone' => { 
            words => "add delete <zone>", },
 
@@ -199,16 +230,17 @@ my %COMMANDS = (
     'configure zone add' => { 
            words => "<zone>", },
     'configure zone add <zone>' => { 
-           words => "<cr> view=<name>|import=<ip>|forward_to=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
+           words => "<cr>
+           view=<name>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
            words => "add delete", },
 
     'configure zone <zone> add' => { 
-           words => "host a_record bulkhost cname ptr_record", },
+           words => "host a_record bulkhost cname ptr_record mx", },
     'configure zone <zone> delete' => { 
-           words => "host a_record bulkhost cname ptr_record", },
+           words => "host a_record bulkhost cname ptr_record mx", },
 
     'configure zone <zone> delete host' => { 
            words => "<name>", },
@@ -243,12 +275,22 @@ my %COMMANDS = (
     'configure zone <zone> delete ptr_record <ip> <name>' => { 
            func => "cli_del_ptr", },
 
+    'configure zone <zone> add mx' => { 
+           words => "<name>", },
+    'configure zone <zone> add mx <name>' => { 
+           words => "<priority>=<name>", },
+    'configure zone <zone> add mx <name> <priority> <name>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_mx", },
+    'configure zone <zone> add mx <name> <priority> <name> comment <comment>' => { 
+           func => "cli_add_mx", },
+
     'configure zone <zone> add host' => { 
-           words => "<name>=<ip>", },
-    'configure zone <zone> add host <name> <ip>' => { 
+           words => "<name>=<ip,ip>", },
+    'configure zone <zone> add host <name> <ip,ip>' => { 
            words => "<cr> comment=<comment>", 
            func => "cli_add_host", },
-    'configure zone <zone> add host <name> <ip> comment <comment>' => { 
+    'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
@@ -393,6 +435,7 @@ my %SPECOPS = (
      '<cidr>'       => "^($REpartip|$REip\\\/|$REcidr)\$",
      '</cidr>'      => '^\/\d{1,2}$',
      '<zone>'   => '^\S+$',
+     '<priority>'   => '^\d+$',
    );
 
 # Alternate words are set of a global lookup table
@@ -533,6 +576,9 @@ if ( @ARGV ) {
      &process_line ( $_ ) ;
 
    }
+
+   exit ;
+
 }
 else {
 
@@ -584,7 +630,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.2.2.2 $
+$Revision: 3.2.2.3 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -782,6 +828,9 @@ sub process_line {
     # expand the line, drop errors
     my ( $line ) = @_ ;
 
+    # [ ] protect special chars
+    $line =~ s/\*/\\\*/g;
+
     &debug_cli (1,"");
     my ( $expanded , $error , $matchline ) = &expand_line ( $line ) ;
     &debug_cli (2,"linec m[$matchline]");
@@ -844,7 +893,11 @@ sub expand_line {
     # protect stuff in quotes by inserting '%20s'
     my ( $comment ) = $line =~ /"([^"]*)"?/;
     ( my $pcomment = $comment ) =~ s/\s/%20s/g;
-    $line =~ s/$comment/$pcomment/;
+    if ($comment) {
+        $line =~ s/$comment/$pcomment/;
+    }
+
+    &debug_cli (3,"linex cinput [$line]");
 
     # walk each word ( split on <space> )
     my $expline ;
@@ -1361,6 +1414,10 @@ Add a zone with external primary
 
    conf zone add foo.com ext_primary ns1.foo.com,1.2.3.4 
 
+Add a zone with an nsgroup
+
+   conf zone add foo.com nsgroup mygroup
+
 =head2 Import a zone
 
 Zones can be imported as either forward or reverse. You just add an extra
@@ -1389,12 +1446,16 @@ sub cli_add_zone {
     # get the args from the line
     my ($zone)     = $line =~/zone add (\S+)/ ;
     my ($import)   = $line =~/ import (\S+)/ ;
-    my ($pri)   = $line =~/ primary (\S+)/ ;
+    my ($pri)      = $line =~/ primary (\S+)/ ;
+    my ($nsgroup)  = $line =~/ nsgroup (\S+)/ ;
+    my ($email)    = $line =~/ email (\S+)/ ;
 
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
     my (@forwarders) = $line =~/ forward_to (\S+)/g ;
     my (@sec)     = $line =~/ secondary (\S+)/g ;
+    my (@mems)     = $line =~/ member (\S+)/g ;
     my (@ext_sec) = $line =~/ ext_secondary (\S+)/g ;
+    my (@stealth_ext_sec) = $line =~/ stealth_ext_secondary (\S+)/g ;
     my (@views) = $line =~/ view (\S+)/g ;
 
     &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
@@ -1420,7 +1481,25 @@ sub cli_add_zone {
        $obj->forward_to( \@fwd_svrs ) ;
        # [ ] and add the right members...
 
+        # find secondaries
+        my @memlist ;
+        foreach my $mem ( @mems ) {
+            # normaal members
+            push @memlist , Infoblox::DNS::Member->new(
+#                              "name" => $value ,
+                             "ipv4addr" => $mem ,
+                             );
+            &debug_cli (2,"addz z($zone) mem($mem)");
+        }
+        $obj->members ( \@memlist ) ;
+
+
     }
+    # using ns groups ?
+    elsif ( $nsgroup ) {
+       $obj->ns_group( $nsgroup ) ;
+    }
+    # or normal nameservers ?
     else {
     if ( $pri ) {
        # member primary
@@ -1468,6 +1547,7 @@ sub cli_add_zone {
        &debug_cli (2,"addz z($zone) sec($sec_ip)");
     }
 
+    # external secondaries
     foreach my $ext_ip ( @ext_sec ) {
        # external secondaries
        my ( $nsname , $ip ) = split ( /,/ , $ext_ip ) ;
@@ -1482,6 +1562,24 @@ sub cli_add_zone {
 
        push @sec_svrs , $secondary ;
        &debug_cli (2,"addz z($zone) ext-s($nsname)($ip)");
+    }
+
+    # stealth external secondaries
+    foreach my $sext_ip ( @stealth_ext_sec ) {
+       # external secondaries
+       my ( $nsname , $ip ) = split ( /,/ , $sext_ip ) ;
+
+       # IP is optional (kinda)
+       if ( ! $ip ) { $ip = "255.255.255.255" }
+
+       my $secondary = Infoblox::DNS::Nameserver->new ( 
+                        'name' => $nsname, 
+                        'ipv4addr' => $ip, 
+                        'stealth' => "TRUE" ,
+                      );
+
+       push @sec_svrs , $secondary ;
+       &debug_cli (2,"addz z($zone) s-ext-s($nsname)($ip)");
     }
 
     # add any secondaries we found parsing the args
@@ -1503,6 +1601,11 @@ sub cli_add_zone {
     }
     $obj->views ( \@view_objs ) ;
 
+    # email
+    if ( $email ) {
+       $obj->email ( $email ) ;
+       &debug_cli (2,"addz z($zone) email($email)");
+    }
 
     # now add the damn thing
     &do_func("add",$obj);
@@ -1554,14 +1657,20 @@ sub cli_add_host {
     my ( $host , $ip ) = $line =~/add host (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
-    my $name="$host.$zone";
+    $host =~ s/"//g;
+    my $name ;
+    if ( $host ) { $name = "$host.$zone"; }
+    else { $name = $zone }
+
+    my @ips = split(',', $ip) ;
 
     &debug_cli(1,"addh n($name) n($ip) c($comment)");
 
     # create the object
     my $obj = Infoblox::DNS::Host->new (
                   "name" => $name,
-                  "ipv4addrs" => [ $ip ],
+#                   "ipv4addrs" => [ $ip ],
+                  "ipv4addrs" => \@ips,
     );
 
     if ( $comment ) { $obj->comment ( $comment ) }
@@ -1645,6 +1754,66 @@ sub cli_del_a_rec {
     );
 
     &debug_cli(1,"del_a n($host) n($ip) ");
+
+    # addit
+    &do_func("remove",$obj);
+
+}
+
+=head2 Add an MX record to a zone
+
+   conf zone foo.com add mx mail 10 mail.bar.com
+
+=cut
+
+sub cli_add_mx {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $host , $pref , $dest ) = $line =~/ mx (\S+) (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    $host =~ s/"//g;
+    if ( $host ) { $host = "$host.$zone"; }
+    else { $host = $zone }
+
+    my $obj = Infoblox::DNS::Record::MX->new (
+                    "name" => "$host",
+                    "pref" => $pref ,
+                    "exchanger" => $dest ,
+                    "comment" => $comment,
+    );
+
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    &debug_cli(1,"add_mx n($host) n($pref) c($comment)");
+
+    # addit
+    &do_func("add",$obj);
+
+}
+
+=head2 Remove An MX record from a zone
+
+   conf zone foo.com del mx mail 10 mail.bar.com
+
+=cut
+
+sub cli_del_mx {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $host , $pref , $dest ) = $line =~/ mx (\S+) (\S+) (\S+)/ ;
+
+    my $obj = Infoblox::DNS::Record::MX->new (
+                    "name" => "$host.$zone",
+                    "pref" => $pref ,
+                    "exchanger" => $dest ,
+    );
+
+    &debug_cli(1,"del_mx n($host) n($pref) ");
 
     # addit
     &do_func("remove",$obj);
@@ -2181,6 +2350,18 @@ sub cli_del_dhcp_range {
     &do_func("remove",$obj);
 
 }
+
+# [ ] dns settings
+
+=head2 add global DNS settings
+
+   conf grid <name> add dns nsgroup <name>
+
+DNS ACLs
+
+   conf grid <name> add dns acl zone-transfer x.x.x.x/nn
+
+=cut
 
 # [ ] broken until i get syntax to set the Grid name
 
@@ -2761,7 +2942,7 @@ sub dump_object {
     # pretty print an object
     my ( $obj ) = @_ ;
 
-#     print Dumper ( $obj ) ;
+    print Dumper ( \$obj ) if $DEBUG > 3 ;
 
     foreach my $key ( sort keys %{ $obj } ) {
         # ignore privates
@@ -2778,19 +2959,32 @@ sub dump_object {
             my $sobj = $obj->{$key} ;
             $data = $sobj->{'name'};
         }
-        elsif ( $key eq "views" 
-            or $key eq "secondaries"
-           ) {
+        elsif ( $key eq "views" ) {
             my @values ;
             # find all the names only
             foreach my $sobj ( @{ $obj->{$key} } ) {
                 my $name = $sobj->{'name'};
-                push @values , $name ;
+                push @values , "$name" ;
             }
 
             # remember it
             $data = "@values";
-            $data = join ", " , @values ;
+            $data = join " " , @values ;
+              
+        }
+        elsif ( $key eq "secondaries") {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+                my $name = $sobj->{'name'};
+                my $ip = $sobj->{'ipv4addr'};
+                push @values , "$name,$ip" ;
+                printf ( "%30s : %s,%s\n", $key , $name,$ip ) ;
+            }
+
+#             # remember it
+#             $data = "@values";
+#             $data = join " " , @values ;
               
         }
         else {
@@ -2798,7 +2992,9 @@ sub dump_object {
         }
 
         # print it
-        printf ( "%30s : %s\n", $key , $data ) ;
+        if ( $data ) {
+            printf ( "%30s : %s\n", $key , $data ) ;
+        }
         
     }
 
@@ -2833,15 +3029,25 @@ sub abs_ip {
 sub debug_commands {
     my ( $line ) = @_ ;
     # get the args from the line
-    ( my $type)  = $line =~/debug (\S+)/ ;
+    ( my $type)  = $line =~/debug (.*)/ ;
 
+    if ( $type eq "commands detailed" ) {
+        # dump crap to tty
+        print Dumper ( \%COMMANDS );
+    }
     if ( $type eq "commands" ) {
-       # dump crap to tty
-       print Dumper ( \%COMMANDS );
+        foreach my $comm ( sort keys %COMMANDS ) {
+            if ( $COMMANDS{$comm}{'func'} and $COMMANDS{$comm}{'words'} ) {
+                print "  $comm $COMMANDS{$comm}{'words'}\n";
+            }
+            else {
+                print "  $comm\n";
+            }
+        }
     }
     if ( $type eq "session" ) {
-       # dump crap to tty
-       print Dumper ( \$SESSION );
+        # dump crap to tty
+        print Dumper ( \$SESSION );
     }
 }
 
@@ -2883,6 +3089,19 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.2.2.3  2006/02/16 21:46:14  horne
+# BugId: 8209
+# Reviewer(s): Geoff
+# Description:
+# added grid settings
+# added grid nsgroups
+# added zone nsgroups
+# added zone email
+# added zone eternal stealth secondaries
+# added zone forward_to with members
+# added mx record support
+# added multiple ip addresses for a host
+#
 # Revision 3.2.2.2  2005/11/23 23:52:14  horne
 # BugId: 8209
 # Reviewer(s): Geoff
