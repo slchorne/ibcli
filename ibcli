@@ -47,9 +47,9 @@
 ###############################################################################
 
 
-# $Id: ibcli,v 1.8 2003/09/22 21:37:30 horne Exp $
-# $Revision: 1.8 $
-# $Date: 2003/09/22 21:37:30 $
+# $Id: ibcli,v 1.9 2003/09/24 01:43:08 horne Exp $
+# $Revision: 1.9 $
+# $Date: 2003/09/24 01:43:08 $
 #
 
 # Perl CGI common chunks
@@ -316,6 +316,8 @@ sub show_commands {
 }
 
 # PARSER : set xxx
+#
+# note, 'conf dhcp' (for the present) == 'conf network'
 sub set_commands {
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
@@ -325,6 +327,7 @@ sub set_commands {
                 'password' => 'add_pass',
                 'zone' => 'zone_commands',
                 'network' => 'network_commands',
+                'dhcp' => 'network_commands',
         ) ;
    &shift_arg($arg,%commands);
 
@@ -388,6 +391,8 @@ sub add_to_network {
    my %commands = ( 
                 "address" => 'add_network_ptr',
                 "network" => 'add_sub_network',
+                "range" => 'add_dhdprange',
+                "dhcprange" => 'add_dhdprange',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -399,6 +404,8 @@ sub delete_from_network {
    my $arg  = shift @WORDS ;
    my %commands = ( 
                 "address" => 'del_network_ptr',
+                "range" => 'del_dhcprange',
+                "dhcprange" => 'del_dhcprange',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -481,13 +488,18 @@ sub do_ib_func {
 
 sub erase_data {
 
-    &err_print("ERASING ALL DATABASE data ...");
+    if ( $CONNECTED ) {
+       &err_print("ERASING ALL DATABASE data ...");
 
-    # we may want an 'are you sure here...'
-    my $function = "ib_erase_dns_data()";
-    &do_ib_func($function);
+       # we may want an 'are you sure here...'
+       my $function = "ib_erase_dns_data()";
+       &do_ib_func($function);
 
-    &err_print("DONE ");
+       &err_print("DONE ");
+    }
+    else {
+       &err_print ("CANNOT ERASE - no connection is in place");
+    }
 }
 
 sub add_host {
@@ -639,7 +651,7 @@ sub remove_zone {
 sub add_network_ptr {
     my ( $parent , $ip , $host ) = @_ ;
     if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<n.n.n.n/mm> <ip> <host>")  ;
+       &missing_arg("<ip> <host>")  ;
        return ;
     }
     my ($net,$cidr) = split(/\//,$parent) ;
@@ -649,6 +661,23 @@ sub add_network_ptr {
 
     # ib_insert_oneway_ptr(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
     my $func="ib_insert_oneway_ptr(\"$net\",\"$mask\",\"$ip\",\"$host\")";
+    &do_ib_func($func);
+
+}
+
+sub add_dhdprange {
+    my ( $parent , $fip , $lip ) = @_ ;
+    if ( (! $fip ) or ( ! $lip ) ) {
+       &missing_arg("<first_ip> <last_ip>")  ;
+       return ;
+    }
+    my ($net,$cidr) = split(/\//,$parent) ;
+    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"addrng n($net) m($mask) ip($fip) h($lip)");
+
+    # ib_insert_oneway_ptr(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
+    my $func="ib_insert_dhcp_range(\"$net\",\"$mask\",\"$fip\",\"$lip\")";
     &do_ib_func($func);
 
 }
@@ -797,6 +826,22 @@ sub del_network_ptr {
 
 }
 
+
+sub del_dhcprange {
+    my ( $parent , $fip , $lip ) = @_ ;
+    if ( ( ! $fip ) or ( ! $lip )  ) {
+       &missing_arg("<first_ip> <last_ip>")  ;
+       return ;
+    }
+    my ($net,$cidr) = split(/\//,$parent) ;
+    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"remrng n($net) m($mask) ip($fip) ip($lip)");
+
+    my $func="ib_remove_dhcp_range(\"$net\",\"$mask\",\"$fip\",\"$lip\")";
+    &do_ib_func($func);
+
+}
 
 ##########################################################
 #
@@ -1005,12 +1050,20 @@ sub disconnect {
 }
 
 sub commit {
-    &err_print ( "COMMIT -  NOT WORKING");
+
+    #
+    # ib_update_server doesn;t really commit
+    #
+#     &err_print ( "COMMIT -  NOT WORKING");
 
     if ( $CONNECTED ) {
        print "SERVER :: Committing Changes .. ";
 
-       ib_update_server();
+       ib_close_connection();
+       sleep 3 ;
+       ib_open_connection($SERVER_ID,$SERVER_PASS) ;
+
+#        ib_update_server();
 
        print "DONE.\n";
 
@@ -1037,12 +1090,7 @@ sub show_host {
 
     &debug (2,"showing zone [@_]");
 
-    if ( ! $CONNECTED ) {
-       &err_print("CANNOT dig - no connection is in place");
-    }
-    else {
-       &do_dig($SERVER_ID,$query,$verbose);
-    }
+    &do_dig($SERVER_ID,$query,$verbose);
 
 
 }
@@ -1062,12 +1110,7 @@ sub show_zone {
 
     if ( ! $type ) { $type = "SOA" }
 
-    if ( ! $CONNECTED ) {
-       &err_print( "CANNOT dig - no connection is in place");
-    }
-    else {
-       &do_dig($SERVER_ID,$query,$type,$verbose);
-    }
+    &do_dig($SERVER_ID,$query,$type,$verbose);
 }
 
 sub show_network {
@@ -1085,14 +1128,9 @@ sub show_network {
 
     if ( ! $type ) { $type = "SOA" }
 
-    if ( ! $CONNECTED ) {
-       &err_print( "CANNOT dig - no connection is in place");
-    }
-    else {
-       # force a revrse lookup
-       $verbose = "reverse" ;
-       &do_dig($SERVER_ID,$query,$type,$verbose);
-    }
+    # force a revrse lookup
+    $verbose = "reverse" ;
+    &do_dig($SERVER_ID,$query,$type,$verbose);
 }
 
 sub do_dig {
@@ -1112,7 +1150,7 @@ sub do_dig {
 
     my $COMM ;
 
-    # verbose is disabled for now
+    # verbose is disabled for now, i'll use it for something else.
     if ($verbose) {
        $COMM = "$V_DIG \@$server $query $type";
        if ( $verbose eq "reverse" ) {
@@ -1124,6 +1162,16 @@ sub do_dig {
     }
 
     &debug (2,"dig comm =  [$COMM]");
+
+#     if ( ! $CONNECTED ) {
+#        &err_print( "CANNOT dig - no connection is in place");
+#     }
+#     else {
+#        print "\n";
+#        system("$COMM");
+#        print "\n";
+#     }
+
     print "\n";
     system("$COMM");
     print "\n";
@@ -1182,6 +1230,10 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.9  2003/09/24 01:43:08  horne
+# added dhcp range stuff
+# cleaned up the dig pre-processing
+#
 # Revision 1.8  2003/09/22 21:37:30  horne
 # added prt functions
 # cleaned up show network
