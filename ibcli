@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.2.2.1 2005/09/29 17:20:24 horne Exp $ ;
-my $REV = q$Revision: 3.2.2.1 $;
-# $Date: 2005/09/29 17:20:24 $
+my $ID  = q$Id: ibcli,v 3.2.2.2 2005/11/23 23:52:14 horne Exp $ ;
+my $REV = q$Revision: 3.2.2.2 $;
+# $Date: 2005/11/23 23:52:14 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -119,7 +119,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "zone network debug",  },
+           words => "views lease zone network debug",  },
 
     'help' => { 
            words => "all",
@@ -134,11 +134,27 @@ my %COMMANDS = (
     'show debug session' => { 
            func => "debug_commands", },
 
+    'show views' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_view", },
+
+    'show views <name>' => { 
+           words => "<cr>",  
+           func => "cli_show_view", },
+
     'show zone' => { 
-           words => "<cr> forward|reverse",  
+           words => "<cr> <zone>|forward|reverse",  
            func => "cli_show_zone", },
+
     'show network' => { 
            func => "cli_show_network", },
+    'show lease' => { 
+           words => "<ip> <mac>", },
+#            func => "cli_show_lease", },
+    'show lease <mac>' => { 
+           func => "cli_show_lease", },
+    'show lease <ip>' => { 
+           func => "cli_show_lease", },
 
     'download' => { 
            words => "database",  },
@@ -183,7 +199,7 @@ my %COMMANDS = (
     'configure zone add' => { 
            words => "<zone>", },
     'configure zone add <zone>' => { 
-           words => "<cr> import=<ip>|forward_to=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
+           words => "<cr> view=<name>|import=<ip>|forward_to=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -347,7 +363,7 @@ my %COMMANDS = (
             # quoted comments
 my $REcomm = '("[^"]*")|\S+' ;
             # zones
-my $REzone = '(\w|\.)+';
+my $REzone = '(\w|\-|\.)+';
             # a complete IP address
 my $REip  = '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}';
             # a complete n.n.n.n/mm
@@ -433,11 +449,10 @@ $el->set_prompt ("$PROMPT");
 # sigint (ctrl-c) has to be caught by perl, before the term.
 # $SIG{INT} = sub { print "\nYou hit ^C... Aaayyy it hurts\n"; };
 # $SIG{INT} = sub { $el->reset ; return CC_CURSOR };
-$SIG{INT} = 'IGNORE';
-# ctrl-c reset
 # $el->add_fun ('undo','reset', 
 #              sub { print "\n" ; $el->reset ; return CC_REDISPLAY }) ;
 
+$SIG{INT} = 'IGNORE';
 
 ########################################
 # define input functions
@@ -500,6 +515,27 @@ if ( $S_ID and $S_PASS and $S_USER ) {
 
 # main loop
 
+if ( @ARGV ) {
+   # we are in batch mode
+
+   # scrub the prompt
+   $PROMPT = "" ;
+
+   # read the file
+   while (<> ) {
+     # 
+     # skip comments, blanks
+     next if /^\s*#/;
+     next if /^$/;
+
+     print "$PROMPT $_";
+
+     &process_line ( $_ ) ;
+
+   }
+}
+else {
+
 # print a startup message
 print " 
 #####################################################################
@@ -511,8 +547,7 @@ print "
  ( press <tab> for help )
 ";
 
-# [ ] reading from a file ?
-while (defined($_ = $el->gets())) {
+   while (defined($_ = $el->gets())) {
 
     # only history non-blank lines
     chomp ( my ( $in ) = $el->line ) ;
@@ -532,8 +567,8 @@ while (defined($_ = $el->gets())) {
     # now flush the buffer
     $el->deletestr( length ( $in ) );
 
+   }
 }
-
 
 #####################################################################
 # perldoc goes here
@@ -549,7 +584,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.2.2.1 $
+$Revision: 3.2.2.2 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -696,12 +731,15 @@ is the same as
 
 =head2 TAB completion
 
-The cli uses a full line editor with history and the usual bells ans
-whistles. commend completion can be achieved by pressing <tab>
+The cli uses a full line editor with history and the usual bells and
+whistles. command completion can be achieved by pressing <tab>
 
 =head2 BATCH processing
 
-TBD
+You can process command in batch by just writing them to a file and
+adding it to the command line thus :
+
+   ibcli -s 10.64.128.50 -u admin -p infoblox demo.cf
 
 =cut
 
@@ -880,7 +918,8 @@ sub expand_line {
           &debug_cli (3,"linex estrip [$thisarg] from [$good] [$spc]");
 
           # create the error string.
-          $error = "$spc\n  Unknown argument at '^'";
+#           $error = "$spc\n  Unknown argument at '^'";
+          $error = "$spc--- Unknown argument at marker";
 
           return ( $expline , $error , $matchline) ;
        }
@@ -1064,21 +1103,16 @@ sub cmpctl {
     my ( $line , $icur , $ilast ) = $el->line ;
     chomp $line ;
 
-    # [-] how do you handle a line that has been edited ?
-    #     like you press <tab> before an existing word ?
-    #     A) you ignore it, and don't complete the word
+    # Q) how do you handle a line that has been edited ?
+    #    like you press <tab> before an existing word ?
+    # A) you ignore it, and don't complete the word
 
-    # Next possible completions : 
-    #       configure download exit get 
-                                                                                
-    
     # now we have to expand this line and parse it
     # this seems redundant, but there may be words in the line that were
     # not previously <tab> completed. 
 
-    # WE only expand
-
     my ( $expanded , $exerr , $matchline ) = &expand_line ( $line ) ;
+
     &debug_cli (3,"cmpctl -------");
     &debug_cli (3,"cmpctl e[$expanded]");
     &debug_cli (3,"cmpctl m[$matchline]");
@@ -1140,7 +1174,7 @@ sub cmpctl {
        # print matching options
        &debug_cli (3,"cmpctl ambig ($expword) [@matches]");
 
-       print "\n@matches\n";
+       print "\n  @matches\n";
     }
     elsif ( $expword ) {
        # do nothing (NOTE, specials match AFTER uniqs )
@@ -1154,7 +1188,7 @@ sub cmpctl {
        &debug_cli (3,"cmpctl cut ($expword)-[$len]");
 
        $el->deletestr( $len );
-       print "\n@matches\n";
+       print "\n  @matches\n";
     }
 
     # Redisplay entire input line
@@ -1344,6 +1378,10 @@ Import a reverse zone
 
 sub cli_add_zone {
 
+    # [ ] modify zone
+    # [ ] add nameserver
+    # [ ] remove nameserver
+
     # essentially all options are passed as name value pairs
     # 
     my ( $line ) = @_ ;
@@ -1357,6 +1395,7 @@ sub cli_add_zone {
     my (@forwarders) = $line =~/ forward_to (\S+)/g ;
     my (@sec)     = $line =~/ secondary (\S+)/g ;
     my (@ext_sec) = $line =~/ ext_secondary (\S+)/g ;
+    my (@views) = $line =~/ view (\S+)/g ;
 
     &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
 
@@ -1379,7 +1418,6 @@ sub cli_add_zone {
        }
 
        $obj->forward_to( \@fwd_svrs ) ;
-
        # [ ] and add the right members...
 
     }
@@ -1456,6 +1494,15 @@ sub cli_add_zone {
        &debug_cli (2,"addz z($zone) imp($import)");
     }
     } # not a forward ?
+
+    # do we add it to a view ?
+    my @view_objs ;
+    foreach my $vname ( @views ) {
+        my $view = Infoblox::DNS::View->new ( "name" => $vname );
+        push @view_objs , $view ;
+    }
+    $obj->views ( \@view_objs ) ;
+
 
     # now add the damn thing
     &do_func("add",$obj);
@@ -2353,40 +2400,172 @@ sub cli_show_zone {
 
     &debug_cli(2,"showz t($type)");
 
+    # we can get either all forward, rev or just a zone
+    if ( !$type or $type eq "forward" or $type eq "reverse" ) {
+        # get all the zones
+        my %opthash = (
+               "object" => "Infoblox::DNS::Zone", 
+               "name" => ".*" 
+        );
+    
+        my @zones = &do_func("search", %opthash );
+    
+        # we can't sort on oid, we have to sort on name
+        my @forzones ;
+        my @revzones ;
+        foreach my $zone (@zones) {
+          my $name = $zone->name();
+          if ( $name =~ /\/\d+$/ ) {
+             push @revzones , "  $name\n";
+          }
+          else {
+             push @forzones , "  $name\n";
+          }
+        }
+
+        # now print them (sorted)
+        if ( $type eq "forward" ) { print sort @forzones ; }
+        elsif ( $type eq "reverse" ) { print sort by_ip @revzones ; }
+        else { 
+           print sort @forzones ; 
+           print sort by_ip @revzones ; 
+        }
+    
+    }
+    else {
+        # specific zone
+        my %opthash = (
+               "object" => "Infoblox::DNS::Zone", 
+               "name" => $type 
+        );
+    
+        my ( $zone ) = &do_func("get", %opthash );
+
+        &dump_object ( $zone ) ;
+
+    }
+
+}
+
+=head2 Showing Views
+
+Show all views
+
+    show views
+
+Show just One view
+
+    show view default
+
+=cut
+
+
+sub cli_show_view {
+    #
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ views (\S+)/ ;
+
+    &debug_cli(2,"showv t($name)");
+
+    # we can get either all forward, rev or just a view
+    if ( ! $name ) {
+        # get all the views
+        my %opthash = (
+               "object" => "Infoblox::DNS::View", 
+               "name" => ".*" 
+        );
+    
+        my @views = &do_func("search", %opthash );
+    
+        my @vlist ;
+        foreach my $view (@views) {
+          my $name = $view->name();
+          push @vlist , "  $name\n";
+        }
+
+        print sort @vlist ; 
+    
+    }
+    else {
+        # specific zone
+        my %opthash = (
+               "object" => "Infoblox::DNS::View", 
+               "name" => $name 
+        );
+        my ( $view ) = &do_func("get", %opthash );
+
+        &dump_object ( $view ) ;
+
+    }
+
+}
+
+=head2 Showing leases
+
+   show lease 1.1.1.1
+
+   shoe lease aa:bb:cc:11:22:33
+
+=cut
+
+sub cli_show_lease {
+    #
+    # splitting either creates ALL networks or only the ones
+    # we have to have (which could be none)
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $item ) = $line =~/ lease (\S+)/ ;
+
+    # is it IP or mac...
+    my $stype ;
+    if ( $item =~ /$REip/ ) { $stype = "ipv4addr" }
+    else { $stype = "mac" }
+
+    &debug_cli(2,"showl l($item) t($stype)");
+
     # get all the zones
     my %opthash = (
-           "object" => "Infoblox::DNS::Zone", 
-           "name" => ".*" 
+           "object" => "Infoblox::DHCP::Lease", 
+           $stype => $item,
     );
 
-    my @zones = &do_func("search", %opthash );
+    my @leases = &do_func("get", %opthash );
 
-    # we can't sort on oid, we have to sort on name
-    my @forzones ;
-    my @revzones ;
-    foreach my $zone (@zones) {
-      my $name = $zone->name();
-      if ( $name =~ /\/\d+$/ ) {
-         push @revzones , "  $name\n";
-      }
-      else {
-         push @forzones , "  $name\n";
-      }
+    foreach my $lease ( @leases ) {
+       # format and pretty print
+       foreach my $k ( qw( client_hostname mac ipv4addr
+                           starts ends 
+                           cltt tsfp tstp 
+                           binding_state next_binding_state ) ) {
+
+         my $val = $lease->$k ;
+         # clenasing
+         $val =~ s/&quot;/"/g;
+         print "  $k = \t$val\n";
+
+       }
+
     }
+
+#     my @netlist ;
+#     foreach my $net (@nets) {
+#       my $name = $net->name();
+#       push @netlist , "  $name\n";
+#     }
 
     # now print them (sorted)
-    if ( $type eq "forward" ) { print sort @forzones ; }
-    elsif ( $type eq "reverse" ) { print sort by_ip @revzones ; }
-      # specific zone ?
-    elsif ( $type ) { }
-    else { 
-       print sort @forzones ; 
-       print sort by_ip @revzones ; 
-    }
+#     print sort @netlist ; 
     
 }
 
 =head2 Showing networks
+
+   show network
 
 =cut
 
@@ -2578,6 +2757,53 @@ sub cli_download {
 #
 ###########################################
 
+sub dump_object {
+    # pretty print an object
+    my ( $obj ) = @_ ;
+
+#     print Dumper ( $obj ) ;
+
+    foreach my $key ( sort keys %{ $obj } ) {
+        # ignore privates
+        next if $key =~ /^__/;
+        next if $key =~ /FUNCTION/;
+        next if ! $obj->{$key} ;
+
+        my $data ;
+
+        # look for sub objects
+        if ( $key eq "primary" 
+           ) {
+            # get the name
+            my $sobj = $obj->{$key} ;
+            $data = $sobj->{'name'};
+        }
+        elsif ( $key eq "views" 
+            or $key eq "secondaries"
+           ) {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+                my $name = $sobj->{'name'};
+                push @values , $name ;
+            }
+
+            # remember it
+            $data = "@values";
+            $data = join ", " , @values ;
+              
+        }
+        else {
+            $data = $obj->{$key} ;
+        }
+
+        # print it
+        printf ( "%30s : %s\n", $key , $data ) ;
+        
+    }
+
+}
+
 sub make_dhcp_option {
     print "  OPTIONS not supported\n";
 }
@@ -2657,6 +2883,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.2.2.2  2005/11/23 23:52:14  horne
+# BugId: 8209
+# Reviewer(s): Geoff
+# Description: views, batch and show support
+#
 # Revision 3.2.2.1  2005/09/29 17:20:24  horne
 # *** empty log message ***
 #
