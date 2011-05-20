@@ -1,0 +1,4 @@
+#!/bin/sh
+pod2html --title=user_guide.html ibcli > user_guide_ibcli.html
+echo "Created user_guide_ibcli.html"
+

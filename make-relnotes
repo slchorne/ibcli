@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# get the CVS diffs of the perldocs
+#
+# usage 'cdiff <file>'
+
+# get the current ald last versions
+
+new="ibcli"
+old=".diff-$new"
+
+odoc=".doc.prev"
+ndoc=".doc.latest"
+
+
+# checkout the base rev 
+svn cat -r HEAD $new > $old
+
+# perldoc $old > $odoc
+# perldoc $new > $ndoc
+pod2text $old > $odoc
+pod2text $new > $ndoc
+
+diff $odoc $ndoc | grep "^>" | sed 's/> //' > relnotes-tmp.txt
+echo "Wrote to 'relnotes-tmp.txt'"
