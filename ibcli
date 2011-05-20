@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.16 2006/11/21 21:23:22 horne Exp $ ;
-my $REV = q$Revision: 3.16 $;
-# $Date: 2006/11/21 21:23:22 $
+my $ID  = q$Id: ibcli,v 3.17 2006/12/01 20:20:49 horne Exp $ ;
+my $REV = q$Revision: 3.17 $;
+# $Date: 2006/12/01 20:20:49 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.16 $.
+$Revision: 3.17 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1138,6 +1138,7 @@ Add a forward zone
 Add a reverse zone
 
    conf zone add 10.0.1.0/24
+   conf zone add 10.in-addr.arpa
 
 Add a zone to specific members
 
@@ -1147,9 +1148,23 @@ Add a zone with external primary
 
    conf zone add foo.com ext_primary ns1.foo.com,1.2.3.4 
 
+Add a zone with stealth primary or secondary
+
+   conf zone add foo.com stealth_secondary 1.2.3.20 
+   conf zone add foo.com stealth_ext_secondary ns1.foo.com,1.2.3.4 
+   conf zone add foo.com stealth_ext_primary ns0.foo.com,1.2.3.4 
+
 Add a zone with an nsgroup
 
    conf zone add foo.com nsgroup mygroup
+
+Add a forwarding zone
+
+    configure zone add fwd.foo.com forward_to 2.2.2.2 forward_to 3.3.3.3
+
+Add a delegated zone
+
+    configure zone add deleg.foo.com delegate_to ns1.s.foo.com,1.2.3.4
 
 =head2 Import a zone
 
@@ -1196,8 +1211,9 @@ sub cli_add_zone {
     my (@stealth_ext_sec) = $line =~/ stealth_ext_secondary (\S+)/g ;
     my (@views) = $line =~/ view (\S+)/g ;
 
-    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     # de-urlencode the name string
+#     if ( $comment ) { $obj->comment ( $comment ) }
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
 
     # hack for in-addr.arpa syntax
@@ -1449,6 +1465,12 @@ Don't know the zones ? Then just leave it NULL
 
    conf zone "" add host test.foo.com 1.2.3.4
 
+Adding hosts with IPAM information ( quotes may be required )
+You add multiple fields with additional 'info <name=value>' pairs
+
+   conf zone info.com add host pc1 2.3.3.3 info Asset=23456-06
+   conf zone info.com add host pc2 2.3.3.3 info Custom1="Room 207"
+
 =cut
 
 sub cli_add_host {
@@ -1465,6 +1487,7 @@ sub cli_add_host {
     my @ipam  = $line =~/ info (\S+)/g ;
 
     # de-urlencode the name string
+#     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
 
     $host =~ s/"//g;
@@ -2662,6 +2685,78 @@ sub cli_del_macfilteraddr {
     &do_func("remove",$obj);
 
 }
+
+# admins and users
+
+=head2 Adding Administrator groups
+
+   configure admin add admin_group locals
+
+=cut
+
+sub cli_add_admin_group {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ admin_group (\S+)/ ;
+    my ( $su ) = $line =~/\b(superuser)\b/ ;
+
+    &debug_cli (1,"addgrp g($name)");
+
+    my $obj = Infoblox::Grid::Admin::Group->new (
+                   "name" => $name ,
+                );
+
+    # de-urlencode the comment string
+    # and add an optional comment
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    $comment = &decode_comment ( $comment ) ;
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    if ( $su ) { $obj->superuser ( "TRUE" ) }
+
+    &do_func("add",$obj);
+
+}
+
+=head2 Adding users
+
+You need the admin group name and a password
+
+   configure admin add user bob group locals password changeme
+
+=cut
+
+sub cli_add_user {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $user ) = $line =~/ user (\S+)/ ;
+    my ( $pass ) = $line =~/ password (\S+)/ ;
+    my ( $group ) = $line =~/ group (\S+)/ ;
+    my ( $email ) = $line =~/ email (\S+)/ ;
+
+    &debug_cli (1,"adduser u($user) p($pass) g($group)");
+
+    my $obj = Infoblox::Grid::Admin::User->new (
+                   "name" => $user ,
+                   "password" => $pass ,
+                   "admin_group" => $group ,
+                );
+
+    # set some variables
+    if ( $email ) { $obj->email ( $email ) }
+
+    # de-urlencode the comment string
+    # and add an optional comment
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    $comment = &decode_comment ( $comment ) ;
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    &do_func("add",$obj);
+
+}
+
 
 # global grid settings
 
@@ -4714,7 +4809,20 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "debug server zone network grid member" , },
+           words => "admin debug server zone network grid member" , },
+
+    'configure admin' => { 
+           words => "add delete ", },
+    'configure admin add' => { 
+           words => "user=<name>|admin_group=<name>", },
+
+    'configure admin add user <name>' => { 
+           words => "password=<value>|group=<name>|comment=<comment>|email=<name>",
+           func => "cli_add_user", },
+
+    'configure admin add admin_group <name>' => { 
+           words => "<cr>|superuser|comment=<comment>",
+           func => "cli_add_admin_group", },
 
     'configure debug' => { 
            words => "<num>", },
@@ -4835,7 +4943,7 @@ my %COMMANDS = (
            words => "<zone>", },
     'configure zone add <zone>' => { 
            words => "<cr>
-           view=<name>|comment=<name>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -5107,6 +5215,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.17  2006/12/01 20:20:49  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: additional doc changes, admin users can now be inserted
+#
 # Revision 3.16  2006/11/21 21:23:22  horne
 # BugId: 8205
 # Reviewer(s): geoff
