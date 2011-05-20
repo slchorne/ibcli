@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.34 2008/05/07 17:35:25 horne Exp $ ;
-my $REV = q$Revision: 3.34 $;
-# $Date: 2008/05/07 17:35:25 $
+my $ID  = q$Id: ibcli,v 3.35 2008/07/11 20:49:21 horne Exp $ ;
+my $REV = q$Revision: 3.35 $;
+# $Date: 2008/07/11 20:49:21 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -250,7 +250,8 @@ if ( $M_ID ) {
 }
 
 # GET/store the API version, after we've re-load the right perl modules
-my $host = Infoblox::DNS::Host->new ("name" => "name",);
+# [ ] broken in later revs of code
+my $host = Infoblox::DNS::Host->new ("name" => "name");
 my $CLIENT_REV = $host->{__version} ;
 
 # main loop
@@ -397,7 +398,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.34 $.
+$Revision: 3.35 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1278,6 +1279,10 @@ you look deep into the API you realise why they are there.
 
    conf zone add view internal
 
+Add a view disabled :
+
+   conf zone add view internal disabled
+
 =cut
 
 sub cli_add_view {
@@ -1285,6 +1290,7 @@ sub cli_add_view {
 
     # get the args from the line
     my ( $view )     = $line =~/ view (\S+)/ ;
+    my ( $disable )     = $line =~/ (disabled)/ ;
 
     # get and de-urlencode the comment string
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
@@ -1297,6 +1303,7 @@ sub cli_add_view {
     );
 
     if ( $comment ) { $obj->comment ( $comment ) }
+    if ( $disable ) { $obj->disable ( "TRUE" ) }
 
     # addit
     &do_func("add",$obj);
@@ -1490,7 +1497,7 @@ sub cli_add_zone {
     $comment = &decode_comment ( $comment ) ;
 
     # hack for in-addr.arpa syntax
-    if ( $zone =~ /.in-addr.arpa$/ ) {
+    if ( $zone =~ /.in-addr.arpa$/i ) {
         $zone = arpa_to_net ( $zone ) ;
     }
 
@@ -2775,6 +2782,72 @@ sub cli_del_cname {
 
 }
 
+=head2 Add a TXT record to a zone
+
+   conf zone foo.com add TXT alias real.foo.com
+
+=cut
+
+sub cli_add_txt {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
+    my ( $name , $txt ) = $line =~/ txt (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+    $txt = &decode_comment ( $txt ) ;
+
+    &debug_cli(1,"addtxt z($zone) n($name) t($txt) c($comment)");
+
+    my $obj = Infoblox::DNS::Record::TXT->new (
+                    "name" => "$name.$zone",
+                    "text" => "$txt",
+    );
+
+    # views
+    my ( $vname )     = $line =~/ view (\S+)/ ;
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
+    }
+
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    # addit
+    &do_func("add",$obj);
+
+}
+
+=head2 Remove a TXT Record from a zone
+
+   conf zone foo.com delete txt name
+
+=cut
+
+sub cli_del_txt {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
+    my ( $name , $txt ) = $line =~/ txt (\S+) (\S+)/ ;
+
+    $txt = &decode_comment ( $txt ) ;
+
+    &debug_cli(1,"addtxt z($zone) n($name) t($txt)");
+
+    my $obj = Infoblox::DNS::Record::TXT->new (
+                  "name" => "$name.$zone",
+                  "text" => "$txt",
+    );
+
+    # addit
+    &do_func("remove",$obj);
+
+}
+
 =head2 Add a PTR to a zone
 
    conf zone 10.0.0.0/24 add PTR 10.0.0.20 ns2.foo.com
@@ -2856,6 +2929,10 @@ Add a network with members
 
    conf network add 1.1.1.0/24 member 10.1.1.20 member 10.1.1.40
 
+Add a network using a template
+
+   conf network add 1.1.1.0/24 template MyTemplate
+
 Add a network with options
 
    conf network add 1.1.1.0/24 option 82="some data"
@@ -2886,6 +2963,7 @@ sub cli_add_network {
     my ( $network ) = $line =~/ network add (\S+)/ ;
     my ( $netmask ) = $line =~/ netmask (\S+)/ ;
     my ( $parent )  = $line =~/ parent (\S+)/ ;
+    my ( $template )  = $line =~/ template (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my ( $addrev ) = $line =~/ (addreverse)/ ;
     my ( $disable ) = $line =~/\b(disabled)\b/ ;
@@ -2918,7 +2996,18 @@ sub cli_add_network {
     # parenting ?
     # fixed in 4.1r3
     if ( $parent ) {
-        $net->network_container ( $parent );
+        $net->network_container( $parent );
+    }
+    # templated ?
+    if ( $template ) {
+        $net->template( $template );
+
+        # [ ] if we are using templates, we have a different syntax
+        my ( $ip , $cidr ) = split ( /\// , $network );
+        my $mask = cidr_to_mask ( $cidr );
+        $net->ipv4addr( $ip );
+        $net->netmask( $mask );
+
     }
     # auto create reverses ?
     if ( $addrev ) {
@@ -3853,6 +3942,66 @@ sub cli_del_macfilteraddr {
 
 }
 
+# IPAM and metadata functions
+
+=head1 IPAM Configuration
+
+=head2 Adding custom metadata fields
+
+   configure grid modify device_type <name> <field> <new-name>
+   configure grid modify device_type <name> <field> <new-name>
+
+=cut
+
+sub cli_mod_device_types {
+
+}
+
+=head2 Showing device types
+
+   show grid device_type
+
+   show grid device_type <name>
+
+=cut
+
+sub cli_show_device_types {
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $dev ) = $line =~/ device_type (\S+)/ ;
+
+    &debug_cli (1,"shdev d($dev)");
+
+    # are we getting all or just some devices
+    my $regex = ".*";
+    if ( $dev ) { $regex = $dev }
+
+    # create the search
+    my %opthash = (
+        object => "Infoblox::DHCP::DeviceType", 
+        name => $regex,
+    );
+
+    # get what we need
+    my @dobjs = &do_func("search", %opthash );
+
+    if ( $dev ) {
+        &dump_object ( @dobjs ) ;
+    }
+    else {
+        # just the list of types
+        print map ( "  " . $_->name() . "\n" , @dobjs ) ;
+    };
+}
+
+=head2 Showing definitions for a device type
+
+=cut
+
+
+
 # Radius functions
 
 =head1 RADIUS Configuration
@@ -3947,14 +4096,109 @@ sub cli_show_radius_user {
 
 =head2 Adding Radius devices
 
-   configure radius add device
+You MUST specify a member and a Shared secret
+
+   conf radius add device <name> <ip> member 1.2.3.4 shared_secret xxxx
+   
+You can also add a comment
+
+   conf radius add device <name> <ip> ... comment "Test AP"
 
 =cut
 
 sub cli_add_radius_device {
 #     Infoblox::RADIUS::NAS
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    # [ ] need to support multiple members
+    my ( $name, $ip ) = $line =~/ add device (\S+) (\S+)/ ;
+    my ( $shared ) = $line =~/ shared_secret (\S+)/ ;
+    my ( $member ) = $line =~/ member (\S+)/ ;
+
+    &debug_cli (1,"adddev n($name) i($ip) s($shared)");
+
+#     # assign a member
+    unless ( $member ) { $member = $MASTER_IP }
+
+    my $mem = Infoblox::RADIUS::Member->new (
+        secret => $shared,
+        ipv4addr => $member );
+
+    my $obj = Infoblox::RADIUS::NAS->new (
+                   ipv4addr => $ip ,
+                   name => $name ,
+                   secret => $shared ,
+#                    member => $member ,
+#                    members => [ $mem ] ,
+                );
+
+    # create the device
+    # [ ] the whole membership thing is broken
+    #
+    # if you have 4.2r4 you need to use member objects
+    # if you have 4.2r3 you use 'member => ...'
+    my $niosrev ;
+    if ( $ONLINE ) { $niosrev = $SESSION->server_version(); }
+
+    if ( $niosrev =~ /4.2r[4-9]/ 
+         or $niosrev =~ /4.[3-9]/ ) {
+        $obj->members( [ $mem ] ) ;
+    }
+    else {
+        $obj->member( $member ) ;
+    }
+
+    if ( $obj ) {
+
+        # comments ??
+        my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+        # de-urlencode the name string
+        $comment = &decode_comment ( $comment ) ;
+        if ( $comment ) { $obj->comment ( $comment ) }
+
+        &do_func("add",$obj);
+    }
+
 }
+
+=head2 Showing Radius users
+
+   show radius device bob
+
+   show radius device <name>
+
+=cut
+
 sub cli_show_radius_device {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $ip ) = $line =~/ device (\S+)/ ;
+
+    &debug_cli(2,"showdev i($ip)");
+
+    my @users ;
+    if ( $ip ) {
+        # get the user 
+        my %opthash = (
+            "object" => "Infoblox::RADIUS::NAS", 
+            "ipv4addr" => $ip
+        );
+        @users = &do_func("get", %opthash );
+    }
+    else {
+        # get ALL users
+        # get the user 
+        my %opthash = (
+            "object" => "Infoblox::RADIUS::NAS", 
+            "ipv4addr" => ".*",
+        );
+        @users = &do_func("search", %opthash );
+    }
+
+    &dump_object ( @users ) ;
+
 }
 
 # admins and users
@@ -4049,6 +4293,10 @@ admin group or an admin
 
   conf zone test.com add permission read group ops
 
+  conf net 45.0.0.0/24 add permission read group ops
+
+  conf member ns1.test.com add permission read group ops
+
 =cut
 
 sub cli_add_permission {
@@ -4115,6 +4363,9 @@ permission (yes, there should be a better way)
 
   conf zone test.com del permission read group ops
 
+  conf net 45.0.0.0/24 del permission read group ops
+
+
 =cut
 
 sub cli_del_permission {
@@ -4177,6 +4428,12 @@ them modify it, thus you need :
  - admin group
 
 The CLI will then try to get the current permission and modify it
+
+  conf zone <zone> mod permission <perm> group <name>
+
+To change a zone permision to 'read-only' :
+
+  conf zone test.com mod permission read group ops
 
 =cut
 
@@ -5016,14 +5273,22 @@ sub cli_show_host {
 
     # get the args from the line
     my ( $fqdn ) = $line =~/ host (\S+)/ ;
+    my ( $view ) = $line =~/ view (\S+)/ ;
 
-    &debug_cli(2,"showh n($fqdn)");
+    &debug_cli(2,"showh n($fqdn) v($view)");
 
     # get the host 
     my %opthash = (
            "object" => "Infoblox::DNS::Host", 
-           "name" => $fqdn
+           "name" => $fqdn,
     );
+    if ( $view ) {
+        %opthash = (
+           "object" => "Infoblox::DNS::Host", 
+           "name" => $fqdn ,
+           view => $view,
+        );
+    }
     
     my @hosts = &do_func("search", %opthash );
     &dump_object ( @hosts ) ;
@@ -5057,28 +5322,16 @@ sub cli_show_lease {
     # get all the zones
     my %opthash = (
            "object" => "Infoblox::DHCP::Lease", 
-           $stype => $item,
+#            $stype => $item,
     );
+  # do we limit our search ?
+    if ( $item ) {
+        $opthash{$stype} = $item ;
+    }
 
     my @leases = &do_func("search", %opthash );
 
     &dump_object ( @leases ) ;
-
-#     foreach my $lease ( @leases ) {
-#        # format and pretty print
-#        foreach my $k ( qw( client_hostname mac ipv4addr
-#                            starts ends 
-#                            cltt tsfp tstp 
-#                            binding_state next_binding_state ) ) {
-# 
-#          my $val = $lease->$k ;
-#          # clenasing
-#          $val =~ s/&quot;/"/g;
-#          print "  $k = \t$val\n";
-# 
-#        }
-# 
-#     }
 
 }
 
@@ -5480,7 +5733,7 @@ sub cli_show_filter {
         foreach my $nobj (@filters) {
             my $name ;
             if ( $entries ) {
-                $name = $nobj->mac() ;
+                $name = $nobj->mac(). " : " . $nobj->comment() ;
             }
             else {
                 $name = $nobj->name();
@@ -6434,8 +6687,8 @@ sub require_api {
     # this is a quick and dirty version checker
     # that should hopefully break out of a subroutine
     #
-    #     return unless requires_api ( 4.1r2-0 );
-    #     requires_api ( 4.1r2-0 ) or return ;
+    #     return unless require_api ( "4.1r2-0" );
+    #     require_api ( "4.1r2-0" ) or return ;
 
     # GET/store the API version
     # my $host = Infoblox::DNS::Host->new ("name" => "name",);
@@ -6446,19 +6699,21 @@ sub require_api {
     
     my $rev = $CLIENT_REV ;
     if ( $SESSION ) {
-       $rev = $SESSION->server_version();
+        debug_cli(2,"Checking Server Version");
+        $rev = $SESSION->server_version();
     }
 
     # curiously, we can convert this to an IP address and
     $rev =~ s/(r\d+-\d+).*/$1/;
-    $req =~ s/(r\d+-\d+).*/$1/;
     $rev =~ s/\D/\./g;
+
+    $req =~ s/(r\d+-\d+).*/$1/;
     $req =~ s/\D/\./g;
 
     # then just compare it
     if ( abs_ip ( $req ) >= abs_ip ( $rev ) ) {
         debug_cli(1,"version too low : req($req) srev($rev)");
-        print "Server version ($oreq) is required for this feature\n";
+#         print "Server version ($oreq) is required for this feature\n";
         return ( 0 ) ;
     }
     else {
@@ -6480,7 +6735,7 @@ sub decode_comment {
     # also undo quotes in inside the comment
     $string =~ s/''/"/g;
 
-    debug_cli(1,"dec comment ($string) ");
+    debug_cli(2,"dec comment ($string) ");
     return ( $string ) ;
 }
 
@@ -6785,7 +7040,16 @@ sub make_dhcp_option {
     my $niosrev ;
     if ( $ONLINE ) { $niosrev = $SESSION->server_version(); }
 
-    if ( $oname eq "routers" ) {
+    # all the routines can be replaced with a single call (finally)
+    # as of 4.2r1
+    if ( require_api ( "4.2r1-0" ) ) {
+        $option = Infoblox::DHCP::Option->new (
+                    "name" => $oname,
+                    "value" => $val,
+                 );
+    }
+
+    elsif ( $oname eq "routers" ) {
        $option = Infoblox::DHCP::Option->new (
                     "type" => "routers",
                     "ipv4addrs" => [ split(/,\s*/,$val) ],
@@ -6803,6 +7067,7 @@ sub make_dhcp_option {
                     "type" => "domain-name",
                     "name" => $val,
                  );
+        # newer API call is cleaner
         if ( $niosrev =~ /4.1r[3-9]/ 
              or $niosrev =~ /4.[2-9]/ ) {
             $option = Infoblox::DHCP::Option->new (
@@ -7465,7 +7730,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "time file server grid=<name> admin views lease zone host network range radius debug",  },
+           words => "time file server grid admin views zone host network range radius debug",  },
 
     'help' => { 
            words => "all",
@@ -7546,6 +7811,15 @@ my %COMMANDS = (
 # [x] show host (fqdn)
 # [x] show admins and groups
 
+    'show grid' => { 
+           words => "<name> device_type",  },
+
+    'show grid device_type' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_device_types", },
+    'show grid device_type <name>' => { 
+           func => "cli_show_device_types", },
+
     'show grid <name>' => { 
            words => "<cr> dhcp dns member",  
            func => "cli_show_grid", },
@@ -7590,6 +7864,10 @@ my %COMMANDS = (
     'show host' => { 
            words => "<name>",  },
     'show host <name>' => { 
+           words => "<cr> view=<name>",  
+           func => "cli_show_host", },
+    'show host <name> view <name>' => { 
+           words => "<cr>",  
            func => "cli_show_host", },
 
     'show zone' => { 
@@ -7610,7 +7888,7 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> details <n.n.n.n/mm> options failover fixed filter",  
+           words => "<cr> details <n.n.n.n/mm> lease options failover fixed filter",  
            func => "cli_show_network", },
 
     'show network details' => { 
@@ -7623,11 +7901,18 @@ my %COMMANDS = (
            func => "cli_show_dhcp_options", },
 
     'show network <n.n.n.n/mm>' => { 
-           words => "<cr> range fixed statistics",  
+           words => "<cr> ipam range fixed statistics",  
            func => "cli_show_network", },
 
     'show network <n.n.n.n/mm> statistics' => { 
            func => "cli_show_netstats", },
+
+    'show network <n.n.n.n/mm> ipam' => { 
+           words => "used unused",  },
+    'show network <n.n.n.n/mm> ipam used' => { 
+           func => "cli_show_ipam", },
+    'show network <n.n.n.n/mm> ipam unused' => { 
+           func => "cli_show_ipam", },
 
     'show network <n.n.n.n/mm> fixed' => { 
            words => "<cr> <ip> <mac>",  
@@ -7672,12 +7957,12 @@ my %COMMANDS = (
            func => "cli_show_range", },
 
 # - leases -
-    'show lease' => { 
-           words => "<ip> <mac>", },
-#            func => "cli_show_lease", },
-    'show lease <mac>' => { 
+    'show network lease' => { 
+           words => "<cr> <ip> <mac>",
            func => "cli_show_lease", },
-    'show lease <ip>' => { 
+    'show network lease <mac>' => { 
+           func => "cli_show_lease", },
+    'show network lease <ip>' => { 
            func => "cli_show_lease", },
 
 # uploads
@@ -7907,8 +8192,7 @@ my %COMMANDS = (
     'configure zone delete' => { 
            words => "<zone>|nsgroup=<name>|view=<name>|shared_record_group=<name>", },
     'configure zone delete <zone>' => { 
-           words => "<cr>
-                    view=<name>",
+           words => "<cr> view=<name>",
            func => "cli_delete_zone", },
 
     'configure zone add' => { 
@@ -7918,7 +8202,11 @@ my %COMMANDS = (
 
 # - views -
     'configure zone add view <name>' => { 
+           words => "<cr> disabled",
            func => "cli_add_view", },
+    'configure zone add view <name> disabled' => { 
+           func => "cli_add_view", },
+
     'configure zone delete view <name>' => { 
            func => "cli_del_view", },
 
@@ -7943,11 +8231,11 @@ my %COMMANDS = (
            words => "add delete modify", },
 
     'configure zone <zone> add' => { 
-           words => "permission host a_record aaaa bulkhost cname ptr_record srv mx", },
+           words => "permission host a_record aaaa bulkhost txt cname ptr_record srv mx", },
     'configure zone <zone> delete' => { 
-           words => "permission host a_record aaaa bulkhost cname ptr_record srv mx", },
+           words => "permission host a_record aaaa bulkhost txt cname ptr_record srv mx", },
     'configure zone <zone> modify' => { 
-           words => "permission host=<name> a_record aaaa bulkhost cname ptr_record srv mx", },
+           words => "permission host=<name> a_record aaaa bulkhost txt cname ptr_record srv mx", },
 
 # - permissions -
     # I could do this in just one config line, but it doesn't force
@@ -8038,6 +8326,11 @@ my %COMMANDS = (
     'configure zone <zone> delete cname <name> <canonical>' => { 
            func => "cli_del_cname", },
 
+    'configure zone <zone> delete txt' => { 
+           words => "<name>=<value>", },
+    'configure zone <zone> delete txt <name> <value>' => { 
+           func => "cli_del_txt", },
+
     'configure zone <zone> delete mx' => { 
            words => "<name>", },
     'configure zone <zone> delete mx <name>' => { 
@@ -8092,6 +8385,12 @@ my %COMMANDS = (
     'configure zone <zone> add cname <name> <canonical>' => { 
            words => "<cr> view=<name>|comment=<comment>", 
            func => "cli_add_cname", },
+
+    'configure zone <zone> add txt' => { 
+           words => "<name>=<value>", },
+    'configure zone <zone> add txt <name> <value>' => { 
+           words => "<cr> view=<name>|comment=<comment>", 
+           func => "cli_add_txt", },
 
     'configure zone <zone> add mx' => { 
            words => "<name>", },
@@ -8180,7 +8479,7 @@ my %COMMANDS = (
            words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
     'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr> netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
+           words => "<cr> template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
@@ -8256,10 +8555,17 @@ my %COMMANDS = (
            words => "add delete",  },
 
     'configure radius add' => { 
-           words => "user=<name> device=<ip>",  },
+           words => "user=<name> device=<name>",  },
+
     'configure radius add user <name>' => { 
            words => "password=<name>|comment=<comment>",
            func => "cli_add_radius_user", },
+
+    'configure radius add device <name>' => { 
+           words => "<ip>",  },
+    'configure radius add device <name> <ip>' => { 
+           words => "<cr> member=<ip>|shared_secret=<name>|comment=<comment>",
+           func => "cli_add_radius_device", },
 
     'configure radius delete' => { 
            words => "user=<name>",  },
@@ -8267,12 +8573,20 @@ my %COMMANDS = (
            func => "cli_del_radius_user", },
 
     'show radius' => { 
-           words => "user",  },
+           words => "user device ",  },
+
     'show radius user' => { 
            words => "<cr> <name>",
            func => "cli_show_radius_user", },
     'show radius user <name>' => { 
            func => "cli_show_radius_user", },
+
+    'show radius device' => { 
+           words => "<cr> <ip>",
+           func => "cli_show_radius_device", },
+    'show radius device <ip>' => { 
+           func => "cli_show_radius_device", },
+
    );
 
 # print Dumper ( \%COMMANDS ) ;
@@ -8345,6 +8659,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.35  2008/07/11 20:49:21  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: permissions and RADIUS stuff
+#
 # Revision 3.34  2008/05/07 17:35:25  horne
 # BugId: 8205
 # Reviewer(s): Geoff, Chris B
