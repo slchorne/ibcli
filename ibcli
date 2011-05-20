@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.1.2.2 2005/08/15 01:23:12 horne Exp $ ;
-my $REV = q$Revision: 3.1.2.2 $;
-# $Date: 2005/08/15 01:23:12 $
+my $ID  = q$Id: ibcli,v 3.1.2.3 2005/08/15 20:44:42 horne Exp $ ;
+my $REV = q$Revision: 3.1.2.3 $;
+# $Date: 2005/08/15 20:44:42 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -68,7 +68,7 @@ BEGIN {
 };
 
 # use Term::EditLine qw(CC_EOF CC_NEWLINE CC_ARGHACK CC_CURSOR CC_REDISPLAY);
-use Term::EditLine qw(CC_EOF CC_REDISPLAY);
+use Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
 use Text::Abbrev ;
 use Data::Dumper ;
 use Getopt::Long;
@@ -108,10 +108,10 @@ $Data::Dumper::Sortkeys = 1 ;
 my %COMMANDS = (
 
     'NULL' => { 
-           words => "quit history restart download configure show test", },
+           words => "help quit history restart download configure show test", },
     'test' => { 
-           words => "configure zone network", 
-#            words => "configure aa|bb zone network", 
+#            words => "configure zone network", 
+           words => "configure add adc|bb zone network", 
 #            words => "comment=<comment> <cr> <name,ip> delay=<num> aa|bb bad|member=<ip>|import=<svr> zone network", 
            func => "cli_test", },
     'quit' => { 
@@ -121,9 +121,17 @@ my %COMMANDS = (
     'show' => { 
            words => "zone network debug",  },
 
+    'help' => { 
+           words => "all",
+           func => "print_help", },
+    'help all' => { 
+           func => "print_perldoc", },
+
     'show debug' => { 
-           words => "commands",  },
+           words => "session commands",  },
     'show debug commands' => { 
+           func => "debug_commands", },
+    'show debug session' => { 
            func => "debug_commands", },
 
     'show zone' => { 
@@ -492,6 +500,18 @@ if ( $S_ID and $S_PASS and $S_USER ) {
 
 # main loop
 
+# print a startup message
+print " 
+#####################################################
+#
+# the Infoblox CLI demo (this is alpha code, ymmv)
+#
+#####################################################
+
+ $NAME : $REV
+ ( press <tab> for help )
+";
+
 # [ ] reading from a file ?
 while (defined($_ = $el->gets())) {
 
@@ -510,7 +530,186 @@ while (defined($_ = $el->gets())) {
     # we can only do redraws on a 'return()' so everything is in a sub{}
     &process_line ( $_ ) ;
 
+    # now flush the buffer
+    $el->deletestr( length ( $in ) );
+
 }
+
+
+#####################################################################
+# perldoc goes here
+
+=head1 NAME
+
+The INFOBLOX CLI, a users guide
+
+=head1 Synopsis
+
+*A guide for commandline junkies*
+
+=head1 Description
+
+This is 
+$Revision: 3.1.2.3 $
+there were previous versions that were even worse, this one is pretty bad,
+it really is beta code.  But it is a start.
+
+So why do this, what is this CLI for ? Well there were a few primary
+reasons:
+
+=over
+
+=item Quick changes are now easy,
+
+You don't need to wait for a GUI to start or get the right version
+of java functional, this allows you to quickly get into the database
+and make some simple and efficient changes
+
+=item Abstract command set
+
+Now you don't need to know the intricacies of the API, a few simple
+commands will achieve the same effect, if you are a user that
+doesn't know PERL you can still drive the CLI and get the results
+you need. This may not be an advantage if you are reading data from
+another system to import into an Infoblox unit (since you still need
+to write software to parse the data, eg PERL) but it may still help
+and end user that can convert this data in to the CLI command set
+but not know enough to write PERL.
+
+=item Customers wanted it
+
+    Need I say more ?
+
+=back 
+
+Lastly, why is this called 'ibcli' and not 'DNScli' ? Well, this is just
+a wrapper to any API we like, it is not really DNS specific.
+
+
+=head1 Quickstart
+
+Simple example, adding a zone
+
+   server ? > conf server 10.0.1.224 user admin pass infoblox
+   admin@10.0.1.224 > conf zone add infoblox.com
+   admin@10.0.1.224 > conf zone add sales.infoblox.com
+
+A more detailed example
+
+   server ? > conf server 10.0.1.224 user admin pass infoblox
+   admin@10.0.1.224 > conf zone add com
+   admin@10.0.1.224 > conf zone add foo.com
+   admin@10.0.1.224 > conf zone foo.com add host test 1.2.3.4
+   admin@10.0.1.224 > conf zone delete bar.com
+
+A complex example, multiple connections
+
+   server ? > conf server 10.0.1.224
+   10.0.1.224 > conf server user admin
+   10.0.1.224 > conf server pass infoblox
+   admin@10.0.1.224 > conf zone add sales.foo.com
+
+   # now switch servers
+   admin@10.0.1.224 > conf server 10.0.1.200 user admin1 pass infoblox1
+   admin1@10.0.1.220 > conf zone add biz.foo.com
+
+=head1 Installation
+
+It should run 'as is' from a uniz machine. 
+
+If you have a windows OS then you will have a few hurdles to cross:
+
+=over
+
+=item * Rename the script to 'ibcli.pl'. 
+
+I still don't understand why Windows uses file suffix to type its data
+rather than doing something intelligent like looking at the contents of
+the file, but then, we are dealing with people who thought 8.3 was all
+you'd ever need as a file namespace and 640K for ram...
+
+=item * Make sure you have the necessary libraries installed, 
+
+you'll need:
+
+   o Getopt::Long
+
+   o Text::Abbrev
+
+   o Term::EditLine
+
+=back
+
+=head1 Getting started
+
+Run the ibcli - it is a perl script, you will get a prompt
+
+    % ./ibcli
+    server ? >
+
+Ideally, you should now connect the CLI to a server somewhere, to do
+this you give it the server and a user and a password, you can do these in
+either order, it just tries to eventually connect when it has enough data.
+
+    server ? > conf server 10.0.1.224 user admin password infoblox
+    admin@10.0.1.224 >
+
+Or you can also do this from the initial invocation:
+
+    % ./ibcli -s 10.0.1.230 -u admin -p infoblox 
+
+"HOLD ON A SEC", I hear you ask, "Why am i connecting to a server, isn't
+this CLI running on a console somewhere ?". No, Grasshopper, the CLI is
+just a wrapper to the Infoblox.pm so you can run it from anywhere in
+the world. This gives you the added advantage of being able to work on
+MANY servers from the one CLI.
+
+=head1 Setting the debug level
+
+    server ? > conf debug 3
+    server ? >
+
+Or you can also do this from the initial invocation:
+
+    % ./ibcli -d 3
+
+
+=head1 Other Gritty Details
+
+OK, so what can I do from here ?
+
+=head2 Members and secondaries
+
+By default all stuff is added to just the Grid Master, the API guesses
+this from the SERVER setting. If you explicitly want to add stuff to
+certain members you need to append the members to the command arg :
+
+   conf zone add foo.com member 1.2.3.4
+   conf zone add foo.com member 1.2.3.4 member 1.2.3.5
+
+=head2 Laziness
+
+The command parser accepts abbreviations
+
+    se z a foo.com
+
+is the same as
+
+    conf zone add foo.com
+
+=head2 TAB completion
+
+The cli uses a full line editor with history and the usual bells ans
+whistles. commend completion can be achieved by pressing <tab>
+
+=head2 BATCH processing=head2 TAB completion
+
+The cli uses a full line editor with history and the usual bells ans
+whistles. commend completion can be achieved by pressing <tab>
+
+TBD
+
+=cut
 
 ########################################
 # subs
@@ -528,8 +727,22 @@ sub cli_history {
 sub print_help { 
     # [ ] contextual help
     my ( $context ) = $el->line ;
+    chomp $context;
 
-    print "\nhelp for [$context]\n"; 
+    print "\nhelp for [$context] TBD
+ press :
+   <tab> for options and word completion
+   '\\' to clear the line
+   'q' to quit\n\n";
+    return CC_REDISPLAY
+};
+
+sub print_perldoc { 
+    # dumpmyself to perldoc
+
+#     print "doc : $0 \n";
+    system ( "perldoc $0 | less" );
+
     return CC_REDISPLAY
 };
 
@@ -571,7 +784,8 @@ sub process_line {
     }
 
     # may need a re-display here...
-    return CC_REDISPLAY
+#     return CC_REDISPLAY
+    return CC_REFRESH
 }
 
 sub expand_line {
@@ -876,7 +1090,8 @@ sub cmpctl {
     &debug_cli (3,"cmpctl m[$matchline]");
     
     # [-] now - expandline may drop an error if we made a typo
-    # if so we should report the syntax error
+    # EARLIER in the wordlist.
+    # if so we should STOP and report the syntax error
     if ( $exerr =~ /unknown/i ) {
        # find out where the error was.. (kinda tricky)
        # the bad word will be at the end of $expanded
@@ -933,12 +1148,12 @@ sub cmpctl {
 
        print "\n@matches\n";
     }
-    # [ ] don't redisplay, do nothing
     elsif ( $expword ) {
        # do nothing (NOTE, specials match AFTER uniqs )
        &debug_cli (3,"cmpctl spec ($expword) [@matches]");
     }
-    # [ ] i don't think we ever get here
+    # [-] i don't think we ever get here
+    #     no, it gets caught by errors with expandline
     elsif ( ! $expword ) {
        # delete the string , print all options
        my $len = length ( $lastarg ) ;
@@ -1787,7 +2002,7 @@ sub cli_del_fixed_address {
 
 =head2 Add a dhcp range to a network
 
-Dhcp ranges, by default, will get added to the cluster master unless you
+Dhcp ranges, by default, will get added to the Grid master unless you
 override that setting with the 'member <ip>' syntax
 
    conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40
@@ -1896,24 +2111,23 @@ sub cli_del_dhcp_range {
 
 }
 
-# [ ] broken until i get syntax to set the cluster name
+# [ ] broken until i get syntax to set the Grid name
 
 =head2 add global DHCP settings
 
-   conf network global add lease-time 3600
-   /* conf network global add authority true */
+   conf grid <name> add dhcp lease-time 3600
 
 Custom optons
 
-   conf network global add custom_option 82 "opt 82 string" 
+   conf grid <name> add dhcp option 82,"opt 82 string" 
 
 Set the type for a custom option
    
-   conf network global add custom_option 82 type IPADDRESS
+   conf grid <name> add dhcp option 82 type IPADDRESS
 
 Remove a custom option
 
-   conf network global delete custom_option 82
+   conf grid <name> delete dhcp option 82
 
 =cut
 
@@ -2104,6 +2318,7 @@ Show just 1 zone
 
 sub cli_show_zone {
     #
+    # [ ] show needs some cleanup
     # splitting either creates ALL networks or only the ones
     # we have to have (which could be none)
 
@@ -2182,6 +2397,17 @@ sub cli_show_network {
     
 }
 
+=head2 Showing leases
+
+Show a lease
+
+    show lease ip 1.1.1.1
+    show lease mac aa:aa:aa
+
+=cut
+
+# [ ] get a lease with a regex...
+
 =head2 Showing records
 
 Show a host
@@ -2236,7 +2462,18 @@ sub cli_add_server {
                      "password" , $passwd ,
                   );
 
-      $ONLINE = 1 ;
+      if ( $SESSION->status_code() ) {
+          my $result = $SESSION->status_code();
+          my $response = $SESSION->status_detail();
+
+          print "  Error : $response ($result)\n";
+      }
+      else {
+         $ONLINE = 1 ;
+         $PROMPT = "$user\@$server > " ;
+         $el->set_prompt ( $PROMPT );
+      }
+
 #     if ( $ONLINE ) {
 #     }
 #     else {
@@ -2245,8 +2482,6 @@ sub cli_add_server {
  
     # update the prompt ;
 
-    $PROMPT = "$user\@$server > " ;
-    $el->set_prompt ( $PROMPT );
     
 
 }
@@ -2288,7 +2523,7 @@ sub cli_restart {
 
 =head2 Export the database
 
-    download database
+    download database <file>
 
 =cut
 
@@ -2346,8 +2581,18 @@ sub abs_ip {
 
 
 sub debug_commands {
-    # dump crap to tty
-    print Dumper ( \%COMMANDS );
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $type)  = $line =~/debug (\S+)/ ;
+
+    if ( $type eq "commands" ) {
+       # dump crap to tty
+       print Dumper ( \%COMMANDS );
+    }
+    if ( $type eq "session" ) {
+       # dump crap to tty
+       print Dumper ( \$SESSION );
+    }
 }
 
 sub set_debug {
@@ -2359,6 +2604,17 @@ sub set_debug {
     print "DEBUG = $level\n";
     $DEBUG = $level ;
 }
+
+=head2 Debugging :
+
+  configure debug <level>
+
+The higher the debug level, the more junk gets spat to the tty. You
+probably don't want anything higher than (2) unless you are debugginh the
+completion control parser.
+
+=cut
+
 
 
 sub debug_cli {
@@ -2377,6 +2633,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.1.2.3  2005/08/15 20:44:42  horne
+# added the rest of the perldoc
+#
 # Revision 3.1.2.2  2005/08/15 01:23:12  horne
 # some rearranging of coments, mostly
 #
