@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.1 2005/08/14 23:14:23 horne Exp $ ;
-my $REV = q$Revision: 3.1 $;
-# $Date: 2005/08/14 23:14:23 $
+my $ID  = q$Id: ibcli,v 3.2 2005/08/14 23:29:42 horne Exp $ ;
+my $REV = q$Revision: 3.2 $;
+# $Date: 2005/08/14 23:29:42 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -56,6 +56,10 @@ my $REV = q$Revision: 3.1 $;
 #
 use strict ;
 no strict "refs" ;
+
+# work out where i am
+use FindBin qw($Bin $Script);
+my ($BASE,$NAME)=($Bin,$Script) ;
 
 BEGIN {
    push (@INC, "lib");
@@ -2344,6 +2348,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.2  2005/08/14 23:29:42  horne
+# *** empty log message ***
+#
 # Revision 3.1  2005/08/14 23:14:23  horne
 # Bumped the rev#
 #
