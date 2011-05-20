@@ -1,5 +1,16 @@
 missing features :
 
+[x] UTF-8 support
+    [-] test on non-utf8 systems ?
+    [x] use Encode ;
+    [x] $ext_attribute{$name} = encode ("utf8",$cvalue);
+    [x] move this check to do_Func()
+    [x] also move decode_comment()
+
+[ ] conf zone "" insert host (add then modify)
+    [ ] does the parser support '*' in the command hash...
+[ ] conf zone "" update host (modify then add)
+
 [ ] Network Views
     [ ] report the view name
     [ ] show the name in a list of networks
@@ -7,11 +18,38 @@ missing features :
 [ ] modify network searches with network views
     [ ] test if the 'search' returns more than 1 network.
 
-[ ] modify a fixed address
+[ ] EA for networks and other objects
+    [ ] add EA as a subroutine
+        [ ] check the args in the commandline
+        [ ] pass the object to the sub
+        [ ] add ipam if there are args in the line
+
+[ ] conf net mod xxx insert_option foo=bar
+    [ ] add/remove an option from the custom list
+    [ ] ate there other arrays we need to support ?
+
+[ ] re-parent networks
+    [ ] move the child networks to a different view for short term
+
+[ ] create a network_container in 1 step
+    [ ] call add, then split
+
+[ ] add a reservation :
+    [ ] to a HOST
+    [ ] to a network
+
+    $fixed->match_client( )
+
+    conf net add reserved 1.2.3.4
+    conf net add fixed 1.2.3.4 <Client_id>
 
 [ ] Creating a network template in a scripted manner
 
 -----------
+
+[x] TTL for A/PTR/CNAME
+
+[x] modify a fixed address
 
 [x] move network
     conf net move xxx member=<yyy>|failover=<name>
