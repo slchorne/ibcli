@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.4 2004/12/20 15:57:03 horne Exp $
+#   $Id: ibcli,v 2.5 2004/12/22 20:52:05 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.4 $
-$Date: 2004/12/20 15:57:03 $
+$Revision: 2.5 $
+$Date: 2004/12/22 20:52:05 $
 ';
 $REV =~ s/\$//g;
 
@@ -87,7 +87,7 @@ my $DNS_VER = 3 ;
 
 my $DEBUG = 0 ;
 my $CLI = 0 ;
-my $CONN_STRING = "!" ;
+my $MADE_CHANGES = "!" ;
 
 my $IPRE = '\d+\.\d+\.\d+\.\d+';
 
@@ -167,22 +167,15 @@ if ( $MAKE ) { &script_header }
 
 # check if we need to do any initial conections
 # use temp vars to avoid a clobbering problem
-# you would never pass a partial set from commandline, so we can do this
-# in one go. 
 #
-# the existece of variables is shecked in the called sub
+# the existece of variables is checked in the called sub
 
 $PROMPT = "no server > " ; 
-# success changes the prompt
+# a successfull connect success changes the prompt
 
 if ( $S_ID ) {
    &add_server($S_ID,"user",$S_USER,"password",$S_PASS);
 }
-
-# if ( $S_ID ) { &add_server($S_ID) }
-# else         { $PROMPT = "no server > " ; }
-# 
-# if ( $S_PASS ) { &add_pass($S_PASS) }
 
 #
 # are we interactive or in batch mode ?
@@ -216,7 +209,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 2.4 $
+$Revision: 2.5 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -256,37 +249,30 @@ a wrapper to any API we like, it is not really DNS specific.
 
 Simple example, adding a zone
 
-   [0] ! no server > set server 10.0.1.224
-   [0] ! 10.0.1.224 > set pass infoblox
-   SERVER :: connecting
-   [0] * 10.0.1.224 > set zone add com
-   [0] * 10.0.1.224 > set zone add foo.com
-   [0] * 10.0.1.224 > disconnect
+   [0] ! no server > conf server 10.0.1.224 user admin pass infoblox
+   [0]   admin@10.0.1.224 > conf zone add infoblox.com
+   [0] * admin@10.0.1.224 > conf zone add sales.infoblox.com
 
 A more detailed example
 
-   [0] ! no server > set server 10.0.1.224
-   [0] ! 10.0.1.224 > set pass infoblox
-   SERVER :: connecting
-   [0] * 10.0.1.224 > set zone add com
-   [0] * 10.0.1.224 > set zone add foo.com
-   [0] * 10.0.1.224 > set zone foo.com add host test 1.2.3.4
-   [0] * 10.0.1.224 > set zone delete bar.com
-   [0] * 10.0.1.224 > disconnect
+   [0] ! no server > conf server 10.0.1.224 user admin pass infoblox
+   [0]   admin@10.0.1.224 > conf zone add com
+   [0] * admin@10.0.1.224 > conf zone add foo.com
+   [0] * admin@10.0.1.224 > conf zone foo.com add host test 1.2.3.4
+   [0] * admin@10.0.1.224 > conf zone delete bar.com
 
 A complex example, multiple connections
 
-   [0] ! no server > set server 10.0.1.224
-   [0] ! 10.0.1.224 > set pass infoblox
-   SERVER :: connecting
-   [0] * 10.0.1.224 > set zone add sales.foo.com
-   [0] * 10.0.1.224 > disconnect
-   [0] ! no server > set server 10.0.1.200
-   CANNOT CONNECT :: no server/pass supplied 
-   [0] ! 10.0.1.200 > set pass infoblox
-   SERVER :: connecting
-   [0] * 10.0.1.200 > set zone add biz.foo.com
-   [0] * 10.0.1.200 > disconnect
+   [0] ! no server > conf server 10.0.1.224
+   [0] ! 10.0.1.224 > conf server user admin
+   [0] ! 10.0.1.224 > conf server pass infoblox
+   [0]   admin@10.0.1.224 > conf zone add sales.foo.com
+
+   # now switch servers
+   [0]   admin@10.0.1.224 > conf server 10.0.1.200
+   [0]   admin@10.0.1.220 > conf server user admin1
+   [0]   admin1@10.0.1.220 > conf server pass infoblox1
+   [0]   admin1@10.0.1.220 > conf zone add biz.foo.com
 
 =head1 Installation
 
@@ -306,12 +292,13 @@ you'd ever need as a file namespace and 640K for ram...
 =item * Make sure you have the necessary libraries installed, 
 
 you'll need:
+
    o Getopt::Long
+
    o Text::Abbrev
 
 =item * Get access to 'dig' 
       ...If you want the 'show' commands to work.
-
 
 =back
 
@@ -319,38 +306,37 @@ you'll need:
 
 Run the ibcli - it is a perl script, you will get a prompt
 
-    drgeoff:infoblox/src/ibcli > ./ibcli
+    % ./ibcli
     CLI version
     [0] ! no server >
 
 Ideally, you should now connect the CLI to a server somewhere, to do
-this you give it the server and a password, you can do these in either
-order, it just tries to eventually connect when it has enough data.
+this you give it the server and a user and a password, you can do these in
+either order, it just tries to eventually connect when it has enough data.
 
-    [0] ! no server > set server 10.0.1.230
-    CANNOT CONNECT :: no server/pass supplied
-    [0] ! 10.0.1.230 > set password infoblox
-    SERVER :: connecting
+    [0] ! no server > conf server 10.0.1.224
+    [0] ! 10.0.1.224 > conf server user admin
+    [0] ! 10.0.1.224 > conf server pass infoblox
+    [0]   admin@10.0.1.224 >
 
 Or you can also do this from the initial invocation:
 
-    drgeoff:infoblox/src/ibcli > ./ibcli -s 10.0.1.230 -p infoblox
+    % ./ibcli -s 10.0.1.230 -u admin -p infoblox 
 
 "HOLD ON A SEC", I hear you ask, "Why am i connecting to a server, isn't
 this CLI running on a console somewhere ?". No, Grasshopper, the CLI is
-just a wrapper to the InfoBloxDNS.pm so you can run it from anywhere in
+just a wrapper to the Infoblox.pm so you can run it from anywhere in
 the world. This gives you the added advantage of being able to work on
 MANY servers from the one CLI.
 
-
 =head1 Setting the debug level
 
-    [0] ! no server > set debug 3
+    [0] ! no server > conf debug 3
     [3] ! no server >
 
 Or you can also do this from the initial invocation:
 
-    drgeoff:infoblox/src/ibcli > ./ibcli -d 3
+    % ./ibcli -d 3
 
 
 =head1 Other Gritty Details
@@ -374,7 +360,7 @@ The command parser accepts abbreviations
 
 is the same as
 
-    set zone add foo.com
+    conf zone add foo.com
 
 There is also command ambiguity. since the command parser uses seperate
 code to the actual library calls it is easy to make multiple commands
@@ -401,8 +387,9 @@ CLI via the -f option
    
    # server likes either names or IP's
    #
-   conf SERVER   45.0.12.20
-   conf PASSWORD infoblox
+   conf SERVER 45.0.12.20
+   conf SERVER USER admin
+   conf SERVER PASSWORD infoblox
    
    conf zone add foo.com
    conf zone foo.com add host 2-bulktest 45.103.1.2
@@ -416,7 +403,7 @@ CLI via the -f option
 
 And then just run the script
 
-    drgeoff:infoblox/src/ibcli > ./ibcli -f sample.in
+    % ./ibcli -f sample.in
 
 
 =head2 Write your own code
@@ -442,7 +429,9 @@ Perhaps an example would work. Given this input :
    #
    # server likes either names or IP's
    #
-   conf SERVER 45.0.12.20 infoblox
+   conf SERVER 45.0.12.20
+   conf SERVER USER admin
+   conf SERVER PASSWORD infoblox
    
    conf zone add foo.com
    conf zone foo.com add host 2-bulktest 45.103.1.2
@@ -456,34 +445,86 @@ Perhaps an example would work. Given this input :
 
 The CLI will produce the following perl script
 
-   #!/usr/bin/perl
-   #
-   # AUTOGENERATED from ibcli 
-   #
-   use InfoBloxDNS ;
-   ib_open_connection($SERVER_IP,$SERVER_PASS);
-   
-   # 
-   # meta input language for infoblox DNSOne scripts
-   #
-   # SAMPLE input file
-   #
-   
-   # server likes either names or IP's
-   #
-   
-   ib_insert_zone("foo.com","authoritative") ;
-   ib_insert_host("2-bulktest.foo.com","45.103.1.2") ;
-   ib_insert_host("3-bulktest.foo.com","45.103.1.3") ;
-   ib_insert_host("4-bulktest.foo.com","45.103.1.4") ;
-   ib_insert_host("5-bulktest.foo.com","45.103.1.5") ;
-   
-   # scripts commit and disconnect by default.
-   #
-   
-   ib_close_connection();
-
-   exit ;
+  #!/usr/bin/perl
+  #
+  # AUTOGENERATED from ibcli 
+  #
+  
+  use Infoblox::InfobloxDNS;
+  use Infoblox::RADIUSOne;
+  use Infoblox;
+  
+  # Using Version [3] Syntax : 
+  print "Infoblox::Session->new \n";
+    my $result = Infoblox::Session->new ( $SESSION ,
+       {
+         'UserName' => 'admin',
+         'cli_type' => 'dns',
+         'UserPassword' => 'infoblox',
+         'Host' => '45.0.12.20'
+       }
+     );
+  
+  print "add_zone \n";
+    my $result = add_zone ( $SESSION ,
+       {
+         'cluster_primary' => undef,
+         'name' => 'foo.com',
+         'type' => 'Authoritative'
+       }
+     );
+  print "add_host \n";
+    my $result = add_host ( $SESSION ,
+       {
+         'zone' => 'foo.com',
+         'name' => '2-bulktest',
+         'address_list' => [
+           {
+             'address' => '45.103.1.2'
+           }
+         ]
+       }
+     );
+  print "add_host \n";
+    my $result = add_host ( $SESSION ,
+       {
+         'zone' => 'foo.com',
+         'name' => '3-bulktest',
+         'address_list' => [
+           {
+             'address' => '45.103.1.3'
+           }
+         ]
+       }
+     );
+  print "add_host \n";
+    my $result = add_host ( $SESSION ,
+       {
+         'zone' => 'foo.com',
+         'name' => '4-bulktest',
+         'address_list' => [
+           {
+             'address' => '45.103.1.4'
+           }
+         ]
+       }
+     );
+  print "add_host \n";
+    my $result = add_host ( $SESSION ,
+       {
+         'zone' => 'foo.com',
+         'name' => '5-bulktest',
+         'address_list' => [
+           {
+             'address' => '45.103.1.5'
+           }
+         ]
+       }
+     );
+  
+  
+  
+  exit ; 
 
 =cut
 
@@ -499,9 +540,9 @@ The CLI will produce the following perl script
 # set the first level command set
 my %commands = ( 
             'history' => 'show_history',
-            'commit' => 'commit',
-            'connect' => 'connect',
-            'disconnect' => 'disconnect',
+            'restart' => 'restart',
+#             'connect' => 'connect',
+#             'disconnect' => 'disconnect',
             'download' => 'download_commands',
 #             'upload' => 'upload_commands',
             'set' => 'set_commands' ,
@@ -613,7 +654,6 @@ sub do_exit {
     $LINE = "exit" ;
     if ( $CONNECTED ) { 
 #        &commit ;
-       &disconnect ;
     }
 
     if ( $MAKE ) { &script_footer }
@@ -627,7 +667,7 @@ sub do_exit {
 #
 # THIS is the guts of the command line parser, for each ARG in a line
 # shift_arg looks at this word, does an apprev match, and if it is ok
-# then calles the hashed subroutine.
+# then calls the hashed subroutine.
 #
 # The nice thing about this is that the subroutines can either be end
 # points (do this feature) or subroutines that set possibilities for the
@@ -642,7 +682,7 @@ sub shift_arg {
 
    if ( $LIST_COMM ) { &walk_tree(%commands) ; return ; }
 
-
+   # generate the abbreviation list for these args
    @CLIST = sort keys %commands ;
    my %clookup = abbrev ( @CLIST ) ;
 
@@ -662,6 +702,7 @@ sub shift_arg {
       &debug (4,"shift: sub($call_sub)");
 
       # catch wildcards...
+      # and save them as arguments , not commands
       if ( ! $full_comm ) { 
          $full_comm = $arg  ;
          push @P_ARGS , $arg ;
@@ -761,7 +802,7 @@ sub upload_commands {
    &shift_arg($arg,%commands);
 }
 
-# PARSER : set xxx
+# PARSER : conf xxx
 #
 # note, 'conf dhcp' (for the present) == 'conf network'
 sub set_commands {
@@ -770,7 +811,7 @@ sub set_commands {
                 'debug' => 'set_debug',
                 'server' => 'add_server',
 #                 'system' => 'system_commands',
-                'password' => 'add_pass',
+#                 'password' => 'add_pass',
                 'zone' => 'zone_commands',
                 'realm' => 'realm_commands',
                 'network' => 'network_commands',
@@ -780,7 +821,7 @@ sub set_commands {
 
 }
 
-# PARSER : set system xxx
+# PARSER : conf system xxx
 sub system_commands {
    &debug (4,"sub = system_commands");
    my ( $arg ) = shift @WORDS ;
@@ -860,7 +901,7 @@ sub add_to_network_commands {
    &shift_arg($arg,%commands);
 }
 
-# PARSER : set network <n.n.n.n/mm> delete xxx
+# PARSER : conf network <n.n.n.n/mm> delete xxx
 sub delete_from_network_commands {
    &debug (4,"sub = delete_from_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
@@ -1062,7 +1103,11 @@ sub do_pub_func {
           if ( $result > 0 ) {
              # We got error...
 #              &debug (1,"result [$result] ($response)");
-             print "failed [$result] $response";
+             print "failed [$result] $response\n";
+             return $result
+          }
+          else {
+             $MADE_CHANGES = "*" ;
           }
 
        }
@@ -1235,9 +1280,6 @@ sub get_database {
 #     &do_nothing(@function);
 # 
 #     &err_print("DONE ");
-# 
-#     # do an implicit disconnect
-#     &disconnect ;
 # 
 # }
 
@@ -2470,7 +2512,7 @@ sub missing_arg {
 #
 sub print_prompt {
     if ( $CLI ) {
-       print "[$DEBUG] $CONN_STRING $PROMPT" ;
+       print "[$DEBUG] $MADE_CHANGES $PROMPT" ;
     }
 }
 
@@ -2550,15 +2592,22 @@ sub show_history {
 
 =head2 Connect to a server
 
-    [0] ! no server > conf server 10.0.1.230 infoblox
+    CONF SERVER <SERVER> USER <USERNAME> PASSWORD <PASSWD>
+
+Select a server to talk to
+
+    [0] ! no server > conf server 10.0.1.230 
+
+Supply the username and or password
+
+    [0] ! no server > conf server 10.0.1.230 user admin
+    [0] ! no server > conf server 10.0.1.230 password infoblox
+
+All on one line
+
+    [0] ! no server > conf ser 10.0.1.230 user admin pass infoblox
         
-Connect to another server , reseting the password (don't supply the
-password)
- 
-     [0] * 10.0.1.230 > conf server 10.0.1.224
-
 =cut
-
         
 sub add_server {
     my ($type,@args) = @_ ;
@@ -2566,113 +2615,171 @@ sub add_server {
     # password can be passed on this line, if not specified, assume
     # no password
 
-    # [ ] there seems to be too much code here, sone time in the future
-    # i will work out what i can remove
+    &debug (2,"adding server t[$type] args[@args]");
 
-    &debug (2,"adding server args[@args]");
+    # bootstrap defaults
+    my ( $server , $pass , $user ) ;
 
-    my ( $server , $pass , $user , $junk ) ;
+    # set some defaults
+    $CONN_INFO{'cli_type'}="dns";
 
-    # if the server arg is NOT an ip address it is a type
-    # were we given an IP address or something else ?
-    if ( $type !~ /^$IPRE$/) {
+    # if we don't recognise the arg, 
+    # then we assume it is a servername
 
-       # must be a server type, check the syntax
-       # syntax check next arg...
-       my $etype ;
-       my @opts = ( "dns","radius");
-       my %optlist = abbrev ( @opts ) ;
-       $etype = $optlist{ lc($type) } ;
-       if ( ! $etype ) { 
+#     if ( $type !~ /^$IPRE$/) {
+
+    # must be a server type, check the syntax
+    # syntax check next arg...
+    my $etype ;
+    my @opts = ( "dns","radius","user","password");
+    my %optlist = abbrev ( @opts ) ;
+    $etype = $optlist{ lc($type) } ;
+
+    # Set the servername
+    if ( ! $etype ) { 
+       # must be a servername
+       $server = $type ;
+       $CONN_INFO{'Host'} = $server ;
+       &debug (3,"conf server s($server)");
+    }
+    else {
+       # hack things by fudging the arglist
+       # we make 'conf server user brian'
+       # look like 'conf server xxx user brian'
+
+       unshift ( @args , $type ) ;
+       &debug (3,"conf server push t[$type] args[@args]");
+    }
+
+=pod
+
+IF you change any of the settings, the others are kept. this lets you do
+potentially usefull (dangerous) things like keep the username and password
+between different servers
+
+    [0] ! no server > conf server 1.2.3.4 user admin passwd infoblox
+   
+    # switch servers, same user and pass.
+    [0] ! 1.2.3.4 > conf server 1.2.4.20
+
+=cut
+    
+    # walk the rest of the arg list
+    while ( my $arg = shift @args ) {
+
+       # do we have a match ?
+       my $earg = $optlist{ lc($arg) } ;
+
+       if ( ! $earg ) {
           &missing_arg(@opts);
           return ;
        }
-       
-       # otherwise, we're good
-       ( $server , $junk , $user , $junk , $pass ) = @args ;
 
-       $CONN_INFO{'cli_type'}=$etype ;
-
-    }
-    else {
-       ( $server , $junk , $user , $junk , $pass ) = ($type, @args ) ;
-    }
-    &debug (2,"adding server t[$type] s($server) p($pass) u($user)");
-
-    # ok - now eat the rest of the data
-    
-    if ($server) {
-       # if we're already connected, sput an error
-       if ( ! $CONNECTED ) {
-          &debug (2,"adding server [$server]");
-          $CONN_INFO{'Host'} = $server ;
-
-          $PROMPT = "$CONN_INFO{'UserNAme'}\@$CONN_INFO{'Host'} > " ;
-
-          # when you specify a new server, you need to re-set the
-          # password
-          if ( $pass ) {
-             $CONN_INFO{'UserPassword'} = $pass ;
-          }
-          else {
-             # this is a NON DNSone, DIG only
-             # unset the password
-             $CONN_INFO{'UserPassword'} = "" ;
-          }
-          &debug (2,"adding passwd [$pass]");
-
-          if ( $user ) {
-             # this is a v3 system
-             $CONN_INFO{'UserName'} = $user ;
-          }
-          &debug (2,"adding user [$user]");
-
-          &connect ;
+       # grab the user
+       if ( $earg eq "user" ) {
+          $user = shift @args ;
+          $CONN_INFO{'UserName'} = $user ;
+          &debug (3,"conf server arg($arg) u($user)");
        }
-       else {
-          &err_print("SERVER :: already connected");
+       # grab the password
+       if ( $earg eq "password" ) {
+          $pass = shift @args ;
+          $CONN_INFO{'UserPassword'} = $pass ;
+          &debug (3,"conf server arg($arg) p($pass)");
        }
+
+       # [ ] insert stuff here for radius
+       if ( $earg eq "radius" or $earg eq "dns" ) {
+          $CONN_INFO{'cli_type'}=$earg ;
+          &debug (3,"conf server arg($arg) t($earg)");
+       }
+
     }
-    else {
-       &missing_arg("$SAVE_HIST <server>");
-    }
+
+    my $c_type = $CONN_INFO{'cli_type'};
+    &debug (2,"adding server t[$c_type] s($server) p($pass) u($user)");
+
+    &connect ;
+
+#     # ok - now eat the rest of the data
+
+#        # if we're already connected, sput an error
+#        if ( ! $CONNECTED ) {
+#           &debug (2,"adding server [$server]");
+#           $CONN_INFO{'Host'} = $server ;
+# 
+#           $PROMPT = "$CONN_INFO{'UserNAme'}\@$CONN_INFO{'Host'} > " ;
+# 
+#           # when you specify a new server, you need to re-set the
+#           # password
+#           if ( $pass ) {
+#              $CONN_INFO{'UserPassword'} = $pass ;
+#           }
+#           else {
+#              # this is a NON DNSone, DIG only
+#              # unset the password
+#              $CONN_INFO{'UserPassword'} = "" ;
+#           }
+#           &debug (2,"adding passwd [$pass]");
+# 
+#           if ( $user ) {
+#              # this is a v3 system
+#              $CONN_INFO{'UserName'} = $user ;
+#           }
+#           &debug (2,"adding user [$user]");
+# 
+#        }
+#        else {
+#           &err_print("SERVER :: already connected");
+#        }
 }
 
-sub add_pass {
-    my ($passwd) = @_ ;
-
-    if ($passwd) {
-       # save the server password and see if we have enough info to connect
-       &debug (2,"adding passwd [$passwd]");
-       $CONN_INFO{'UserPassword'} = $passwd ;
-
-       # attepmt to connect
-       &connect ;
-    }
-    else {
-       &missing_arg("$SAVE_HIST <password>");
-    }
-
-
-}
+# sub add_pass {
+#     my ($passwd) = @_ ;
+# 
+#     if ($passwd) {
+#        # save the server password and see if we have enough info to connect
+#        &debug (2,"adding passwd [$passwd]");
+#        $CONN_INFO{'UserPassword'} = $passwd ;
+# 
+#        # attepmt to connect
+#        &connect ;
+#     }
+#     else {
+#        &missing_arg("$SAVE_HIST <password>");
+#     }
+# }
 
 #
 # [ ] really need 2 routines here, one for batch mode and one for calls
 # to 'connect' from the cli
 #
-#
 sub connect {
     # make a connection
     # unless we have both server and password,  die
 
+    # all the CLI conf server calls can just
+    # poke the hash, that way we can keep the same user, but
+    # change the server.
+    #
+
+    my $conhash = Dumper( { %CONN_INFO } );
+    &debug(3,"conn $conhash");
+    
+    # try and set the prompt anyway
+    if ( $CONN_INFO{'Host'} ) {
+        $PROMPT = "$CONN_INFO{'Host'} > " ;
+    }
+
+    # otherwise try and connect
       if ( $CONN_INFO{'Host'} 
            && $CONN_INFO{'UserName'}
            && $CONN_INFO{'UserPassword'} ) {
 
-         if ( $CONNECTED ) {
-            &err_print("SERVER :: already connected");
-            return ;
-         }
+#          if ( $CONNECTED ) {
+#             &err_print("SERVER :: already connected");
+#             return ;
+#          }
 
          # now set up the correct hashes for connection
          my %priv_hash;
@@ -2682,18 +2789,25 @@ sub connect {
          $priv_hash{'HostPort'} = "443";
          $priv_hash{'Secure'} = "true";
 
-         &debug (1,"conn ->[$CONN_INFO{'Host'}] [$CONN_INFO{'UserName'}]");
+         # set the prompt
+         $MADE_CHANGES = " " ;
+         $PROMPT = "$CONN_INFO{'UserName'}\@$CONN_INFO{'Host'} > " ;
 
-         &err_print("SERVER :: connecting");
+#          if ( $CONN_INFO{'UserName'} ) {
+#          }
+#          else {
+#             $PROMPT = "$CONN_INFO{'Host'} > " ;
+#          }
 
-         # set the global PUB_SESS or PRIV_SESS
-         # which we will call later
+         &debug (1,"connect -> $PROMPT");
 
+#          &err_print("SERVER :: connecting");
+
+         # DO a RADIUS connection
+         #
          if ( $CONN_INFO{'cli_type'} eq 'radius' ) {
             if ( $MAKE ) {
                # pretty print the hash 
-#                my $fst = &format_ib_func("RADIUSOne::server_session_create"
-#                                           ,%CONN_INFO);
                &print_data("RADIUSOne::server_session_create",%CONN_INFO);
             }
             else {
@@ -2701,12 +2815,17 @@ sub connect {
                ($res,$PUB_SESS)=RADIUSOne::server_session_create(%CONN_INFO);
             }
          }
+
+         # DO a DNS connection
+         #
+         # set the global PUB_SESS or PRIV_SESS
+         # which we will call later
          else {
             # pretty print the hash 
-
             if ( $MAKE ) {
                my $cptr = \%CONN_INFO ;
                my $pptr = \%priv_hash ;
+
                # format the data for pretty printing
 #          my $fst=&format_ib_func("Infoblox::Session->new",$cptr);
 #          my $fst=&format_ib_func("Infoblox::InfobloxSession->new",$pptr);
@@ -2714,74 +2833,126 @@ sub connect {
                &print_data("Infoblox::InfobloxSession->new",$pptr);
             }
             else {
+               # set up the handlers
                $PUB_SESS = Infoblox::Session->new( %CONN_INFO );
                $PRI_SESS = Infoblox::InfobloxSession->new( %priv_hash );
             }
          }
 
-         $PROMPT = "$CONN_INFO{'Host'} > " ;
-         $CONN_STRING = "*" ;
    
+         # this will never change until you quit
          $CONNECTED = 1 ;
 
       }
       else {
-         &err_print ("CANNOT CONNECT :: no server or password supplied");
+#          &err_print ("CANNOT CONNECT :: no server|user|password supplied");
          &debug (3,"NOOP - incomplete details for server connection");
       }
-
 }
 
 =head1 RESTARTING services
 
 the cli will not restart services, you have to do that manually
 
-   conf ??? do something ?
+   restart dns
+   restart dhcp
+
+IF you want to delay the restart you can do that also
+
+   restart dns delay 10
 
 =cut
 
-sub disconnect {
+sub restart {
 
-    &err_print ( "Disconnect :: depricated");
+    my ( $service , $delay , $timer ) = @_ ;
 
-    if ( $CONNECTED ) {
-#        &commit ;
+    my $eopt ;
+    my @opts = ( "dns","dhcp");
+    my %optlist = abbrev ( @opts ) ;
+    $eopt = $optlist{ lc($service) } ;
+
+    if ( ! $eopt ) { 
+       &missing_arg(@opts);
+       return ;
+    }
+
+    &debug (2,"restart t($eopt) [$timer]");
+
+    my %opthash ;
+    $opthash{'protocol_type'}=$service;
+    $opthash{'delay'}=0;
+
+    # delay ?
+    my $edel ;
+    if ( $delay ) {
+       my @opts = ( "delay");
+       my %optlist = abbrev ( @opts ) ;
+       $edel = $optlist{ lc($delay) } ;
+
+       if ( ! $edel ) { 
+          &missing_arg(@opts);
+          return ;
+       }
+
+       if ( $timer ) {
+          $opthash{'delay'}=$timer;
+       }
+       else {
+          &missing_arg("@opts <time>");
+          return ;
+       }
+    }
+
+    my @function=("restart_service",%opthash);
+    &do_pub_func(@function);
+
+    $MADE_CHANGES = " " ;
+
+}
+
+# sub commit {
+# 
+#     #
+#     # call 'publish changes' ??
+#     #
+# #     &err_print ( "COMMIT -  NOT WORKING");
+# 
+#     if ( $CONNECTED ) {
+#        print "SERVER :: Committing Changes .. ";
+# 
 #        ib_close_connection();
-#    [ ] restart service ??
-       $CONNECTED = 0 ;
-
-       $PROMPT = "no server > " ;
-    }
-#     else {
-#        &err_print ( "CANNOT DISCONNECT - no connection is in place");
+#        sleep 3 ;
+#        ib_open_connection($CONN_INFO{'Host'},$CONN_INFO{'UserPassword'}) ;
+# 
+# #        ib_update_server();
+# 
+#        print "DONE.\n";
+# 
+#        $MADE_CHANGES = " " ;
 #     }
+#     else {
+#        &err_print ("CANNOT COMMIT - no connection is in place");
+#     }
+# }
 
-}
-
-sub commit {
-
-    #
-    # call 'publish changes' ??
-    #
-#     &err_print ( "COMMIT -  NOT WORKING");
-
-    if ( $CONNECTED ) {
-       print "SERVER :: Committing Changes .. ";
-
-       ib_close_connection();
-       sleep 3 ;
-       ib_open_connection($CONN_INFO{'Host'},$CONN_INFO{'UserPassword'}) ;
-
-#        ib_update_server();
-
-       print "DONE.\n";
-
-       $CONN_STRING = " " ;
-    }
-    else {
-       &err_print ("CANNOT COMMIT - no connection is in place");
-    }
-}
+# sub disconnect {
+# 
+#     &err_print ( "Disconnect :: depricated");
+# 
+#     if ( $CONNECTED ) {
+# #        &commit ;
+# #        ib_close_connection();
+# #    [ ] restart service ??
+#        $CONNECTED = 0 ;
+# 
+#        $PROMPT = "no server > " ;
+#     }
+# #     else {
+# #        &err_print ( "CANNOT DISCONNECT - no connection is in place");
+# #     }
+# 
+# }
 
 #
 # DIGS AND GET ROUTINES
@@ -2921,9 +3092,9 @@ sub script_header {
 # AUTOGENERATED from $NAME 
 #
 \n";
-print "use InfoBloxDNS ;\n";
-print "use Infoblox::RADIUSOne;\n";
 print "use Infoblox::InfobloxDNS;\n";
+print "use Infoblox::RADIUSOne;\n";
+print "use Infoblox;\n";
 print "\n";
 
 }
@@ -3293,59 +3464,59 @@ sub print_data {
     }
 }
 
-sub dump_hash {
-    # recursively walk a data structure
-    my ($depth,$type,@data) = @_ ;
-
-    # we're going to stuff all this into a variable
-    my $syntax ;
-
-    # set the spacer
-    my $spc ;
-    for my $i ( 0 .. $depth ) { $spc .= "    " }
-
-    # type dependent
-    if ( $type eq "HASH" ) {
-       my %hash = @data ;
-       $syntax .= "$spc { \n";
-       foreach my $key ( sort keys %hash ) {
-          my $value = $hash{$key} ;
-
-          # do we recurse or print ?
-          if ( $value =~ /^HASH/ ) {
-             $syntax .= "$spc '$key' => \n";
-             $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $hash{$key} } );
-          }
-          elsif ( $value =~ /^ARRAY/ ) {
-             $syntax .= "$spc '$key' => \n";
-             $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $hash{$key} } );
-          }
-          else {
-            $syntax .= "$spc '$key' => '$value',\n";
-          }
-       }
-       $syntax .= "$spc }, \n";
-    }
-
-    elsif ( $type eq "ARRAY" ) {
-       $syntax .= "$spc [\n";
-       foreach my $value ( @data ) {
-          if ( $value =~ /^HASH/ ) {
-             $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $value } );
-          }
-          elsif ( $value =~ /^ARRAY/ ) {
-             $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $value } );
-          }
-          else {
-             $syntax .= "$spc'$value',\n";
-          }
-       }
-       $syntax .= "$spc ], \n";
-    }
-
-    return ( $syntax ) ;
-
-}
+# sub dump_hash {
+#     # recursively walk a data structure
+#     my ($depth,$type,@data) = @_ ;
+# 
+#     # we're going to stuff all this into a variable
+#     my $syntax ;
+# 
+#     # set the spacer
+#     my $spc ;
+#     for my $i ( 0 .. $depth ) { $spc .= "    " }
+# 
+#     # type dependent
+#     if ( $type eq "HASH" ) {
+#        my %hash = @data ;
+#        $syntax .= "$spc { \n";
+#        foreach my $key ( sort keys %hash ) {
+#           my $value = $hash{$key} ;
+# 
+#           # do we recurse or print ?
+#           if ( $value =~ /^HASH/ ) {
+#              $syntax .= "$spc '$key' => \n";
+#              $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $hash{$key} } );
+#           }
+#           elsif ( $value =~ /^ARRAY/ ) {
+#              $syntax .= "$spc '$key' => \n";
+#              $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $hash{$key} } );
+#           }
+#           else {
+#             $syntax .= "$spc '$key' => '$value',\n";
+#           }
+#        }
+#        $syntax .= "$spc }, \n";
+#     }
+# 
+#     elsif ( $type eq "ARRAY" ) {
+#        $syntax .= "$spc [\n";
+#        foreach my $value ( @data ) {
+#           if ( $value =~ /^HASH/ ) {
+#              $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $value } );
+#           }
+#           elsif ( $value =~ /^ARRAY/ ) {
+#              $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $value } );
+#           }
+#           else {
+#              $syntax .= "$spc'$value',\n";
+#           }
+#        }
+#        $syntax .= "$spc ], \n";
+#     }
+# 
+#     return ( $syntax ) ;
+# 
+# }
 
 sub debug {
     # we're passed a message and a level
@@ -3364,6 +3535,13 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.5  2004/12/22 20:52:05  horne
+# fixed the commit prompt
+# changed commit to 'reatart'
+# really cleaned up the connection handler
+# changed all 'set' to 'conf'
+# cleaned up pod examples
+#
 # Revision 2.4  2004/12/20 15:57:03  horne
 # *** empty log message ***
 #
