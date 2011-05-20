@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# (c) Copyright: Geoff horne, SLC 2001
+# (c) Copyright: Geoff horne, SLC 2001-2003
 #               All rights reserved
 #
 # THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS `AS IS' AND
@@ -47,15 +47,16 @@
 ###############################################################################
 
 
-# $Id: ibcli,v 1.3 2003/09/16 23:17:25 horne Exp $
-# $Revision: 1.3 $
-# $Date: 2003/09/16 23:17:25 $
+# $Id: ibcli,v 1.4 2003/09/18 02:28:56 horne Exp $
+# $Revision: 1.4 $
+# $Date: 2003/09/18 02:28:56 $
 #
 
 # Perl CGI common chunks
 #
 use strict ;
 no strict "refs" ;
+use Getopt::Long ;
 
 
 # include infoblox
@@ -74,15 +75,20 @@ my ($BASE,$NAME)=($Bin,$Script) ;
 #
 my $DEBUG = 0 ;
 my $CLI = 0 ;
-my $PROMPT = "no server > " ;
 my $CONN_STRING = "!" ;
-my $server_id ;
-my $server_user ;
-my $server_pass ;
+
+my $SERVER_ID ;
+my $SERVER_PASS ;
 my $CONNECTED ;
+my $CONFIG ;
+
 my $GOOD_COMMAND ;
-my $NO_COMMAND ;
-my @history ;
+# my $NO_COMMAND ;
+my $SAVE_HIST ;
+my @CLIST ;
+my @HISTORY ;
+
+my $PROMPT ;
 
 #
 #####################
@@ -96,7 +102,23 @@ my @history ;
 #  either case should pass to the actual arg parser
 #
 
-if ( ! @ARGV ) {
+# optional args
+# -f <config file>
+# -s <server>
+# -p <password>
+# -d <debug level>
+
+GetOptions(
+      "s=s" => \$SERVER_ID , 
+      "p=s" => \$SERVER_PASS ,
+      "f=s" => \$CONFIG ,
+      "d=s" => \$DEBUG ,
+   );
+
+if ( ! $SERVER_ID ) { $PROMPT = "no server > " ; }
+else                { $PROMPT = "$SERVER_ID > " ; }
+
+if ( ! $CONFIG ) {
    print "CLI version\n";
    $CLI = 1 ;
    # unflush the buffer
@@ -106,63 +128,129 @@ if ( ! @ARGV ) {
    &print_prompt ;
 }
 
+#
+# time to read commands, line at a time...
+#
+
 while (<>) {
 
    # strip blanks, comments etc
    if ( /^\s*#/ ) { &print_prompt ; next ; } ;
    if ( /^\s*$/ ) { &print_prompt ; next ; } ;
 
-   $GOOD_COMMAND = 0;
-   $NO_COMMAND = 1;
+   $GOOD_COMMAND = 1 ;
+#    $NO_COMMAND   = 1;
 
    chomp ;
-   # now break the commandline into components
+
+   #
+   # Pattern matching, we want 'fuzzy' matches but only in the form of
+   # abbreviations, if the command is 'server', 'ser' and 'serv' should
+   # match but not 'serf'. FORTUNATELY, there seems to be a perlmodule
+   # for this. ( Text::Abbrev )
+   #
+   # and the nice thing is that we can build up a hash
+   # of command to subroutine matching, the abbrev code will
+   # find the right command to call, then we can pass the WHOLE line to
+   # the required routine.
+   #
+   # HOWEVER, the additional args at the end of the line will break the
+   # abbrev match, so we still need to eat the line - 1 word at a time
+   # and branch apropriately
+   #
+   # if the abbrev gets an ambiguous match, we return '0'...
+
+   # we have a problem in that if we get a match on the first arg we are
+   # still in 2 states
+   #  - execute
+   #  - check for more args
+   #  - check for more commands
+   #
+   # after the branching we still keep track of :
+   #  - the original command (for history)
+   #  - the optional args
+   # and IF WE GET A MATCH, we say the command is good and THEN execute
+
+
+   # SO break the commandline into components
    my (@words) = split /\s+/ ;
-   # we want to use 'shift' but keep the original words...
-#    my @eatline = @words ;
    my $arg = shift @words ;
 
-   #    &debug(1,"words : [$arg] @words");
+   use Text::Abbrev ;
+   my %commands = ( 
+                'history' => 'show_history',
+                'commit' => 'commit',
+                'disconnect' => 'disconnect',
+                'set' => 'set_commands' ,
+                'show' => 'show_commands' ,
+        ) ;
+   @CLIST = sort keys %commands ;
+   my %clookup = abbrev ( @CLIST ) ;
 
-   # you know, a case statement would work well here...
-   #
-   # when we call rd_line, we need to re-write the original command
-   # so that it goes into history correctly
-   #
-   # we check HERE if a command has enough arguments, if not
-   # then we need to sput an appropriate error
-   #  - unrecognised (foo)
-   #  - incomplete   (set ?)
-   #  this will STOP us setting 'GOOD_COMMAND' inside EACH subroutine
-   #  so we have the check the have enough args BEFORE we proceed
-   #
-   #  if we call rd_line, we ASSUME the command is good.
+   my $full_comm = $clookup{ lc($arg) };
+   &debug (3,"command = [$full_comm]");
 
+
+   # $full_comm does the abbreviation lookup and gets the
+   # ACTUAL full comand name, or returns '0' so the expansion
+   # is automatic
    
-   # general commands
-      # HISTORY
-   if ($arg =~ /^H\w*/i)   { &rd_line("show_history","history",@words) }
-
-      # commit
-   if ($arg =~ /^COM\w*/i) { &commit               ; &addhistory($_) }
-
-      # disconnect
-   if ($arg =~ /^DIS\w*/i) { &disconnect          ; &addhistory($_) }
-
-      # split
-   if ($arg =~ /^SP\w*/i) {
-      my $arg = shift @words ;
-      # network
-      if ($arg =~ /^N\w*/i) { &split_net(@words)  ; &addhistory($_) }
+   if ( $full_comm ) {
+      &rd_line($commands{$full_comm},$full_comm,@words) ;
+      $SAVE_HIST = "$full_comm" ;
+   }
+   else {
+      print "Ambiguous : $_\n";
+      print "\t@CLIST\n";
+      $GOOD_COMMAND = 0 ;
    }
 
-   # 
-   # if i REALLY get exotic i should be able to
-   # abstract this loop into a hash of the form
-   # { arg1 , subroutine }
-   # BUT for the present, we'll keep it the way it is...
-   #
 
+   # history - if kosher
+   # ( done at the end, after all other line processing... )
+   if ( $GOOD_COMMAND ) {
+      &addhistory($SAVE_HIST , @words);
+   }
+
+   # lastly - the prompt
+   &print_prompt ;
+
+   
+}
+
+# just in case
+if ( $CONNECTED ) { &disconnect } ;
+
+exit ;
+
+################################################################
+
+sub set_commands {
+   
+   my @words = @_ ;
+   my $arg = shift @words ;
+
+   my %commands = ( 
+                'debug' => 'set_debug',
+                'server' => 'add_server',
+                'password' => 'add_pass',
+        ) ;
+   @CLIST = sort keys %commands ;
+   my %clookup = abbrev ( @CLIST ) ;
+
+   my $full_comm = $clookup{ lc($arg) };
+   &debug (3,"set command = [$full_comm]");
+
+   if ( $full_comm ) {
+      &rd_line($commands{$full_comm},$full_comm,@words)
+   }
+   else {
+      print "Next possible completions :\n";
+      print "\t@CLIST\n";
+      $GOOD_COMMAND = 0 ;
+#       &print_prompt ;
+   }
+   
    # set commands
    if ($arg =~ /^SE\w*/i) {
       $arg="set";
@@ -192,16 +280,15 @@ while (<>) {
             else        { &missing_arg("$arg $arg1 <password>"); }
          }
 
-         # USER
-         if ($arg1 =~ /^U\w*/i) { 
-             $arg1 = "user";
-            if (@words) { &rd_line("add_user","$arg $arg1",@words) }
-            else        { &missing_arg("$arg $arg1 <user>"); }
-         }
       }
       else        { &missing_arg("set ?"); }
    }
 
+}
+
+sub show_commands {
+
+   my ( $arg , @words ) ;
 
    # show commands
    if ($arg =~ /^SH\w*/i) {
@@ -228,7 +315,12 @@ while (<>) {
       else        { &missing_arg("show <zone|network>"); }
       
    }
+}
+
+sub other_commands {
    
+   my ( $arg , @words ) ;
+
    # add
    if ($arg =~ /^A\w*/i) {
       &debug(1,"[$arg]=add");
@@ -254,20 +346,14 @@ while (<>) {
       if ($arg =~ /^Z\w*/i)  { &remove_zone(@words)  ; &addhistory($_) }
    }
 
-   # no_command is only set if we didn't get something we recognised
-   # this is just a lazy form of 'else'
-   #
-   if ( $NO_COMMAND ) {
-      print "UNRECOGNISED :: $_\n";
-      &print_prompt ;
+   # split
+   if ($arg =~ /^SP\w*/i) {
+      my $arg = shift @words ;
+      # network
+      if ($arg =~ /^N\w*/i) { &split_net(@words)  ; &addhistory($_) }
    }
 
 }
-
-# just in case
-if ( $CONNECTED ) { &disconnect } ;
-
-exit ;
 
 ##########################################################
 #
@@ -284,22 +370,6 @@ exit ;
 ###########################################3
 #
 
-# prompt
-#
-sub print_prompt {
-    print "[$DEBUG] $CONN_STRING $PROMPT" ;
-}
-
-sub set_debug {
-    if ( "@_" =~ /\d+/ ) {
-       $DEBUG = shift @_ ;
-#        $GOOD_COMMAND = 1 ;
-    }
-#     else {
-#        &missing_arg("debug <level>");
-#     }
-}
-
 # parse a line, this is called EVERYTIME we press <cr> so we can
 # do things like print the prompt
 # we abstract this to keep it in one place
@@ -312,21 +382,53 @@ sub rd_line {
 
     my ($command,$hstring,@args) = @_ ;
 
-    $NO_COMMAND = 0 ;
+    &debug (3,"rd_line b: c[$command] h[$hstring] , go_c [$GOOD_COMMAND]");
+
+#     $NO_COMMAND = 1 ;
 
     # call the command
     &$command(@args);
 
-    # history
-    &addhistory("$hstring",@args);
+    #
+    &debug (3,"rd_line a: c[$command] h[$hstring] , go_c [$GOOD_COMMAND]");
+#     &debug (3,"good_c [$GOOD_COMMAND] , go_c [$GOOD_COMMAND]");
 
     # prompt
-    &print_prompt ;
-    #
+#     &print_prompt ;
+
 }
 
-# show the history:
-# &show_history ;
+sub missing_arg {
+    print "Next possible completions : @_\n";
+    $GOOD_COMMAND = 0 ;
+#     $NO_COMMAND = 0 ;
+
+#     &print_prompt ;
+}
+
+#
+# PROMPT
+#
+sub print_prompt {
+    print "[$DEBUG] $CONN_STRING $PROMPT" ;
+}
+
+#
+# SET DEBUG
+#
+sub set_debug {
+    if ( "@_" =~ /\d+/ ) {
+       $DEBUG = shift @_ ;
+#        $GOOD_COMMAND = 1 ;
+    }
+#     else {
+#        &missing_arg("debug <level>");
+#     }
+}
+
+#
+# SHOW THE HISTORY:
+#
 
 sub addhistory {
     my ($line) = "@_" ;
@@ -336,110 +438,28 @@ sub addhistory {
     $line =~ s/\s+/ /g;
     $line =~ tr/A-Z/a-z/;
 
-    push @history , $line ;
+    push @HISTORY , $line ;
 
 }
-
 
 sub show_history {
     my $lineno = 1 ;
 
     # walk through the history array and print what we input
     print "\n-- COMMAND HISTORY --\n";
-    foreach my $command ( @history ) {
+    foreach my $command ( @HISTORY ) {
        print "-- $lineno\t$command\n";
        $lineno ++ ;
     }
     print "\n";
 
-    $GOOD_COMMAND = 1 ;
+#     $GOOD_COMMAND = 1 ;
 
 }
 
-sub split_net {
-    # this one assumes there is a parent
-    # and thus requires some funky netmasking
-    # so it takes more args , newmask
-
-#     my ($net,$cidr) = split(/\//,$_[0] );
-    my ($oldnet,$ncidr) = @_ ;
-    my ($net,$cidr) = split(/\//,$oldnet );
-    $ncidr =~ s/\/// ;
-    my $mask = &cidrfind($cidr) ;
-    my $bitshift = $ncidr - $cidr ;
-    &debug (2,"split net [$net] [$cidr] [$ncidr] ($bitshift)\n");
-
-    &debug (1,"splitting network [$net , $mask] to add [$bitshift] bits");
-
-    # ib_split_network("10.0.0.0", "255.255.0.0", 8);
-    ib_split_network("$net", "$mask", "$bitshift");
-}
-
-sub remove_net {
-    # the split is done here in case we want to change the syntax
-    my ($net,$cidr) = split(/\//,$_[0] );
-    my $mask = &cidrfind($cidr) ;
-    &debug (1,"removing network [$net] mask: [$mask]");
-
-    ib_remove_network("$net","$mask");
-}
-
-sub add_net {
-    # the split is done here in case we want to change the syntax
-    my ($net,$cidr) = split(/\//,$_[0] );
-    &debug (2,"adding network [$net] cidr: [$cidr]");
-
-    my $mask = &cidrfind($cidr) ;
-    &debug (1,"adding network [$net] mask: [$mask]");
-    # add net now requires a bogus parent
-    # not that this will add it at the root level. you need to
-    # use add subnet for anything else
-    ib_insert_network("$net","$mask","0.0.0.0","0.0.0.0");
-}
-
-sub add_sub {
-    # add a subnet to a parent network ;
-#     my ($net,$cidr) = split(/\//,$_[0] );
-    my ($net,$cidr,$parent,$pcidr) = $_[0] =~ /(\S+)\/(\d+)\s+(\S+)\/(\d+)/ ;
-    &debug (2,"adding subnet [$net] cidr: [$cidr]");
-    &debug (2,"  to parent subnet [$parent] cidr: [$pcidr]");
-
-    my $mask = &cidrfind($cidr) ;
-    my $pmask = &cidrfind($pcidr) ;
-    &debug (1,"NOOP adding subnet [$net, $mask] to: [$parent, $pmask]");
-
-    ib_insert_network("$net","$mask","$parent","$pmask");
-}
-
-sub add_host {
-    my ($name,$ip) = @_ ;
-    &debug (1,"adding host [$name] [$ip]");
-    ib_insert_host("$name","$ip");
-}
-
-sub remove_host {
-    my ($name) = @_ ;
-    &debug (1,"remove host [$name]");
-    ib_remove_host("$name");
-}
-
-sub add_zone {
-    # zones can be authoritative or not, we look to see
-    # if the command has the 'auth' keyword after it
-    my $isauth = "false" ;
-    my ($zone,$auth) = @_ ;
-    if ( $auth =~ /^aut/ ) { $isauth = "true" }
-
-    &debug (1,"adding zone [$zone] [$isauth]");
-     ib_insert_zone("$zone","$isauth");
-}
-
-sub remove_zone {
-    my ($zone) = @_ ;
-    &debug (1,"removing zone [$zone]");
-    ib_remove_zone("$zone");
-}
-
+#
+# SERVER CONNECTION STUFF.....
+#
 
 sub add_server {
     my ($arg) = @_ ;
@@ -447,21 +467,10 @@ sub add_server {
 
     if ($arg) {
        &debug (2,"adding server [$arg]");
-       $server_id = $arg ;
+       $SERVER_ID = $arg ;
 
-       $PROMPT = "$server_id > " ;
+       $PROMPT = "$SERVER_ID > " ;
 
-       &connect ;
-    }
-}
-
-sub add_user {
-    my ($arg) = @_ ;
-
-    if ($arg) {
-       # save the server user and see if we have enough info to connect
-       &debug (2,"adding user [$arg]");
-       $server_user = $arg ;
        &connect ;
     }
 }
@@ -472,7 +481,7 @@ sub add_pass {
     if ($arg) {
        # save the server password and see if we have enough info to connect
        &debug (2,"adding passwd [$arg]");
-       $server_pass = $arg ;
+       $SERVER_PASS = $arg ;
        &connect ;
     }
 }
@@ -480,8 +489,8 @@ sub add_pass {
 sub connect {
     # make a connection
     # unless we have both server and password die
-    if ( $server_id && $server_pass && $server_user ) {
-       &debug (1,"connecting to server [$server_id] [$server_pass]");
+    if ( $SERVER_ID && $SERVER_PASS ) {
+       &debug (1,"connecting to server [$SERVER_ID] [$SERVER_PASS]");
 
        print "SERVER :: connecting \n";
 
@@ -489,13 +498,13 @@ sub connect {
        print "Connections :: DISABLED \n";
        ######
 
-#        ib_open_connection($server_id,$server_pass) ;
+#        ib_open_connection($SERVER_ID,$SERVER_PASS) ;
 
-       my $ibc='ib_open_connection($server_id,$server_pass)';
+       my $ibc='ib_open_connection($SERVER_ID,$SERVER_PASS)';
        &debug (3,"ibc [$ibc]");
        eval $ibc ;
 
-       $PROMPT = "$server_id > " ;
+       $PROMPT = "$SERVER_ID > " ;
        $CONN_STRING = "*" ;
 
        $CONNECTED = 1 ;
@@ -534,6 +543,10 @@ sub commit {
     }
 }
 
+#
+# DIGS AND GET ROUTINES
+#
+
 sub get_zone {
     # use dig...
     &debug (2,"getting zone [@_]");
@@ -541,11 +554,11 @@ sub get_zone {
 
     if ( ! $type ) { $type = "SOA" }
 
-    if ( ! $server_id ) {
+    if ( ! $SERVER_ID ) {
        print "CANNOT dig - no server is specified\n";
     }
     else {
-       &do_dig($server_id,$query,$type,$verb);
+       &do_dig($SERVER_ID,$query,$type,$verb);
     }
 
 
@@ -579,14 +592,6 @@ sub do_dig {
     print "\n";
 
 
-}
-
-sub missing_arg {
-    print "INCOMPLETE COMMAND :: @_\n";
-    $GOOD_COMMAND = 0 ;
-    $NO_COMMAND = 0 ;
-
-    &print_prompt ;
 }
 
 ############################################3
@@ -641,6 +646,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.4  2003/09/18 02:28:56  horne
+# *** empty log message ***
+#
 # Revision 1.3  2003/09/16 23:17:25  horne
 # *** empty log message ***
 #
