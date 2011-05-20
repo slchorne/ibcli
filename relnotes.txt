@@ -1,0 +1,59 @@
+New in Version 3.50
+
+    Auto Generate hosts
+
+    You can post process a zone and create host records
+
+       conf zone mod foo.com generate_hosts
+
+  Copy a zone to another view
+
+    you need the source and destination zone and views
+
+        conf zone copy <zone> view <src_view> to <dst_zone> dest_view <dst_view> 
+        conf zone copy zone.com view int to newzone.com dest_view external
+
+  Show information about an IP address
+
+      show ipam address 1.2.3.4
+
+  Add a network to a discovery job
+
+    Each network gets added to the current discovery job
+
+      configure ipam discovery add network 1.2.3.0/24
+
+  Show a discovery job
+
+      show ipam discovery
+
+
+Other cosmetic cleanups :
+
+    Fixed the syntax for adding 'forward_to' zones
+
+       conf zone add fwd.foo.com forward_to ns1.x.com,2.2.2.2 member 10.0.0.20
+
+    Configuring a host for no dns (disable for dns)
+
+       conf zone info.com add host pc2 2.3.3.3 ... nodns
+
+    You no longer need the network when working with ranges or fixed
+    addresses
+
+       conf network add fixed ... option <name>=<value> [opt <name>=value>]
+       conf network add fixed 10.0.1.4 .. option 82="some data"
+
+       conf network add range 10.1.1.20 10.1.1.40
+       conf network add range 10.1.1.20 10.1.1.40 view default
+
+
+    Show Member DNS settings
+
+       show member <name> dns 
+
+       show member ns1.lab.com dns
+
+        ( You can also get there from the zone command )
+
+       show zone member ns1.lab.com
