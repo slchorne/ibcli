@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.4 2006/05/01 22:58:26 horne Exp $ ;
-my $REV = q$Revision: 3.4 $;
-# $Date: 2006/05/01 22:58:26 $
+my $ID  = q$Id: ibcli,v 3.5 2006/05/31 03:27:02 horne Exp $ ;
+my $REV = q$Revision: 3.5 $;
+# $Date: 2006/05/31 03:27:02 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -56,6 +56,7 @@ my $REV = q$Revision: 3.4 $;
 #
 use strict ;
 no strict "refs" ;
+no strict "subs" ;
 
 # work out where i am
 use FindBin qw($Bin $Script);
@@ -65,14 +66,9 @@ use lib "$FindBin::Bin" ;
 use lib "$FindBin::Bin/lib" ;
 use lib "lib" ;
 
-# BEGIN {
-#    push (@INC, "lib");
-#    push (@INC, "$FindBin::Bin");
-#    push (@INC, "$FindBin::Bin/lib");
-# };
+# GDH, moved to an internal routine
+# use Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
 
-# use Term::EditLine qw(CC_EOF CC_NEWLINE CC_ARGHACK CC_CURSOR CC_REDISPLAY);
-use Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
 use Text::Abbrev ;
 use Data::Dumper ;
 use Getopt::Long;
@@ -81,323 +77,7 @@ use Infoblox ;
 # globals
 $Data::Dumper::Sortkeys = 1 ;
 
-# [ ] aliases
-# [ ] history
-
-##########################################################
-#
-# The word list lookup table
-# we'll create a big hash of all commandline alternatives then
-# abbreviate all of them. This will give you conditional cmpctl and still
-# hopefully be easy to read
-
-# the hash is $COMMANDS { "<string>" } { "words|func|help" }
-#             $COMMANDS { "<string>" } { "words" }
-
-# the LHS is a regex matching the WHOLE expanded comand line
-# the RHS is the list of next possible words as a string which
-# will get carved into array values as part of get_context()
-
-# we grep from the LHS the WHOLE STRING (^..$) ensure uniqieness
-
-# [x] how do you handle options than can come in any order ?
-#      use '|' syntax "word|word|word"
-# [x] how do you handle option/value pairs ?
-#      use '|=' syntax "word=<spec>|word=<spec>|word=<spec>"
-# [ ] some options can be repeated, some need to end with them.
-#     so we need a val|val syntax and a val?|val? syntax
-#     ( use perlre's '?' for 0 or 1 )
-
-
-my %COMMANDS = (
-
-    'NULL' => { 
-           words => "help quit history restart download configure show test", },
-    'test' => { 
-#            words => "configure zone network", 
-           words => "configure add adc|bb zone network", 
-#            words => "comment=<comment> <cr> <name,ip> delay=<num> aa|bb bad|member=<ip>|import=<svr> zone network", 
-           func => "cli_test", },
-    'quit' => { 
-           func => "cli_exit", },
-    'history' => { 
-           func => "cli_history", },
-    'show' => { 
-           words => "views lease zone network debug",  },
-
-    'help' => { 
-           words => "all",
-           func => "print_help", },
-    'help all' => { 
-           func => "print_perldoc", },
-
-    'show debug' => { 
-           words => "session commands",  },
-    'show debug session' => { 
-           func => "debug_commands", },
-    'show debug commands' => { 
-           words => "<cr> detailed",
-           func => "debug_commands", },
-    'show debug commands detailed' => { 
-           func => "debug_commands", },
-
-    'show views' => { 
-           words => "<cr> <name>",  
-           func => "cli_show_view", },
-
-    'show views <name>' => { 
-           words => "<cr>",  
-           func => "cli_show_view", },
-
-    'show zone' => { 
-           words => "<cr> <zone>|forward|reverse|view=<name>",  
-           func => "cli_show_zone", },
-
-    'show network' => { 
-           func => "cli_show_network", },
-    'show lease' => { 
-           words => "<ip> <mac>", },
-#            func => "cli_show_lease", },
-    'show lease <mac>' => { 
-           func => "cli_show_lease", },
-    'show lease <ip>' => { 
-           func => "cli_show_lease", },
-
-    'download' => { 
-           words => "database",  },
-    'download database' => { 
-           words => "<file>",  },
-    'download database <file>' => { 
-           func => "cli_download", },
-    'restart' => { 
-           words => "dns dhcp",  },
-    'restart dns' => { 
-           words => "delay=<num>",  
-           func => "cli_restart", },
-    'restart dhcp' => { 
-           words => "delay=<num>",  
-           func => "cli_restart", },
-
-    'configure' => { 
-           words => "debug server zone network grid" , },
-
-    'configure debug' => { 
-           words => "<num>", },
-    'configure debug <num>' => { 
-           func => "set_debug", },
-
-    'configure server' => { 
-           words => "<value>", },
-
-    'configure server <value>' => { 
-           words => "user=<value>", },
-    'configure server <value> user <value>' => { 
-           words => "password=<value>", 
-           func => "cli_add_server", },
-
-    'configure grid' => { 
-           words => "<name>", },
-
-    'configure grid <name>' => { 
-           words => "add delete", },
-    'configure grid <name> add' => { 
-           words => "dns dhcp", },
-    'configure grid <name> add dns' => { 
-           words => "nsgroup=<name> acl", },
-
-    'configure grid <name> add dns nsgroup <name>' => { 
-           words => "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>", 
-           func => "cli_add_grid_nsgroup", },
-
-    'configure grid <name> add dns acl' => { 
-           words => "allow deny", },
-
-    'configure grid <name> add dns acl allow' => { 
-           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
-           func => "cli_add_grid_dns_acl", },
-    'configure grid <name> add dns acl deny' => { 
-           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
-           func => "cli_add_grid_dns_acl", },
-
-    'configure zone' => { 
-           words => "add delete <zone>", },
-
-    'configure zone delete' => { 
-           words => "<zone>", },
-    'configure zone delete <zone>' => { 
-           func => "cli_delete_zone", },
-
-    'configure zone add' => { 
-           words => "<zone>", },
-    'configure zone add <zone>' => { 
-           words => "<cr>
-           view=<name>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
-           func => "cli_add_zone", },
-
-    'configure zone <zone>' => { 
-           words => "add delete", },
-
-    'configure zone <zone> add' => { 
-           words => "host a_record bulkhost cname ptr_record mx", },
-    'configure zone <zone> delete' => { 
-           words => "host a_record bulkhost cname ptr_record mx", },
-
-    'configure zone <zone> delete host' => { 
-           words => "<name>", },
-    'configure zone <zone> delete host <name>' => { 
-           func => "cli_del_host", },
-
-    'configure zone <zone> delete a_record' => { 
-           words => "<name>=<ip>", },
-    'configure zone <zone> delete a_record <name> <ip>' => { 
-           func => "cli_del_a_rec", },
-
-    'configure zone <zone> delete bulkhost' => { 
-           words => "<name>", },
-    'configure zone <zone> delete bulkhost <name>' => { 
-           words => "<ip>", },
-    'configure zone <zone> delete bulkhost <name> <ip>' => { 
-           words => "<ip>", },
-    'configure zone <zone> delete bulkhost <name> <ip> <ip>' => { 
-           func => "cli_del_bulk", },
-
-    'configure zone <zone> delete cname' => { 
-           words => "<name>", },
-    'configure zone <zone> delete cname <name>' => { 
-           words => "<canonical>", },
-    'configure zone <zone> delete cname <name> <canonical>' => { 
-           func => "cli_del_cname", },
-
-    'configure zone <zone> delete ptr_record' => { 
-           words => "<ip>", },
-    'configure zone <zone> delete ptr_record <ip>' => { 
-           words => "<name>", },
-    'configure zone <zone> delete ptr_record <ip> <name>' => { 
-           func => "cli_del_ptr", },
-
-    'configure zone <zone> add mx' => { 
-           words => "<name>", },
-    'configure zone <zone> add mx <name>' => { 
-           words => "<priority>=<name>", },
-    'configure zone <zone> add mx <name> <priority> <name>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_mx", },
-    'configure zone <zone> add mx <name> <priority> <name> comment <comment>' => { 
-           func => "cli_add_mx", },
-
-    'configure zone <zone> add host' => { 
-           words => "<name>=<ip,ip>", },
-    'configure zone <zone> add host <name> <ip,ip>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_host", },
-    'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
-           func => "cli_add_host", },
-
-    'configure zone <zone> add a_record' => { 
-           words => "<name>=<ip>", },
-    'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_a_rec", },
-    'configure zone <zone> add a_record <name> <ip> comment <comment>' => { 
-           func => "cli_add_a_rec", },
-
-    'configure zone <zone> add bulkhost' => { 
-           words => "<name>", },
-    'configure zone <zone> add bulkhost <name>' => { 
-           words => "<ip>", },
-    'configure zone <zone> add bulkhost <name> <ip>' => { 
-           words => "<ip>", },
-    'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_del_bulk", },
-    'configure zone <zone> add bulkhost <name> <ip> <ip> comment <comment>'=> { 
-           func => "cli_add_bulk", },
-
-    'configure zone <zone> add cname' => { 
-           words => "<name>", },
-    'configure zone <zone> add cname <name>' => { 
-           words => "<canonical>", },
-    'configure zone <zone> add cname <name> <canonical>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_cname", },
-    'configure zone <zone> add cname <name> <canonical> comment <comment>'=> { 
-           func => "cli_add_cname", },
-
-    'configure zone <zone> add ptr_record' => { 
-           words => "<ip>", },
-    'configure zone <zone> add ptr_record <ip>' => { 
-           words => "<name>", },
-    'configure zone <zone> add ptr_record <ip> <name>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_ptr", },
-    'configure zone <zone> add cname <ip> <name> comment <comment>'=> { 
-           func => "cli_add_ptr", },
-
-    'configure network' => { 
-           words => "add delete <n.n.n.n/mm>", },
-
-    'configure network delete' => { 
-           words => "<n.n.n.n/mm>", },
-    'configure network delete <n.n.n.n/mm>' => { 
-           func => "cli_delete_network", },
-
-    'configure network add' => { 
-           words => "<n.n.n.n/mm>", },
-    'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr> addreverse|comment=<comment>|member=<ip>|option=<name,value>",  
-           func => "cli_add_network", },
-
-    'configure network <n.n.n.n/mm>' => { 
-           words => "split add delete ", },
-
-    'configure network <n.n.n.n/mm> add' => { 
-           words => "network fixed range",  },
-    'configure network <n.n.n.n/mm> delete' => { 
-           words => "network fixed range",  },
-
-    'configure network <n.n.n.n/mm> split' => { 
-           words => "</cidr>",  },
-    'configure network <n.n.n.n/mm> split </cidr>' => { 
-           words => "<cr> required all",  
-           func => "cli_split_network", },
-    'configure network <n.n.n.n/mm> split </cidr> required' => { 
-           func => "cli_split_network", },
-    'configure network <n.n.n.n/mm> split </cidr> all' => { 
-           func => "cli_split_network", },
-
-    'configure network <n.n.n.n/mm> delete fixed' => { 
-           words => "<ip>=<mac>",  },
-    'configure network <n.n.n.n/mm> delete fixed <ip> <mac>' => { 
-           func => "cli_del_fixed_address", },
-
-    'configure network <n.n.n.n/mm> delete range' => { 
-           words => "<ip>=<ip>",  },
-    'configure network <n.n.n.n/mm> delete range <ip> <ip>' => { 
-           func => "cli_del_dhcp_range", },
-
-    'configure network <n.n.n.n/mm> add network' => { 
-           words => "<n.n.n.n/mm>",  },
-    'configure network <n.n.n.n/mm> add network <n.n.n.n/mm>' => { 
-#            words => "option member",  
-           func => "cli_add_sub_network", },
-
-    'configure network <n.n.n.n/mm> add fixed' => { 
-           words => "<ip>=<mac>",  },
-    'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
-           words => "<cr> comment=<comment>",  
-           func => "cli_add_fixed_address", },
-
-    'configure network <n.n.n.n/mm> add range' => { 
-           words => "<ip>=<ip>",  },
-    'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
-           words => "<cr> comment=<comment>|failover=<value>|member=<ip>|option=<name,value>",  
-           func => "cli_add_dhcp_range", },
-
-   );
-
-# print Dumper ( \%COMMANDS ) ;
-
-### ---  PRE canned regexes --- ###
+### ---  GLOBAL PRE canned regexes --- ###
 #
 #  we can force syntax HERE by matching args to regexes
 #
@@ -424,7 +104,7 @@ my %SPECOPS = (
      '<file>' => '^\S+$',
      '<name>' => '^\S+$',
      '<value>' => '^\S+$',
-     '<name,value>' => '^\S+$',
+     '<name=value>' => '^\S+=\S+$',
      '<canonical>' => '^\S+$',
      '<comment>' => "^$REcomm\$",
      '<name,ip>' => "^$REzone,*($REpartip)*\$",
@@ -439,7 +119,7 @@ my %SPECOPS = (
    );
 
 # Alternate words are set of a global lookup table
-
+# [ ] GDH - no implemented
 my %ALTERNATES = (
      "configure" => "set",
 );
@@ -453,6 +133,7 @@ my $MASTER_IP ;
 
 my $DEBUG = 0 ;
 my $LIST_COMM = 0 ;
+my $LIST_USAGE = 0 ;
 
 my ( $S_ID , $S_PASS , $S_USER ) ;
 
@@ -460,10 +141,40 @@ GetOptions (
     "s=s" => \$S_ID , 
     "p=s" => \$S_PASS ,
     "u=s" => \$S_USER ,
+    "h|help" => \$LIST_USAGE ,
     "t+"  => \$LIST_COMM ,
     "V|version+"    => sub { print "\n$ID\n$REV\n\n"; exit ; },
     "d=s"     => \$DEBUG,
 );
+
+if ( $LIST_USAGE ) {
+      print "
+Usage $NAME [-s <dns one IP> -u <user> -p <passwd>] [file.cf]
+   -s <xxx>   # The name of the DNS One you are poking at
+   -u <xxx>   # The username
+   -p <xxx>   # That user's password
+   -d N       # The debug level
+   -V         # show the version #
+   -t         # show the command table
+   -h|help    # Print out help
+    \n";
+
+    exit ;
+}
+
+##########################################################
+# now we can initialise
+
+# set the prompt ;
+my $PROMPT = 'server ? > ';
+
+# initialise the CLI table ( have to do this first or we can't dump them )
+my %COMMANDS = &init_commands ;
+
+# initialise editline ( or not ) and return a handler
+my ( $USE_EL , $el ) = &init_editline ;
+
+##########################################################
 
 # bailout if we just want commands
 if ( $LIST_COMM ) {
@@ -475,82 +186,7 @@ if ( $LIST_COMM ) {
 
 ##########################################################
 
-# create the object
-my $el = Term::EditLine->new('progname');
-
-# set the prompt ;
-my $PROMPT = 'server ? > ';
-$el->set_prompt ("$PROMPT");
-
-# other useful commands are
-#      $el->insertstr("aaaa");
-# inserts text, but may not print it.
-
-
-##########################################################
-
-# sigint (ctrl-c) has to be caught by perl, before the term.
-# $SIG{INT} = sub { print "\nYou hit ^C... Aaayyy it hurts\n"; };
-# $SIG{INT} = sub { $el->reset ; return CC_CURSOR };
-# $el->add_fun ('undo','reset', 
-#              sub { print "\n" ; $el->reset ; return CC_REDISPLAY }) ;
-
-$SIG{INT} = 'IGNORE';
-
-########################################
-# define input functions
-#
-# these occur based on character input...
-#
-########################################
-
-# quit on '^D'
-# CC_EOF kills the input (end of file)
-# $el->add_fun ('bye','desc',sub { print "q\nquitting...bye\n"; return CC_EOF; });
-$el->add_fun ('bye','desc', \&cli_exit );
-
-# print help
-$el->add_fun ('help','desc', \&print_help );
-
-# completion control
-$el->add_fun ('cmpcl','desc', \&cmpctl ) ;
-
-sub cli_exit {
-    # quit and cleanup
-    print "\nexiting...bye\n"; 
-#     $el->history_save(".clihistory") || die "cant" ;
-    exit ;
-#     return CC_EOF;
-}
-
-
-########################################
-# add key bindings
-# 'q' to quit is really an arg function
-# $el->parse('bind','q\n','bye');
-
-$el->parse('bind','-e');
-$el->parse('bind','^D','bye');
-
-# "\" clear the line ( can't use CRTL-C ?? )
-$el->parse('bind','\\\\','ed-start-over');
-
-# inline help
-$el->parse('bind','?','help');
-
-# tab ?
-$el->parse('bind','\t','cmpcl');
-
-# show them all
-# $el->parse('bind','-a');
-
-########################################
-
-# load the history
-# $el->history_load(".clihistory");
-
-########################################
-
+# otherwise - we initialise and get going
 # do a connection from the git go ?
 if ( $S_ID and $S_PASS and $S_USER ) {
    &cli_add_server ( "configure server $S_ID user $S_USER password $S_PASS" ) ;
@@ -559,25 +195,27 @@ if ( $S_ID and $S_PASS and $S_USER ) {
 # main loop
 
 if ( @ARGV ) {
-   # we are in batch mode
+    # we are in batch mode
 
-   # scrub the prompt
-   $PROMPT = "" ;
+    # scrub the prompt
+    $PROMPT = "" ;
+    
+    # read the file
+    while (<> ) {
 
-   # read the file
-   while (<> ) {
-     # 
-     # skip comments, blanks
-     next if /^\s*#/;
-     next if /^$/;
+        $PROMPT = "read line $.:" ;
+        # 
+        # skip comments, blanks
+        next if /^\s*#/;
+        next if /^$/;
+    
+        print "$PROMPT $_";
+    
+        &process_line ( $_ ) ;
 
-     print "$PROMPT $_";
+    }
 
-     &process_line ( $_ ) ;
-
-   }
-
-   exit ;
+    exit ;
 
 }
 else {
@@ -590,30 +228,65 @@ print "
 #
 #####################################################################
 
- ( press <tab> for help )
+( press <tab> for help )
 ";
 
-   while (defined($_ = $el->gets())) {
+    if ( $USE_EL ) {
+        # we can load the editline routines and use them
+        while (defined($_ = $el->gets())) {
 
-    # only history non-blank lines
-    chomp ( my ( $in ) = $el->line ) ;
-    if ( $in ) {
-       # save the line WITH the cr.
-       $el->history_enter($_);
+            # only history non-blank lines
+            chomp ( my ( $in ) = $el->line ) ;
+            if ( $in ) {
+                    # save the line WITH the cr.
+                    $el->history_enter($_);
+            }
+
+            # now do something
+            chomp ;
+
+            # cleanup the line, do something, and redraw
+            # we can only do redraws on a 'return()' 
+            # so everything is in a sub{}
+            &process_line ( $_ ) ;
+
+            # now flush the buffer
+            $el->deletestr( length ( $in ) );
+        }
+    }
+    else {
+        # no editline (winders) go old skool
+        print "Warning : Can't find Term::EditLine, feature disabled\n";
+        # unbuffer IO
+        $| = 1 ;
+        print "$PROMPT";
+
+        # read lines 1 per
+        while(<>){
+
+            # exit conditions etc that /were/ in editline
+            if ( /^quit|q$/ ) {
+                &cli_exit ;
+            }
+            # help
+            if ( /\?\s*$/ ) {
+                # so a simple substitution
+                $_ = "help\n" ;
+            }
+            # skip comments, blanks
+#             next if /^\s*#/;
+#             next if /^$/;
+
+            # snarf the line
+            chomp ;
+            &process_line ( $_ ) ;
+
+            # lastly, reprompt ?
+            print "$PROMPT";
+
+        }
     }
 
-    # now do something
-#     exit if /^quit|q$/;
-    chomp ;
-
-    # cleanup the line, do something, and redraw
-    # we can only do redraws on a 'return()' so everything is in a sub{}
-    &process_line ( $_ ) ;
-
-    # now flush the buffer
-    $el->deletestr( length ( $in ) );
-
-   }
 }
 
 #####################################################################
@@ -630,7 +303,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.4 $
+$Revision: 3.5 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -804,15 +477,21 @@ sub cli_history {
 
 sub print_help { 
     # [ ] contextual help
-    my ( $context ) = $el->line ;
-    chomp $context;
+    if ( $USE_EL ) {
+        my ( $context ) = $el->line ;
+        chomp $context;
 
-    print "\nhelp for [$context] TBD
+        print "\nhelp for [$context] TBD
  press :
-   <tab> for options and word completion
-   '\\' to clear the line
-   'q' to quit\n\n";
-    return CC_REDISPLAY
+    <tab> for options and word completion
+    '\\' to clear the line
+    'q' to quit\n\n";
+
+        return CC_REDISPLAY ;
+    }
+    else {
+        print "\nNo help available (Editline disabled)\n\n";
+    }
 };
 
 sub print_perldoc { 
@@ -2008,7 +1687,9 @@ Add a network with comments (comments must come last)
 =cut
 
 # direct options :
-# [ ] lease_time , domain_name , etc etc
+# [-] lease_time , domain_name , etc etc
+# let the serverside handle this or i will end up hardcoding keywords
+# in too many places
 
 sub cli_add_network {
     # essentially all options are passed as name value pairs
@@ -2067,19 +1748,24 @@ sub cli_add_network {
        foreach my $optval ( @options ) {
           # set some custom options;
           # split on the ','
-          my ( $opt , $val ) = $optval =~  /^(.*?),(.*)/ ;
+          my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
    
           &debug_cli(2,"addnet o($opt) v($val)");
    
           my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
-          push @opt_list , $opt_obj ;
+
+          # only add options we recognise
+          if ( $opt_obj ) {
+            push @opt_list , $opt_obj ;
+          }
+
        }
 
-#        $net->options ( \@opt_list ) ;
+       $net->options ( \@opt_list ) ;
 
     }
 
-    # add the object 
+    # add the network 
     &do_func("add",$net);
 
 }
@@ -2165,8 +1851,6 @@ sub cli_add_sub_network {
 
     # we hack this by change the arg list to the correct syntax
     # and just calling cli_add_network
-
-    # [ ] Add options , (or use mod_net ?)
 
     my ( $par , $sub ) = $line =~/ network (\S+) add network (\S+)/ ;
 
@@ -2328,7 +2012,7 @@ sub cli_add_dhcp_range {
 
     }
 
-    # add the object
+    # add the range
     &do_func("add",$obj);
 
 }
@@ -2578,8 +2262,6 @@ Show just 1 zone
 sub cli_show_zone {
     #
     # [ ] show needs some cleanup
-    # splitting either creates ALL networks or only the ones
-    # we have to have (which could be none)
 
     my ( $line ) = @_ ;
 
@@ -3021,9 +2703,385 @@ sub dump_object {
 
 }
 
+# sub make_dhcp_option {
+#     print "  OPTIONS not supported\n";
+# }
+
+# DHCP functions
 sub make_dhcp_option {
-    print "  OPTIONS not supported\n";
+    my ( $DEBUG, $opt , $val ) = @_ ;
+
+    # eat random dhcp options,
+    # make intelligent decisions,
+    # return an object
+
+    # initially clean the value
+    $val =~ s/"//g;
+
+    # we have to convert all options to both a name and a number
+    # this will save us pain in the long run
+
+    my ( $onum , $oname ) = &get_custom_options ( $DEBUG , $opt ) ;
+
+    debug_cli(4,"mkdh: took option o($opt) > ($onum)($oname)=($val)");
+
+    # then conditionally check the object and see if it it is special
+    # or just an ordinary option
+
+    # this loop is the god, it renames a value and its type
+    # it is also a list of what options we handle specifically
+    # (as opposed to generic 'custom options')
+
+    my $option ;
+
+    if ( $oname eq "routers" ) {
+       $option = Infoblox::DHCP::Option->new (
+                    "type" => "routers",
+                    "ipv4addrs" => [ split(/,\s*/,$val) ],
+                 )
+    }
+    elsif ( $oname eq "domain-name-servers" ) {
+       $option = Infoblox::DHCP::Option->new (
+                    "type" => "nameservers",
+                    "ipv4addrs" => [ split(/,\s*/,$val) ],
+                 )
+    }
+    elsif ( $oname eq "domain-name" ) {
+       $option = Infoblox::DHCP::Option->new (
+                    "type" => "domain-name",
+                    "name" => $val,
+                 )
+    }
+    elsif ( $oname eq "broadcast-address" ) {
+       $option = Infoblox::DHCP::Option->new (
+                    "type" => "broadcast",
+                    "ipv4addr" => $val,
+                 )
+    }
+    elsif ( $oname eq "lease-time" ) {
+       $option = Infoblox::DHCP::Option->new (
+                    "type" => "lease-time",
+                    "seconds" => $val,
+                 )
+    }
+    elsif ( $onum ) {
+       # only do this if we have a real #
+       debug_cli(4,"mkdh: generic option o($onum)=($val)");
+       $option = Infoblox::DHCP::Option->new (
+                    "type" => $onum,
+                    "value" => $val,
+                 )
+    }
+
+    # return the object and the name of the object
+    return ( $option , $oname ) ;
+
 }
+
+sub get_custom_options {
+  # remap some variables
+    my $DEBUG = shift;
+    my $opt = shift;
+    my %lookup = (
+         "subnet-mask" => "Option   1: subnet-mask",
+         "time-offset" => "Option   2: time-offset",
+         "routers" => "Option   3: routers",
+         "time-servers" => "Option   4: time-servers",
+         "ien116-name-servers" => "Option   5: ien116-name-servers",
+         "domain-name-servers" => "Option   6: domain-name-servers",
+         "log-servers" => "Option   7: log-servers",
+         "cookie-servers" => "Option   8: cookie-servers",
+         "lpr-servers" => "Option   9: lpr-servers",
+         "impress-servers" => "Option  10: impress-servers",
+         "resource-location-servers" => "Option  11: resource-location-servers",
+         "host-name" => "Option  12: host-name",
+         "boot-size" => "Option  13: boot-size",
+         "merit-dump" => "Option  14: merit-dump",
+         "default-domain" => "Option  15: domain-name",
+         "domain-name" => "Option  15: domain-name",
+         "swap-server" => "Option  16: swap-server",
+         "root-path" => "Option  17: root-path",
+         "extensions-path" => "Option  18: extensions-path",
+         "ip-forwarding" => "Option  19: ip-forwarding",
+         "non-local-source-routing" => "Option  20: non-local-source-routing",
+         "policy-filter" => "Option  21: policy-filter",
+         "max-dgram-reassembly" => "Option  22: max-dgram-reassembly",
+         "default-ip-ttl" => "Option  23: default-ip-ttl",
+         "path-mtu-aging-timeout" => "Option  24: path-mtu-aging-timeout",
+         "path-mtu-plateau-table" => "Option  25: path-mtu-plateau-table",
+         "interface-mtu" => "Option  26: interface-mtu",
+         "all-subnets-local" => "Option  27: all-subnets-local",
+         "broadcast-address" => "Option  28: broadcast-address",
+         "perform-mask-discovery" => "Option  29: perform-mask-discovery",
+         "mask-supplier" => "Option  30: mask-supplier",
+         "router-discovery" => "Option  31: router-discovery",
+         "router-solicitation-address" => "Option  32: router-solicitation-address",
+         "static-routes" => "Option  33: static-routes",
+         "trailer-encapsulation" => "Option  34: trailer-encapsulation",
+         "arp-cache-timeout" => "Option  35: arp-cache-timeout",
+         "ieee802-3-encapsulation" => "Option  36: ieee802-3-encapsulation",
+         "default-tcp-ttl" => "Option  37: default-tcp-ttl",
+         "tcp-keepalive-interval" => "Option  38: tcp-keepalive-interval",
+         "tcp-keepalive-garbage" => "Option  39: tcp-keepalive-garbage",
+         "nis-domain" => "Option  40: nis-domain",
+         "nis-servers" => "Option  41: nis-servers",
+         "ntp-servers" => "Option  42: ntp-servers",
+         "vendor-encapsulated-options" => "Option  43: vendor-encapsulated-options",
+         "netbios-name-servers" => "Option  44: netbios-name-servers",
+         "netbios-dd-server" => "Option  45: netbios-dd-server",
+         "netbios-node-type" => "Option  46: netbios-node-type",
+         "netbios-scope" => "Option  47: netbios-scope",
+         "font-servers" => "Option  48: font-servers",
+         "x-display-manager" => "Option  49: x-display-manager",
+         "dhcp-requested-address" => "Option  50: dhcp-requested-address",
+         "lease-time" => "Option  51: lease-time",
+         "default-lease-time" => "Option  51: lease-time",
+         "max-lease-time" => "Option  51: lease-time",
+         "dhcp-option-overload" => "Option  52: dhcp-option-overload",
+         "dhcp-message-type" => "Option  53: dhcp-message-type",
+         "dhcp-server-identifier" => "Option  54: dhcp-server-identifier",
+         "dhcp-parameter-request-list" => "Option  55: dhcp-parameter-request-list",
+         "dhcp-message" => "Option  56: dhcp-message",
+         "dhcp-max-message-size" => "Option  57: dhcp-max-message-size",
+         "dhcp-renewal-time" => "Option  58: dhcp-renewal-time",
+         "dhcp-rebinding-time" => "Option  59: dhcp-rebinding-time",
+         "vendor-class-identifier" => "Option  60: vendor-class-identifier",
+         "dhcp-client-identifier" => "Option  61: dhcp-client-identifier",
+         "nwip-domain" => "Option  62: nwip-domain",
+         "nwip-suboptions" => "Option  63: nwip-suboptions",
+         "nisplus-domain" => "Option  64: nisplus-domain",
+         "nisplus-servers" => "Option  65: nisplus-servers",
+         "tftp-server-name" => "Option  66: tftp-server-name",
+         "tftp-server" => "Option  66: tftp-server-name",
+         "boot-file" => "Option  67: boot-file",
+         "mobile-ip-home-agent" => "Option  68: mobile-ip-home-agent",
+         "smtp-server" => "Option  69: smtp-server",
+         "pop-server" => "Option  70: pop-server",
+         "nntp-server" => "Option  71: nntp-server",
+         "www-server" => "Option  72: www-server",
+         "finger-server" => "Option  73: finger-server",
+         "irc-server" => "Option  74: irc-server",
+         "streettalk-server" => "Option  75: streettalk-server",
+         "streettalk-directory-assistance-server" => "Option  76: streettalk-directory-assistance-server",
+         "user-class" => "Option  77: user-class",
+         "slp-directory-agent" => "Option  78: slp-directory-agent",
+         "slp-service-scope" => "Option  79: slp-service-scope",
+         "option-80" => "Option  80: option-80",
+         "fqdn" => "Option  81: fqdn",
+         "relay-agent-information" => "Option  82: relay-agent-information",
+         "option-83" => "Option  83: option-83",
+         "option-84" => "Option  84: option-84",
+         "nds-servers" => "Option  85: nds-servers",
+         "nds-tree-name" => "Option  86: nds-tree-name",
+         "nds-context" => "Option  87: nds-context",
+         "option-88" => "Option  88: option-88",
+         "option-89" => "Option  89: option-89",
+         "option-90" => "Option  90: option-90",
+         "option-91" => "Option  91: option-91",
+         "option-92" => "Option  92: option-92",
+         "option-93" => "Option  93: option-93",
+         "option-94" => "Option  94: option-94",
+         "option-95" => "Option  95: option-95",
+         "option-96" => "Option  96: option-96",
+         "option-97" => "Option  97: option-97",
+         "uap-servers" => "Option  98: uap-servers",
+         "option-99" => "Option  99: option-99",
+         "option-100" => "Option 100: option-100",
+         "option-101" => "Option 101: option-101",
+         "option-102" => "Option 102: option-102",
+         "option-103" => "Option 103: option-103",
+         "option-104" => "Option 104: option-104",
+         "option-105" => "Option 105: option-105",
+         "option-106" => "Option 106: option-106",
+         "option-107" => "Option 107: option-107",
+         "option-108" => "Option 108: option-108",
+         "option-109" => "Option 109: option-109",
+         "option-110" => "Option 110: option-110",
+         "option-111" => "Option 111: option-111",
+         "option-112" => "Option 112: option-112",
+         "option-113" => "Option 113: option-113",
+         "option-114" => "Option 114: option-114",
+         "option-115" => "Option 115: option-115",
+         "option-116" => "Option 116: option-116",
+         "option-117" => "Option 117: option-117",
+         "subnet-selection" => "Option 118: subnet-selection",
+         "option-119" => "Option 119: option-119",
+         "option-120" => "Option 120: option-120",
+         "option-121" => "Option 121: option-121",
+         "option-122" => "Option 122: option-122",
+         "option-123" => "Option 123: option-123",
+         "option-124" => "Option 124: option-124",
+         "option-125" => "Option 125: option-125",
+         "option-126" => "Option 126: option-126",
+         "option-127" => "Option 127: option-127",
+         "option-128" => "Option 128: option-128",
+         "option-129" => "Option 129: option-129",
+         "option-130" => "Option 130: option-130",
+         "option-131" => "Option 131: option-131",
+         "option-132" => "Option 132: option-132",
+         "option-133" => "Option 133: option-133",
+         "option-134" => "Option 134: option-134",
+         "option-135" => "Option 135: option-135",
+         "option-136" => "Option 136: option-136",
+         "option-137" => "Option 137: option-137",
+         "option-138" => "Option 138: option-138",
+         "option-139" => "Option 139: option-139",
+         "option-140" => "Option 140: option-140",
+         "option-141" => "Option 141: option-141",
+         "option-142" => "Option 142: option-142",
+         "option-143" => "Option 143: option-143",
+         "option-144" => "Option 144: option-144",
+         "option-145" => "Option 145: option-145",
+         "option-146" => "Option 146: option-146",
+         "option-147" => "Option 147: option-147",
+         "option-148" => "Option 148: option-148",
+         "option-149" => "Option 149: option-149",
+         "option-150" => "Option 150: option-150",
+         "option-151" => "Option 151: option-151",
+         "option-152" => "Option 152: option-152",
+         "option-153" => "Option 153: option-153",
+         "option-154" => "Option 154: option-154",
+         "option-155" => "Option 155: option-155",
+         "option-156" => "Option 156: option-156",
+         "option-157" => "Option 157: option-157",
+         "option-158" => "Option 158: option-158",
+         "option-159" => "Option 159: option-159",
+         "option-160" => "Option 160: option-160",
+         "option-161" => "Option 161: option-161",
+         "option-162" => "Option 162: option-162",
+         "option-163" => "Option 163: option-163",
+         "option-164" => "Option 164: option-164",
+         "option-165" => "Option 165: option-165",
+         "option-166" => "Option 166: option-166",
+         "option-167" => "Option 167: option-167",
+         "option-168" => "Option 168: option-168",
+         "option-169" => "Option 169: option-169",
+         "option-170" => "Option 170: option-170",
+         "option-171" => "Option 171: option-171",
+         "option-172" => "Option 172: option-172",
+         "option-173" => "Option 173: option-173",
+         "option-174" => "Option 174: option-174",
+         "option-175" => "Option 175: option-175",
+         "option-176" => "Option 176: option-176",
+         "option-177" => "Option 177: option-177",
+         "option-178" => "Option 178: option-178",
+         "option-179" => "Option 179: option-179",
+         "option-180" => "Option 180: option-180",
+         "option-181" => "Option 181: option-181",
+         "option-182" => "Option 182: option-182",
+         "option-183" => "Option 183: option-183",
+         "option-184" => "Option 184: option-184",
+         "option-185" => "Option 185: option-185",
+         "option-186" => "Option 186: option-186",
+         "option-187" => "Option 187: option-187",
+         "option-188" => "Option 188: option-188",
+         "option-189" => "Option 189: option-189",
+         "option-190" => "Option 190: option-190",
+         "option-191" => "Option 191: option-191",
+         "option-192" => "Option 192: option-192",
+         "option-193" => "Option 193: option-193",
+         "option-194" => "Option 194: option-194",
+         "option-195" => "Option 195: option-195",
+         "option-196" => "Option 196: option-196",
+         "option-197" => "Option 197: option-197",
+         "option-198" => "Option 198: option-198",
+         "option-199" => "Option 199: option-199",
+         "option-200" => "Option 200: option-200",
+         "option-201" => "Option 201: option-201",
+         "option-202" => "Option 202: option-202",
+         "option-203" => "Option 203: option-203",
+         "option-204" => "Option 204: option-204",
+         "option-205" => "Option 205: option-205",
+         "option-206" => "Option 206: option-206",
+         "option-207" => "Option 207: option-207",
+         "option-208" => "Option 208: option-208",
+         "option-209" => "Option 209: option-209",
+         "authenticate" => "Option 210: authenticate",
+         "option-211" => "Option 211: option-211",
+         "option-212" => "Option 212: option-212",
+         "option-213" => "Option 213: option-213",
+         "option-214" => "Option 214: option-214",
+         "option-215" => "Option 215: option-215",
+         "option-216" => "Option 216: option-216",
+         "option-217" => "Option 217: option-217",
+         "option-218" => "Option 218: option-218",
+         "option-219" => "Option 219: option-219",
+         "option-220" => "Option 220: option-220",
+         "option-221" => "Option 221: option-221",
+         "option-222" => "Option 222: option-222",
+         "option-223" => "Option 223: option-223",
+         "option-224" => "Option 224: option-224",
+         "option-225" => "Option 225: option-225",
+         "option-226" => "Option 226: option-226",
+         "option-227" => "Option 227: option-227",
+         "option-228" => "Option 228: option-228",
+         "option-229" => "Option 229: option-229",
+         "option-230" => "Option 230: option-230",
+         "option-231" => "Option 231: option-231",
+         "option-232" => "Option 232: option-232",
+         "option-233" => "Option 233: option-233",
+         "option-234" => "Option 234: option-234",
+         "option-235" => "Option 235: option-235",
+         "option-236" => "Option 236: option-236",
+         "option-237" => "Option 237: option-237",
+         "option-238" => "Option 238: option-238",
+         "option-239" => "Option 239: option-239",
+         "option-240" => "Option 240: option-240",
+         "option-241" => "Option 241: option-241",
+         "option-242" => "Option 242: option-242",
+         "option-243" => "Option 243: option-243",
+         "option-244" => "Option 244: option-244",
+         "option-245" => "Option 245: option-245",
+         "option-246" => "Option 246: option-246",
+         "option-247" => "Option 247: option-247",
+         "option-248" => "Option 248: option-248",
+         "option-249" => "Option 249: option-249",
+         "option-250" => "Option 250: option-250",
+         "option-251" => "Option 251: option-251",
+         "option-252" => "Option 252: option-252",
+         "option-253" => "Option 253: option-253",
+         "option-254" => "Option 254: option-254",
+    );
+
+    # is it a number ?
+    # then lookup and return the real name
+
+    my $name ;
+    my $number ;
+
+    if ( $opt =~ /^\d+$/ ) {
+       # look it up in the above list
+       ( $name ) = grep ( / $opt:/ , sort values %lookup );
+
+       # clean it, return
+       $name =~ s/.*: //;
+       $number = $opt;
+    }
+    else {
+       # find the number
+       # fix it ?
+       if ( $lookup{$opt} ) {
+          $number = $lookup{$opt};
+          $name = $lookup{$opt};
+          
+          # strip and clean the answers
+          $number =~ s/\D//g;
+          $name =~ s/.*: //;
+       }
+       else {
+          $number = 0 ;
+          $name = "0" ;
+       }
+    }
+
+#     my $DEBUG = 4 ;
+    debug_cli(4,"gedh: ($number , $name) from [$opt]");
+
+    return ( $number , $name ) ;
+}
+
+
+
 
 sub by_ip {
     # used for sorting (by_ip)
@@ -3044,6 +3102,437 @@ sub abs_ip {
        $absval = $absval + ( 2 ** 24 * $octets[0] ) ;
 
     return ($absval) ;
+}
+
+sub cli_exit {
+    # quit and cleanup
+    print "\nexiting...bye\n"; 
+#     $el->history_save(".clihistory") || die "cant" ;
+    exit ;
+#     return CC_EOF;
+}
+
+sub init_editline {
+
+    # assume the worst
+    my $use_el = 0 ;
+
+    # now, try an catch the loading of editline and not abort when we die
+    # errk
+
+    # Inside an "eval()," the die()
+    # error message is stuffed into $@ and the "eval" is terminated
+    # with the undefined value.  
+    # This makes "die" the way to raise an exception.
+    eval { 
+        require Term::eEditLine;
+#         require Term::EditLine;
+    } ;
+    if ( $@ =~ /Can't locate Term.* in \@INC/ ) {
+        # return NULL
+        return ( 0 , 0 );
+    }
+    else {
+        # we loaded ok, git going.
+        $use_el = 1
+    }
+    
+    # continue importing
+    import Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
+
+    # create the object
+    my $el = Term::EditLine->new('progname');
+
+    $el->set_prompt ("$PROMPT");
+    
+    # other useful commands are
+    #      $el->insertstr("aaaa");
+    # inserts text, but may not print it.
+
+
+    ##########################################################
+    
+    # sigint (ctrl-c) has to be caught by perl, before the term.
+    # $SIG{INT} = sub { print "\nYou hit ^C... Aaayyy it hurts\n"; };
+    # $SIG{INT} = sub { $el->reset ; return CC_CURSOR };
+    # $el->add_fun ('undo','reset', 
+    #              sub { print "\n" ; $el->reset ; return CC_REDISPLAY }) ;
+
+    $SIG{INT} = 'IGNORE';
+
+    ########################################
+    # define input functions
+    #
+    # these occur based on character input...
+    #
+    ########################################
+
+    # quit on '^D'
+    # CC_EOF kills the input (end of file)
+    # $el->add_fun ('bye','desc',sub { 
+    #         print "q\nquitting...bye\n"; return CC_EOF; });
+
+    $el->add_fun ('bye','desc', \&cli_exit );
+
+    # print help
+    $el->add_fun ('help','desc', \&print_help );
+
+    # completion control
+    $el->add_fun ('cmpcl','desc', \&cmpctl ) ;
+
+
+    ########################################
+    # add key bindings
+    # 'q' to quit is really an arg function
+    # $el->parse('bind','q\n','bye');
+
+    $el->parse('bind','-e');
+    $el->parse('bind','^D','bye');
+
+    # "\" clear the line ( can't use CRTL-C ?? )
+    $el->parse('bind','\\\\','ed-start-over');
+    
+    # inline help
+    $el->parse('bind','?','help');
+    
+    # tab ?
+    $el->parse('bind','\t','cmpcl');
+
+    # show them all
+    # $el->parse('bind','-a');
+
+    ########################################
+    
+    # load the history
+    # $el->history_load(".clihistory");
+
+    ########################################
+
+    # did we succeed ?
+    if ( $el ) { $use_el = 1 }
+
+    # return the handler
+    return ( $use_el , $el );
+}
+
+sub init_commands {
+
+
+##########################################################
+#
+# The word list lookup table
+# we'll create a big hash of all commandline alternatives then
+# abbreviate all of them. This will give you conditional cmpctl and still
+# hopefully be easy to read
+
+# the hash is $COMMANDS { "<string>" } { "words|func|help" }
+#             $COMMANDS { "<string>" } { "words" }
+
+# the LHS is a regex matching the WHOLE expanded comand line
+# the RHS is the list of next possible words as a string which
+# will get carved into array values as part of get_context()
+
+# we grep from the LHS the WHOLE STRING (^..$) ensure uniqieness
+
+# [x] how do you handle options than can come in any order ?
+#      use '|' syntax "word|word|word"
+# [x] how do you handle option/value pairs ?
+#      use '|=' syntax "word=<spec>|word=<spec>|word=<spec>"
+# [ ] some options can be repeated, some need to end with them.
+#     so we need a val|val syntax and a val?|val? syntax
+#     ( use perlre's '?' for 0 or 1 )
+
+
+my %COMMANDS = (
+
+    'NULL' => { 
+           words => "help quit history restart download configure show test", },
+    'test' => { 
+#            words => "configure zone network", 
+           words => "configure add adc|bb zone network", 
+#            words => "comment=<comment> <cr> <name,ip> delay=<num> aa|bb bad|member=<ip>|import=<svr> zone network", 
+           func => "cli_test", },
+    'quit' => { 
+           func => "cli_exit", },
+    'history' => { 
+           func => "cli_history", },
+    'show' => { 
+           words => "views lease zone network debug",  },
+
+    'help' => { 
+           words => "all",
+           func => "print_help", },
+    'help all' => { 
+           func => "print_perldoc", },
+
+    'show debug' => { 
+           words => "session commands",  },
+    'show debug session' => { 
+           func => "debug_commands", },
+    'show debug commands' => { 
+           words => "<cr> detailed",
+           func => "debug_commands", },
+    'show debug commands detailed' => { 
+           func => "debug_commands", },
+
+    'show views' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_view", },
+
+    'show views <name>' => { 
+           words => "<cr>",  
+           func => "cli_show_view", },
+
+    'show zone' => { 
+           words => "<cr> <zone>|forward|reverse|view=<name>",  
+           func => "cli_show_zone", },
+
+    'show network' => { 
+           func => "cli_show_network", },
+    'show lease' => { 
+           words => "<ip> <mac>", },
+#            func => "cli_show_lease", },
+    'show lease <mac>' => { 
+           func => "cli_show_lease", },
+    'show lease <ip>' => { 
+           func => "cli_show_lease", },
+
+    'download' => { 
+           words => "database",  },
+    'download database' => { 
+           words => "<file>",  },
+    'download database <file>' => { 
+           func => "cli_download", },
+    'restart' => { 
+           words => "dns dhcp",  },
+    'restart dns' => { 
+           words => "delay=<num>",  
+           func => "cli_restart", },
+    'restart dhcp' => { 
+           words => "delay=<num>",  
+           func => "cli_restart", },
+
+    'configure' => { 
+           words => "debug server zone network grid" , },
+
+    'configure debug' => { 
+           words => "<num>", },
+    'configure debug <num>' => { 
+           func => "set_debug", },
+
+    'configure server' => { 
+           words => "<value>", },
+
+    'configure server <value>' => { 
+           words => "user=<value>", },
+    'configure server <value> user <value>' => { 
+           words => "password=<value>", 
+           func => "cli_add_server", },
+
+    'configure grid' => { 
+           words => "<name>", },
+
+    'configure grid <name>' => { 
+           words => "add delete", },
+    'configure grid <name> add' => { 
+           words => "dns dhcp", },
+    'configure grid <name> add dns' => { 
+           words => "nsgroup=<name> acl", },
+
+    'configure grid <name> add dns nsgroup <name>' => { 
+           words => "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>", 
+           func => "cli_add_grid_nsgroup", },
+
+    'configure grid <name> add dns acl' => { 
+           words => "allow deny", },
+
+    'configure grid <name> add dns acl allow' => { 
+           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           func => "cli_add_grid_dns_acl", },
+    'configure grid <name> add dns acl deny' => { 
+           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           func => "cli_add_grid_dns_acl", },
+
+    'configure zone' => { 
+           words => "add delete <zone>", },
+
+    'configure zone delete' => { 
+           words => "<zone>", },
+    'configure zone delete <zone>' => { 
+           func => "cli_delete_zone", },
+
+    'configure zone add' => { 
+           words => "<zone>", },
+    'configure zone add <zone>' => { 
+           words => "<cr>
+           view=<name>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
+           func => "cli_add_zone", },
+
+    'configure zone <zone>' => { 
+           words => "add delete", },
+
+    'configure zone <zone> add' => { 
+           words => "host a_record bulkhost cname ptr_record mx", },
+    'configure zone <zone> delete' => { 
+           words => "host a_record bulkhost cname ptr_record mx", },
+
+    'configure zone <zone> delete host' => { 
+           words => "<name>", },
+    'configure zone <zone> delete host <name>' => { 
+           func => "cli_del_host", },
+
+    'configure zone <zone> delete a_record' => { 
+           words => "<name>=<ip>", },
+    'configure zone <zone> delete a_record <name> <ip>' => { 
+           func => "cli_del_a_rec", },
+
+    'configure zone <zone> delete bulkhost' => { 
+           words => "<name>", },
+    'configure zone <zone> delete bulkhost <name>' => { 
+           words => "<ip>", },
+    'configure zone <zone> delete bulkhost <name> <ip>' => { 
+           words => "<ip>", },
+    'configure zone <zone> delete bulkhost <name> <ip> <ip>' => { 
+           func => "cli_del_bulk", },
+
+    'configure zone <zone> delete cname' => { 
+           words => "<name>", },
+    'configure zone <zone> delete cname <name>' => { 
+           words => "<canonical>", },
+    'configure zone <zone> delete cname <name> <canonical>' => { 
+           func => "cli_del_cname", },
+
+    'configure zone <zone> delete ptr_record' => { 
+           words => "<ip>", },
+    'configure zone <zone> delete ptr_record <ip>' => { 
+           words => "<name>", },
+    'configure zone <zone> delete ptr_record <ip> <name>' => { 
+           func => "cli_del_ptr", },
+
+    'configure zone <zone> add mx' => { 
+           words => "<name>", },
+    'configure zone <zone> add mx <name>' => { 
+           words => "<priority>=<name>", },
+    'configure zone <zone> add mx <name> <priority> <name>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_mx", },
+    'configure zone <zone> add mx <name> <priority> <name> comment <comment>' => { 
+           func => "cli_add_mx", },
+
+    'configure zone <zone> add host' => { 
+           words => "<name>=<ip,ip>", },
+    'configure zone <zone> add host <name> <ip,ip>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_host", },
+    'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
+           func => "cli_add_host", },
+
+    'configure zone <zone> add a_record' => { 
+           words => "<name>=<ip>", },
+    'configure zone <zone> add a_record <name> <ip>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_a_rec", },
+    'configure zone <zone> add a_record <name> <ip> comment <comment>' => { 
+           func => "cli_add_a_rec", },
+
+    'configure zone <zone> add bulkhost' => { 
+           words => "<name>", },
+    'configure zone <zone> add bulkhost <name>' => { 
+           words => "<ip>", },
+    'configure zone <zone> add bulkhost <name> <ip>' => { 
+           words => "<ip>", },
+    'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_del_bulk", },
+    'configure zone <zone> add bulkhost <name> <ip> <ip> comment <comment>'=> { 
+           func => "cli_add_bulk", },
+
+    'configure zone <zone> add cname' => { 
+           words => "<name>", },
+    'configure zone <zone> add cname <name>' => { 
+           words => "<canonical>", },
+    'configure zone <zone> add cname <name> <canonical>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_cname", },
+    'configure zone <zone> add cname <name> <canonical> comment <comment>'=> { 
+           func => "cli_add_cname", },
+
+    'configure zone <zone> add ptr_record' => { 
+           words => "<ip>", },
+    'configure zone <zone> add ptr_record <ip>' => { 
+           words => "<name>", },
+    'configure zone <zone> add ptr_record <ip> <name>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_ptr", },
+    'configure zone <zone> add cname <ip> <name> comment <comment>'=> { 
+           func => "cli_add_ptr", },
+
+    'configure network' => { 
+           words => "add delete <n.n.n.n/mm>", },
+
+    'configure network delete' => { 
+           words => "<n.n.n.n/mm>", },
+    'configure network delete <n.n.n.n/mm>' => { 
+           func => "cli_delete_network", },
+
+    'configure network add' => { 
+           words => "<n.n.n.n/mm>", },
+    'configure network add <n.n.n.n/mm>' => { 
+           words => "<cr> addreverse|comment=<comment>|member=<ip>|option=<name=value>",  
+           func => "cli_add_network", },
+
+    'configure network <n.n.n.n/mm>' => { 
+           words => "split add delete ", },
+
+    'configure network <n.n.n.n/mm> add' => { 
+           words => "network fixed range",  },
+    'configure network <n.n.n.n/mm> delete' => { 
+           words => "network fixed range",  },
+
+    'configure network <n.n.n.n/mm> split' => { 
+           words => "</cidr>",  },
+    'configure network <n.n.n.n/mm> split </cidr>' => { 
+           words => "<cr> required all",  
+           func => "cli_split_network", },
+    'configure network <n.n.n.n/mm> split </cidr> required' => { 
+           func => "cli_split_network", },
+    'configure network <n.n.n.n/mm> split </cidr> all' => { 
+           func => "cli_split_network", },
+
+    'configure network <n.n.n.n/mm> delete fixed' => { 
+           words => "<ip>=<mac>",  },
+    'configure network <n.n.n.n/mm> delete fixed <ip> <mac>' => { 
+           func => "cli_del_fixed_address", },
+
+    'configure network <n.n.n.n/mm> delete range' => { 
+           words => "<ip>=<ip>",  },
+    'configure network <n.n.n.n/mm> delete range <ip> <ip>' => { 
+           func => "cli_del_dhcp_range", },
+
+    'configure network <n.n.n.n/mm> add network' => { 
+           words => "<n.n.n.n/mm>",  },
+    'configure network <n.n.n.n/mm> add network <n.n.n.n/mm>' => { 
+#            words => "option member",  
+           func => "cli_add_sub_network", },
+
+    'configure network <n.n.n.n/mm> add fixed' => { 
+           words => "<ip>=<mac>",  },
+    'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
+           words => "<cr> comment=<comment>",  
+           func => "cli_add_fixed_address", },
+
+    'configure network <n.n.n.n/mm> add range' => { 
+           words => "<ip>=<ip>",  },
+    'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
+           words => "<cr> comment=<comment>|failover=<value>|member=<ip>|option=<name=value>",  
+           func => "cli_add_dhcp_range", },
+
+   );
+
+# print Dumper ( \%COMMANDS ) ;
+
+   return %COMMANDS ;
+
 }
 
 
@@ -3110,6 +3599,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.5  2006/05/31 03:27:02  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: intial checkin of winders friendly version
+#
 # Revision 3.4  2006/05/01 22:58:26  horne
 # BugId: 8205
 # Reviewer(s): Geoff
