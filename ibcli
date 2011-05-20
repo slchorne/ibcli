@@ -47,9 +47,9 @@
 ###############################################################################
 
 
-# $Id: ibcli,v 1.7 2003/09/22 19:24:30 horne Exp $
-# $Revision: 1.7 $
-# $Date: 2003/09/22 19:24:30 $
+# $Id: ibcli,v 1.8 2003/09/22 21:37:30 horne Exp $
+# $Revision: 1.8 $
+# $Date: 2003/09/22 21:37:30 $
 #
 
 # Perl CGI common chunks
@@ -309,7 +309,7 @@ sub show_commands {
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
                 'zone' => 'show_zone',
-                'network' => 'show_zone',
+                'network' => 'show_network',
                 'host' => 'show_host',
         ) ;
    &shift_arg($arg,%commands);
@@ -374,20 +374,31 @@ sub mod_network {
    my %commands = ( 
                 "split" => 'split_network',
                 "add" => 'add_to_network',
-                "remove" => 'remove_network',
-                "delete" => 'remove_network',
+                "remove" => 'delete_from_network',
+                "delete" => 'delete_from_network',
         ) ;
    &shift_arg($arg,%commands);
 }
 
 # PARSER : set network <n.n.n.n/mm> add xxx
 sub add_to_network {
-   &debug (4,"sub = mod_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+   &debug (4,"sub = add_to_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
                 "address" => 'add_network_ptr',
                 "network" => 'add_sub_network',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : set network <n.n.n.n/mm> delete xxx
+sub delete_from_network {
+   &debug (4,"sub = delete_from_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+
+   my $arg  = shift @WORDS ;
+   my %commands = ( 
+                "address" => 'del_network_ptr',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -628,7 +639,7 @@ sub remove_zone {
 sub add_network_ptr {
     my ( $parent , $ip , $host ) = @_ ;
     if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<n.n.n.n/mm> <host> <ip>")  ;
+       &missing_arg("<n.n.n.n/mm> <ip> <host>")  ;
        return ;
     }
     my ($net,$cidr) = split(/\//,$parent) ;
@@ -770,6 +781,22 @@ sub remove_network {
 
 }
 
+sub del_network_ptr {
+    my ( $parent , $ip ) = @_ ;
+    if ( ! $ip  ) {
+       &missing_arg("<n.n.n.n/mm> <ip>")  ;
+       return ;
+    }
+    my ($net,$cidr) = split(/\//,$parent) ;
+    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"remnp n($net) c($cidr) m($mask) ip($ip)");
+
+    my $func="ib_remove_oneway_ptr(\"$net\",\"$mask\",\"$ip\")";
+    &do_ib_func($func);
+
+}
+
 
 ##########################################################
 #
@@ -900,12 +927,17 @@ sub add_server {
     # save the server id and see if we have enough info to connect
 
     if ($arg) {
-       &debug (2,"adding server [$arg]");
-       $SERVER_ID = $arg ;
+       if ( ! $CONNECTED ) {
+          &debug (2,"adding server [$arg]");
+          $SERVER_ID = $arg ;
 
-       $PROMPT = "$SERVER_ID > " ;
+          $PROMPT = "$SERVER_ID > " ;
 
-       &connect ;
+          &connect ;
+       }
+       else {
+          &err_print("SERVER :: already connected");
+       }
     }
     else {
        &missing_arg("$SAVE_HIST <server>");
@@ -1014,13 +1046,15 @@ sub show_host {
 
 
 }
+
 sub show_zone {
     my ($query,$type,$verbose) = @_ ;
 
     # use dig...
+    # forget about the verbose option for now, dig can do that directly.
 
     if ( ! $query ) {
-       &missing_arg("$SAVE_HIST <zone> (type) (verbose)") ;
+       &missing_arg("$SAVE_HIST <zone> (type)") ;
        return (0) ;
     }
 
@@ -1034,8 +1068,31 @@ sub show_zone {
     else {
        &do_dig($SERVER_ID,$query,$type,$verbose);
     }
+}
 
+sub show_network {
+    my ($query,$type,$verbose) = @_ ;
 
+    # use dig...
+    # forget about the verbose option for now, dig can do that directly.
+
+    if ( ! $query ) {
+       &missing_arg("$SAVE_HIST <network> (type)") ;
+       return (0) ;
+    }
+
+    &debug (2,"showing network [@_]");
+
+    if ( ! $type ) { $type = "SOA" }
+
+    if ( ! $CONNECTED ) {
+       &err_print( "CANNOT dig - no connection is in place");
+    }
+    else {
+       # force a revrse lookup
+       $verbose = "reverse" ;
+       &do_dig($SERVER_ID,$query,$type,$verbose);
+    }
 }
 
 sub do_dig {
@@ -1043,9 +1100,11 @@ sub do_dig {
     my $DIG = '/usr/bin/dig' ;
     my $DIGOPTS = '+multiline +nostat +nocmd +norecur';
     my $TERSEOPTS = '+noquestion +noauthority +noadditional +nocomments';
+    my $REVOPTS = '+noquestion +noadditional +nocomments';
 
     my $V_DIG = "$DIG $DIGOPTS";
     my $T_DIG = "$DIG $DIGOPTS $TERSEOPTS";
+    my $R_DIG = "$DIG $DIGOPTS $REVOPTS";
 
     # so we pass args to dig to work out what type of dig to do
     &debug (3,"dig reqest =  [@_]");
@@ -1053,8 +1112,12 @@ sub do_dig {
 
     my $COMM ;
 
+    # verbose is disabled for now
     if ($verbose) {
        $COMM = "$V_DIG \@$server $query $type";
+       if ( $verbose eq "reverse" ) {
+          $COMM = "$R_DIG \@$server -x $query $type";
+       }
     }
     else {
        $COMM = "$T_DIG \@$server $query $type";
@@ -1064,7 +1127,6 @@ sub do_dig {
     print "\n";
     system("$COMM");
     print "\n";
-
 
 }
 
@@ -1120,6 +1182,10 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.8  2003/09/22 21:37:30  horne
+# added prt functions
+# cleaned up show network
+#
 # Revision 1.7  2003/09/22 19:24:30  horne
 # *** empty log message ***
 #
