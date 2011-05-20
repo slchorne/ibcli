@@ -1,5 +1,10 @@
 #!/usr/bin/perl
 #
+my $ID  = q$Id: ibcli,v 2.11 2005/08/14 23:13:11 horne Exp $ ;
+my $REV = q$Revision: 2.11 $;
+# $Date: 2005/08/14 23:13:11 $
+#
+
 # (c) Copyright: Geoff horne, SLC 2001-2005
 #               All rights reserved
 #
@@ -46,1077 +51,982 @@
 #
 ###############################################################################
 
-#### work out where i am
-# these 3 varables can then be used to find config files
-# and keep the code portable
-
-use FindBin qw($Bin $Script);
-my ($BASE,$NAME)=($Bin,$Script) ;
-
-my $ID  = q$Id: ibcli,v 2.10 2005/08/14 23:07:23 horne Exp $ ;
-my $REV = q$Revision: 2.10 $;
-my $RDATE = q$Date: 2005/08/14 23:07:23 $;
-
-
-# uncomment the following two lines to see what the options hash contains
-use Data::Dumper;
 
 # Perl CGI common chunks
 #
 use strict ;
 no strict "refs" ;
-use Getopt::Long ;
-use Text::Abbrev ;
 
-# include infoblox , find the path ???
-# this is done at compile time so we need to use a method...
 BEGIN {
    push (@INC, "lib");
    push (@INC, "$FindBin::Bin");
    push (@INC, "$FindBin::Bin/lib");
 };
 
+# use Term::EditLine qw(CC_EOF CC_NEWLINE CC_ARGHACK CC_CURSOR CC_REDISPLAY);
+use Term::EditLine qw(CC_EOF CC_REDISPLAY);
+use Text::Abbrev ;
+use Data::Dumper ;
+use Getopt::Long;
+use Infoblox ;
+
+# globals
+$Data::Dumper::Sortkeys = 1 ;
+
+# [ ] aliases
+# [ ] history
+
+##########################################################
 #
-# $Log: ibcli,v $
-# Revision 2.10  2005/08/14 23:07:23  horne
-# last version, this now gets replaced by complt with Readline
-#
-# Revision 2.9  2005/07/13 05:07:06  horne
-# major fixes of some of the parser bits
-# added additional functions to add zone
-#
-# Revision 2.8  2005/04/22 20:09:17  horne
-# *** empty log message ***
-#
-#
+# The word list lookup table
+# we'll create a big hash of all commandline alternatives then
+# abbreviate all of them. This will give you conditional cmpctl and still
+# hopefully be easy to read
 
-# use Infoblox::InfobloxDNS;
-# [ ] need to merge the radius code later
-# use Infoblox::RADIUSOne ;
-use Infoblox;
-use MIGRATION;
+# [ ] some options can be repeated, some need to end with them.
+#     so we need a val|val syntax and a val?|val? syntax
+#     ( use perlre's '?' for 0 or 1 )
 
-######################
-#
-# define some globals
-#
-my $DNS_VER = 3 ;
+my %COMMANDS = (
 
-my $DEBUG = 0 ;
-my $CLI = 0 ;
-my $MADE_CHANGES = "!" ;
+    'NULL' => { 
+           words => "quit history restart download configure show test", },
+    'test' => { 
+           words => "comment=<comment> <cr> <name,ip> delay=<num> aa|bb bad|member=<ip>|import=<svr> zone network", 
+           func => "cli_test", },
+    'quit' => { 
+           func => "cli_exit", },
+    'history' => { 
+           func => "cli_history", },
+    'show' => { 
+           words => "zone network debug",  },
 
-my $IPRE = '\d+\.\d+\.\d+\.\d+';
+    'show debug' => { 
+           words => "commands",  },
+    'show debug commands' => { 
+           func => "debug_commands", },
 
-my %CONN_INFO ;
-my $SESSION ;
-my $MASTER ;
-my $DHMASTER ;
+    'show zone' => { 
+           words => "<cr> forward|reverse",  
+           func => "cli_show_zone", },
+    'show network' => { 
+           func => "cli_show_network", },
 
-my $CONNECTED ;
-my $CONFIG ;
-my $MAKE ;
-my $LIST_COMM ;
-my $GET_VERSION ;
-my @LIST_BRANCH ;
-my @DOT_BRANCH ;
+    'download' => { 
+           words => "database",  },
+    'download database' => { 
+           words => "<file>",  },
+    'download database <file>' => { 
+           func => "cli_download", },
+    'restart' => { 
+           words => "dns dhcp",  },
+    'restart dns' => { 
+           words => "delay=<num>",  
+           func => "cli_restart", },
+    'restart dhcp' => { 
+           words => "delay=<num>",  
+           func => "cli_restart", },
 
-my $GOOD_COMMAND ;
-my $LINE ;
+    'configure' => { 
+           words => "debug server zone network" , },
 
-my $SAVE_HIST ;
-my @CLIST ;
-my @WORDS ;
-my @HISTORY ;
+    'configure debug' => { 
+           words => "<num>", },
+    'configure debug <num>' => { 
+           func => "set_debug", },
 
-my $PROMPT ;
+    'configure server' => { 
+           words => "<value>", },
 
-my @P_ARGS ;
+    'configure server <value>' => { 
+           words => "user=<value>", },
+    'configure server <value> user <value>' => { 
+           words => "password=<value>", 
+           func => "cli_add_server", },
 
-#
-# WTF is P_ARGS ??
-#
-# Well, grasshopper, some subroutines need to know some of the earlier
-# arguments, so we keep these in a stack and pass them around where
-# necessary. it is a global because all sorts of subs will want to play
-# with it...
-#
+    'configure zone' => { 
+           words => "add delete <zone>", },
 
-# optional args
-# -f <config file>
-# -s <server>
-# -p <password>
-# -d <debug level>
-# -m make a script
+    'configure zone delete' => { 
+           words => "<zone>", },
+    'configure zone delete <zone>' => { 
+           func => "cli_delete_zone", },
 
-my $S_ID ;
-my $S_USER ;
-my $S_PASS ;
+    'configure zone add' => { 
+           words => "<zone>", },
+    'configure zone add <zone>' => { 
+           words => "<cr> import=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
+           func => "cli_add_zone", },
 
-GetOptions(
-      "s=s" => \$S_ID , 
-      "p=s" => \$S_PASS ,
-      "u=s" => \$S_USER ,
-      "f=s" => \$CONFIG ,
-      "d=s" => \$DEBUG ,
-      "l=s" => \$DNS_VER ,
-      "m+"  => \$MAKE ,
-      "t+"  => \$LIST_COMM ,
-      "v|V"   => sub { print "\n$BASE/$NAME\n$REV\n$RDATE\n\n"; exit ; },
+    'configure zone <zone>' => { 
+           words => "add delete", },
+
+    'configure zone <zone> add' => { 
+           words => "host a_record bulkhost cname ptr_record", },
+    'configure zone <zone> delete' => { 
+           words => "host a_record bulkhost cname ptr_record", },
+
+    'configure zone <zone> delete host' => { 
+           words => "<name>", },
+    'configure zone <zone> delete host <name>' => { 
+           func => "cli_del_host", },
+
+    'configure zone <zone> delete a_record' => { 
+           words => "<name>=<ip>", },
+    'configure zone <zone> delete a_record <name> <ip>' => { 
+           func => "cli_del_a_rec", },
+
+    'configure zone <zone> delete bulkhost' => { 
+           words => "<name>", },
+    'configure zone <zone> delete bulkhost <name>' => { 
+           words => "<ip>", },
+    'configure zone <zone> delete bulkhost <name> <ip>' => { 
+           words => "<ip>", },
+    'configure zone <zone> delete bulkhost <name> <ip> <ip>' => { 
+           func => "cli_del_bulk", },
+
+    'configure zone <zone> delete cname' => { 
+           words => "<name>", },
+    'configure zone <zone> delete cname <name>' => { 
+           words => "<canonical>", },
+    'configure zone <zone> delete cname <name> <canonical>' => { 
+           func => "cli_del_cname", },
+
+    'configure zone <zone> delete ptr_record' => { 
+           words => "<ip>", },
+    'configure zone <zone> delete ptr_record <ip>' => { 
+           words => "<name>", },
+    'configure zone <zone> delete ptr_record <ip> <name>' => { 
+           func => "cli_del_ptr", },
+
+    'configure zone <zone> add host' => { 
+           words => "<name>=<ip>", },
+    'configure zone <zone> add host <name> <ip>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_host", },
+    'configure zone <zone> add host <name> <ip> comment <comment>' => { 
+           func => "cli_add_host", },
+
+    'configure zone <zone> add a_record' => { 
+           words => "<name>=<ip>", },
+    'configure zone <zone> add a_record <name> <ip>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_a_rec", },
+    'configure zone <zone> add a_record <name> <ip> comment <comment>' => { 
+           func => "cli_add_a_rec", },
+
+    'configure zone <zone> add bulkhost' => { 
+           words => "<name>", },
+    'configure zone <zone> add bulkhost <name>' => { 
+           words => "<ip>", },
+    'configure zone <zone> add bulkhost <name> <ip>' => { 
+           words => "<ip>", },
+    'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_del_bulk", },
+    'configure zone <zone> add bulkhost <name> <ip> <ip> comment <comment>'=> { 
+           func => "cli_add_bulk", },
+
+    'configure zone <zone> add cname' => { 
+           words => "<name>", },
+    'configure zone <zone> add cname <name>' => { 
+           words => "<canonical>", },
+    'configure zone <zone> add cname <name> <canonical>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_cname", },
+    'configure zone <zone> add cname <name> <canonical> comment <comment>'=> { 
+           func => "cli_add_cname", },
+
+    'configure zone <zone> add ptr_record' => { 
+           words => "<ip>", },
+    'configure zone <zone> add ptr_record <ip>' => { 
+           words => "<name>", },
+    'configure zone <zone> add ptr_record <ip> <name>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_ptr", },
+    'configure zone <zone> add cname <ip> <name> comment <comment>'=> { 
+           func => "cli_add_ptr", },
+
+    'configure network' => { 
+           words => "add delete <n.n.n.n/mm>", },
+
+    'configure network delete' => { 
+           words => "<n.n.n.n/mm>", },
+    'configure network delete <n.n.n.n/mm>' => { 
+           func => "cli_delete_network", },
+
+    'configure network add' => { 
+           words => "<n.n.n.n/mm>", },
+    'configure network add <n.n.n.n/mm>' => { 
+           words => "<cr> comment=<comment>|member=<ip>|option=<name,value>",  
+           func => "cli_add_network", },
+
+    'configure network <n.n.n.n/mm>' => { 
+           words => "split add delete ", },
+
+    'configure network <n.n.n.n/mm> add' => { 
+           words => "network fixed range",  },
+    'configure network <n.n.n.n/mm> delete' => { 
+           words => "network fixed range",  },
+
+    'configure network <n.n.n.n/mm> split' => { 
+           words => "</cidr>",  },
+    'configure network <n.n.n.n/mm> split </cidr>' => { 
+           words => "<cr> required all",  
+           func => "cli_split_network", },
+    'configure network <n.n.n.n/mm> split </cidr> required' => { 
+           func => "cli_split_network", },
+    'configure network <n.n.n.n/mm> split </cidr> all' => { 
+           func => "cli_split_network", },
+
+    'configure network <n.n.n.n/mm> delete fixed' => { 
+           words => "<ip>=<mac>",  },
+    'configure network <n.n.n.n/mm> delete fixed <ip> <mac>' => { 
+           func => "cli_del_fixed_address", },
+
+    'configure network <n.n.n.n/mm> delete range' => { 
+           words => "<ip>=<ip>",  },
+    'configure network <n.n.n.n/mm> delete range <ip> <ip>' => { 
+           func => "cli_del_dhcp_range", },
+
+    'configure network <n.n.n.n/mm> add network' => { 
+           words => "<n.n.n.n/mm>",  },
+    'configure network <n.n.n.n/mm> add network <n.n.n.n/mm>' => { 
+#            words => "option member",  
+           func => "cli_add_sub_network", },
+
+    'configure network <n.n.n.n/mm> add fixed' => { 
+           words => "<ip>=<mac>",  },
+    'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
+           words => "<cr> comment=<comment>",  
+           func => "cli_add_fixed_address", },
+
+    'configure network <n.n.n.n/mm> add range' => { 
+           words => "<ip>=<ip>",  },
+    'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
+           words => "<cr> comment=<comment>|failover=<value>|member=<ip>|option=<name,value>",  
+           func => "cli_add_dhcp_range", },
+
    );
 
-   #
+# the hash is $COMMANDS { "<string>" } { "words|func|help" }
+#             $COMMANDS { "<string>" } { "words" }
 
-## NOTE - to make a better CLI version we should have a wrapper loop that
-#  checks if you are coming in as a file or STD in. The primary loop in
-#  either case should pass to the actual arg parser
+# the LHS is a regex matching the WHOLE expanded comand line
+# the RHS is the list of next possible words as a string which
+# will get carved into array values as part of get_context()
 
-# catch fools who forget to do a '-f'
-if ( @ARGV ) { $CONFIG = shift ; }
+# we grep from the LHS the WHOLE STRING (^..$) ensure uniqieness
 
-# are we in make mode ?
-if ( $MAKE ) { &script_header }
+# [x] how do you handle options than can come in any order ?
+#      use '|' syntax "word|word|word"
+# [x] how do you handle option/value pairs ?
+#      use '|=' syntax "word=<spec>|word=<spec>|word=<spec>"
 
-&err_print("Using Version [$DNS_VER] Syntax");
+# [ ] how do you handle alternate words
+#     * this needs a context shift
+#     * use '/' syntax : "word/other/other"
+#       [ ] SET these globally
 
-# check if we need to do any initial conections
-# use temp vars to avoid a clobbering problem
+# print Dumper ( \%COMMANDS ) ;
+
+### ---  PRE canned regexes --- ###
 #
-# the existece of variables is checked in the called sub
-
-$PROMPT = "no server > " ; 
-# a successfull connect success changes the prompt
-
-if ( $S_ID ) {
-   &add_server($S_ID,"user",$S_USER,"password",$S_PASS);
-}
-
+#  we can force syntax HERE by matching args to regexes
 #
-# are we interactive or in batch mode ?
-#
-if ( ! $CONFIG ) {
-   print "CLI version\n";
-   $CLI = 1 ;
-   # unflush the buffer
-   $| = 1 ;
 
-   # set initial prompt
-   &print_prompt ;
-}
-
-if ( $CONFIG ) { 
-   # make 'while(<>)' still work...
-   push @ARGV , $CONFIG  ;
-}
-
-#####################################################################
-# perldoc goes here
-
-=head1 NAME
-
-The INFOBLOX CLI, a users guide
-
-=head1 Synopsis
-
-*A guide for Infoblox SEs and other commandline junkies*
-
-=head1 Description
-
-This is 
-$Revision: 2.10 $
-there were previous versions that were even worse, this one is pretty bad,
-it really is beta code.  But it is a start.
-
-So why do this, what is this CLI for ? Well there were a few primary
-reasons:
-
-=over
-
-=item Quick changes are now easy,
-
-You don't need to wait for a GUI to start or get the right version
-of java functional, this allows you to quickly get into the database
-and make some simple and efficient changes
-
-=item Abstract command set
-
-Now you don't need to know the intricacies of the API, a few simple
-commands will achieve the same effect, if you are a user that
-doesn't know PERL you can still drive the CLI and get the results
-you need. This may not be an advantage if you are reading data from
-another system to import into an Infoblox unit (since you still need
-to write software to parse the data, eg PERL) but it may still help
-and end user that can convert this data in to the CLI command set
-but not know enough to write PERL.
-
-=item Customers wanted it
-
-    Need I say more ?
-
-=back 
-
-Lastly, why is this called 'ibcli' and not 'DNScli' ? Well, this is just
-a wrapper to any API we like, it is not really DNS specific.
-
-
-=head1 Quickstart
-
-Simple example, adding a zone
-
-   [0] ! no server > conf server 10.0.1.224 user admin pass infoblox
-   [0]   admin@10.0.1.224 > conf zone add infoblox.com
-   [0] * admin@10.0.1.224 > conf zone add sales.infoblox.com
-
-A more detailed example
-
-   [0] ! no server > conf server 10.0.1.224 user admin pass infoblox
-   [0]   admin@10.0.1.224 > conf zone add com
-   [0] * admin@10.0.1.224 > conf zone add foo.com
-   [0] * admin@10.0.1.224 > conf zone foo.com add host test 1.2.3.4
-   [0] * admin@10.0.1.224 > conf zone delete bar.com
-
-A complex example, multiple connections
-
-   [0] ! no server > conf server 10.0.1.224
-   [0] ! 10.0.1.224 > conf server user admin
-   [0] ! 10.0.1.224 > conf server pass infoblox
-   [0]   admin@10.0.1.224 > conf zone add sales.foo.com
-
-   # now switch servers
-   [0]   admin@10.0.1.224 > conf server 10.0.1.200
-   [0]   admin@10.0.1.220 > conf server user admin1
-   [0]   admin1@10.0.1.220 > conf server pass infoblox1
-   [0]   admin1@10.0.1.220 > conf zone add biz.foo.com
-
-=head1 Installation
-
-It should run 'as is' from a uniz machine. 
-
-If you have a windows OS then you will have a few hurdles to cross:
-
-=over
-
-=item * Rename the script to 'ibcli.pl'. 
-
-I still don't understand why Windows uses file suffix to type its data
-rather than doing something intelligent like looking at the contents of
-the file, but then, we are dealing with people who thought 8.3 was all
-you'd ever need as a file namespace and 640K for ram...
-
-=item * Make sure you have the necessary libraries installed, 
-
-you'll need:
-
-   o Getopt::Long
-
-   o Text::Abbrev
-
-=item * Get access to 'dig' 
-      ...If you want the 'show' commands to work.
-
-=back
-
-=head1 Getting started
-
-Run the ibcli - it is a perl script, you will get a prompt
-
-    % ./ibcli
-    CLI version
-    [0] ! no server >
-
-Ideally, you should now connect the CLI to a server somewhere, to do
-this you give it the server and a user and a password, you can do these in
-either order, it just tries to eventually connect when it has enough data.
-
-    [0] ! no server > conf server 10.0.1.224
-    [0] ! 10.0.1.224 > conf server user admin
-    [0] ! 10.0.1.224 > conf server pass infoblox
-    [0]   admin@10.0.1.224 >
-
-Or you can also do this from the initial invocation:
-
-    % ./ibcli -s 10.0.1.230 -u admin -p infoblox 
-
-"HOLD ON A SEC", I hear you ask, "Why am i connecting to a server, isn't
-this CLI running on a console somewhere ?". No, Grasshopper, the CLI is
-just a wrapper to the Infoblox.pm so you can run it from anywhere in
-the world. This gives you the added advantage of being able to work on
-MANY servers from the one CLI.
-
-=head1 Setting the debug level
-
-    [0] ! no server > conf debug 3
-    [3] ! no server >
-
-Or you can also do this from the initial invocation:
-
-    % ./ibcli -d 3
-
-
-=head1 Other Gritty Details
-
-OK, so what the hell can I do from here ?
-
-=head2 Members and secondaries
-
-By default all stuff is added to just the Cluster Master, the API guesses
-this from the SERVER setting. If you explicitly want to add stuff to
-certain members you need to append the members to the command arg :
-
-   conf zone add foo.com members 1.2.3.4
-   conf zone add foo.com members 1.2.3.4,1.2.3.5
-
-=head2 Laziness
-
-The command parser accepts abbreviations
-
-    se z a foo.com
-
-is the same as
-
-    conf zone add foo.com
-
-There is also command ambiguity. since the command parser uses seperate
-code to the actual library calls it is easy to make multiple commands
-mean the same thing.
-
-    * 'show' or 'get' mean the same thing
-    * 'set' or 'configure' mean the same thing
-    * 'delete' or 'remove' mean the same thing
-
-
-=head2 BATCH processing
-
-You can read a set of commands from a file, and then pass them to the
-CLI via the -f option
-
-   # 
-   # meta input language for infoblox DNSOne scripts
-   #
-   # SAMPLE input file
-   #
-   
-   # set the debug level
-   conf DEBUG 1
-   
-   # server likes either names or IP's
-   #
-   conf SERVER 45.0.12.20
-   conf SERVER USER admin
-   conf SERVER PASSWORD infoblox
-   
-   conf zone add foo.com
-   conf zone foo.com add host 2-bulktest 45.103.1.2
-   conf zone foo.com add host 3-bulktest 45.103.1.3
-   conf zone foo.com add host 4-bulktest 45.103.1.4
-   conf zone foo.com add host 5-bulktest 45.103.1.5
-   
-   # scripts commit and disconnect by default.
-   #
-  
-
-And then just run the script
-
-    % ./ibcli -f sample.in
-
-
-=head2 Write your own code
-
-In the essence of a recursive 'eat your own dogfood' mentality, it is
-actually possible to get the CLI to write out self executing perl
-scripts. You do this with the -m option
-
-    ibcli -m -f <config_file>
-
-You may not see the immediate benefit of this, but it really helps if you
-can't recall the API syntax. It also helps if you are in a
-situation where you have set up a CLI config file but want to give 
-someone else reproducable programmes without giving them the CLI tool
-you will understand the value of this.
-
-[ GDH - this is still a work in progress with the ooAPI ]
-
-=head3 Perhaps an example would work. Given this input :
-
-   # 
-   # meta input language for infoblox DNSOne scripts
-   #
-   # SAMPLE input file
-   #
-   # server likes either names or IP's
-   #
-   conf SERVER 45.0.12.20
-   conf SERVER USER admin
-   conf SERVER PASSWORD infoblox
-   
-   conf zone add foo.com
-   conf zone foo.com add host 2-bulktest 45.103.1.2
-   conf zone foo.com add host 3-bulktest 45.103.1.3
-   conf zone foo.com add host 4-bulktest 45.103.1.4
-   conf zone foo.com add host 5-bulktest 45.103.1.5
-
-   # scripts commit and disconnect by default.
-   #
-
-=cut
-
-# =head2 .
-# 
-# =cut
-
-#######################################################
-
-my %commands = ( 
-            'history' => 'show_history',
-            'restart' => 'restart',
-#             'connect' => 'connect',
-#             'disconnect' => 'disconnect',
-            'download' => 'download_commands',
-#             'upload' => 'upload_commands',
-            'set' => 'set_commands' ,
-            'configure' => 'set_commands' ,
-            'show' => 'show_commands' ,
-            'get' => 'show_commands' ,
-            'exit' => 'do_exit' ,
-            'quit' => 'do_exit' ,
-            # serial commands
-            'reset' => 'do_nothing' ,
-) ;
-   
-# read the lines
-# the datastructure is kinda nested, but the command set is still small
-# enough to avoid some sort of lexical overhead subroutine
-#
-# also if you build this as a hash it becomes harder to read, you need to
-# visualise each argument block in one chunk
-
-# set the first level command set
-
-# if we were called with a "-c" we are dumping the command parsing tree
+            # quoted comments
+my $REcomm = '("[^"]*")|\S+' ;
+            # zones
+my $REzone = '(\w|\.)+';
+            # a complete IP address
+my $REip  = '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}';
+            # a complete n.n.n.n/mm
+my $REcidr = '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/\d{1,2}';
+           # MAC address 
+my $REmac  = '[\w:]+';
+           # incomplete form of an IP address
+           # match 'N' then praps '.N' then praps '.' or '.N'
+my $REpartip = '\d{1,3}(\.\d{1,3}){0,2}(\.|\.\d{1,3})?';
+
+# this is a hash of regexes to use for special keywords
+my %SPECOPS = (
+     '<mac>' => "^$REmac\$",
+     '<num>' => '^\d+$',
+     '<svr>' => '^\S+$',
+     '<file>' => '^\S+$',
+     '<name>' => '^\S+$',
+     '<value>' => '^\S+$',
+     '<name,value>' => '^\S+$',
+     '<canonical>' => '^\S+$',
+     '<comment>' => "^$REcomm\$",
+     '<name,ip>' => "^$REzone,*($REpartip)*\$",
+     '<ip,ip>'   => "$REpartip|,",
+     '<ip>'      => "^$REpartip\$",
+                     # incomple n.n.n.n/mm
+     '<n.n.n.n/mm>' => "^($REpartip|$REip\\\/|$REcidr)\$",
+     '<cidr>'       => "^($REpartip|$REip\\\/|$REcidr)\$",
+     '</cidr>'      => '^\/\d{1,2}$',
+     '<zone>'   => '^\S+$',
+   );
+
+### ---  end ------------------ ###
+
+# [ ] connected
+my $ONLINE ;
+my $SESSION ;
+my $MASTER_IP ;
+
+my $DEBUG = 0 ;
+my $LIST_COMM = 0 ;
+
+my ( $S_ID , $S_PASS , $S_USER ) ;
+
+GetOptions (
+    "s=s" => \$S_ID , 
+    "p=s" => \$S_PASS ,
+    "u=s" => \$S_USER ,
+    "t+"  => \$LIST_COMM ,
+    "V|version+"    => sub { print "\n$ID\n$REV\n\n"; exit ; },
+    "d=s"     => \$DEBUG,
+);
+
+# bailout if we just want commands
 if ( $LIST_COMM ) {
-   print "$REV\n";
-   print "The Non Exhaustive list of CLI commands\n\n";
-
-   &debug_cli(1,"dot : digraph CLI {");
-
-   &walk_tree(%commands) ;
-
-   &debug_cli(1,"dot : }");
-
+   foreach my $comm ( sort keys %COMMANDS ) {
+      print "$comm\n";
+   }
    exit ;
 }
 
+##########################################################
+
+# create the object
+my $el = Term::EditLine->new('progname');
+
+# set the prompt ;
+my $PROMPT = 'server ? > ';
+$el->set_prompt ("$PROMPT");
+
+# other useful commands are
+#      $el->insertstr("aaaa");
+# inserts text, but may not print it.
+
+
+##########################################################
+
+# sigint (ctrl-c) has to be caught by perl, before the term.
+# $SIG{INT} = sub { print "\nYou hit ^C... Aaayyy it hurts\n"; };
+# $SIG{INT} = sub { $el->reset ; return CC_CURSOR };
+$SIG{INT} = 'IGNORE';
+# ctrl-c reset
+# $el->add_fun ('undo','reset', 
+#              sub { print "\n" ; $el->reset ; return CC_REDISPLAY }) ;
+
+
+########################################
+# define input functions
 #
-# time to read commands, line at a time...
+# these occur based on character input...
 #
+########################################
 
-while (<>) {
+# quit on '^D'
+# CC_EOF kills the input (end of file)
+# $el->add_fun ('bye','desc',sub { print "q\nquitting...bye\n"; return CC_EOF; });
+$el->add_fun ('bye','desc', \&cli_exit );
 
-   # strip blanks, comments etc
-   if ( /^\s*#/ ) { 
-      if ( $MAKE ) { print $_ ; }
-         &print_prompt ; 
-         next ; 
-   } ;
+# print help
+$el->add_fun ('help','desc', \&print_help );
 
-   if ( /^\s*$/ ) { 
-      if ( $MAKE ) { print $_ ; }
-         &print_prompt ; 
-         next ; 
-   } ;
+# completion control
+$el->add_fun ('cmpcl','desc', \&cmpctl ) ;
 
-   $GOOD_COMMAND = 1 ;
-   $SAVE_HIST = "" ;
-
-   chomp ;
-
-   #
-   # Pattern matching, we want 'fuzzy' matches but only in the form of
-   # abbreviations, if the command is 'server', 'ser' and 'serv' should
-   # match but not 'serf'. FORTUNATELY, there seems to be a perlmodule
-   # for this. ( Text::Abbrev )
-   #
-   # and the nice thing is that we can build up a hash
-   # of command to subroutine matching, the abbrev code will
-   # find the right command to call, then we can pass the WHOLE line to
-   # the required routine.
-   #
-   # HOWEVER, the additional args at the end of the line will break the
-   # abbrev match, so we still need to eat the line - 1 word at a time
-   # and branch apropriately
-   #
-   # if the abbrev gets an ambiguous match, we return '0'...
-
-   # we have a problem in that if we get a match on the first arg we are
-   # still in 2 states
-   #  - execute
-   #  - check for more args
-   #  - check for more commands
-   #
-   # after the branching we still keep track of :
-   #  - the original command (for history)
-   #  - the optional args
-   # and IF WE GET A MATCH, we say the command is good and THEN execute
-
-
-   # SO break the commandline into components
-   #
-   # @WORDS is a global, because we want to keep eating the array
-   # regardless of what routine we are in. At the end of the parsing, we
-   # should end up with the command ($SAVE_HIST) and the args (@WORDS)
-   #
-   # SO, if there are more args that need to be checked, the subroutine
-   # to call should be a simple one that just resets $commands and makes
-   # another call to 'shift_Arg'
-   #
-   $LINE = $_ ;
-
-   @WORDS  = split /\s+/ ;
-   @P_ARGS = () ;
-   my $arg = shift @WORDS ;
-
-   &shift_arg($arg,%commands);
-
-   # history - if kosher
-   # ( done at the end, after all other line processing... )
-   if ( $GOOD_COMMAND ) {
-      &addhistory($SAVE_HIST , @WORDS);
-   }
-
-   # lastly - the prompt
-   &print_prompt ;
-   
+sub cli_exit {
+    # quit and cleanup
+    print "\nexiting...bye\n"; 
+#     $el->history_save(".clihistory") || die "cant" ;
+    exit ;
+#     return CC_EOF;
 }
 
-# just in case
-&do_exit ;
 
-################################################################
+########################################
+# add key bindings
+# 'q' to quit is really an arg function
+# $el->parse('bind','q\n','bye');
 
-# 
-# EXIT
-#
-sub do_exit {
-    $LINE = "exit" ;
-    if ( $CONNECTED ) { 
-#        &commit ;
+$el->parse('bind','-e');
+$el->parse('bind','^D','bye');
+
+# "\" clear the line ( can't use CRTL-C ?? )
+$el->parse('bind','\\\\','ed-start-over');
+
+# inline help
+$el->parse('bind','?','help');
+
+# tab ?
+$el->parse('bind','\t','cmpcl');
+
+# show them all
+# $el->parse('bind','-a');
+
+########################################
+
+# load the history
+# $el->history_load(".clihistory");
+
+########################################
+
+# do a connection from the git go ?
+if ( $S_ID and $S_PASS and $S_USER ) {
+   &cli_add_server ( "configure server $S_ID user $S_USER password $S_PASS" ) ;
+}
+
+# main loop
+
+# [ ] reading from a file ?
+while (defined($_ = $el->gets())) {
+    $el->history_enter($_);
+
+    # now do something
+#     exit if /^quit|q$/;
+    chomp ;
+
+    # cleanup the line, do something, and redraw
+    # we can only do redraws on a 'return()' so everything is in a sub{}
+    &process_line ( $_ ) ;
+
+}
+
+########################################
+# subs
+########################################
+
+sub cli_history {
+    # [ ] History
+
+#     my $hsize = ${ $el->history_get_size } ;
+#     my $hobj = $el->history_get_curr ;
+
+    print "--HISTORY not supported--\n";
+}
+
+sub print_help { 
+    # [ ] contextual help
+    my ( $context ) = $el->line ;
+
+    print "\nhelp for [$context]\n"; 
+    return CC_REDISPLAY
+};
+
+sub process_line {
+    # expand the line, drop errors
+    my ( $line ) = @_ ;
+
+    &debug_cli (1,"");
+    my ( $expanded , $error , $matchline ) = &expand_line ( $line ) ;
+    &debug_cli (2,"linec m[$matchline]");
+    &debug_cli (2,"linec e[$expanded]");
+
+    if ( $error ) {
+       print "$error\n"
+    }
+    else {
+
+       # now go do it
+       my $func = $COMMANDS{ $matchline }{"func"} ;
+       &debug_cli (1,"linec call ($func) ($expanded)");
+       if ( $func ) {
+          # catch undefined arrays
+          if ( defined ( &$func ) ) {
+             &$func ( $expanded ) ;
+          }
+          else {
+             print " NOT implemented ($func)\n";
+          }
+       }
+       else {
+          if ( $line ) {
+             my $words = $COMMANDS{ $matchline }{"words"} ;
+#              print "  Incomplete : $line ($words)\n";
+             # cleanup some syntaxes
+             $words =~ s/=/ /g;
+             print "  Incomplete : $expanded ($words)\n";
+          }
+       }
     }
 
-    if ( $MAKE ) { &script_footer }
-
-    exit ;
+    # may need a re-display here...
+    return CC_REDISPLAY
 }
 
-#
-# shift arg, once we've set up a new %commands hash
-# we just want to call shift_arg to do the rest of the processing
-#
-# THIS is the guts of the command line parser, for each ARG in a line
-# shift_arg looks at this word, does an abbrev match, and if it is ok
-# then calls the hashed subroutine.
-#
-# The nice thing about this is that the subroutines can either be end
-# points (do this feature) or subroutines that set possibilities for the
-# next arg value. This has more power then putting ALL the commands in a
-# treed hash since we can jump around tween subs as much as we like
-#
-# ( you just have to keep track of the parser subroutines :-) )
-#
-sub shift_arg {
-
-   my ( $arg , %commands ) = @_ ;
-
-   if ( $LIST_COMM ) { &walk_tree(%commands) ; return ; }
-
-   # generate the abbreviation list for these args
-   @CLIST = sort keys %commands ;
-   my %clookup = abbrev ( @CLIST ) ;
-
-   # $full_comm does the abbreviation lookup and gets the
-   # ACTUAL full comand name, or returns '0' so the expansion
-   # is automatic, but sometimes full_comm can be a wildcard
-   # so we check the existence of the subroutine to call instead.
-   #
-   # and we hack history accordingly
-   
-   my $full_comm = $clookup{ lc($arg) };
-   &debug_cli (4,"shift: h($SAVE_HIST) arg($arg) com[$full_comm]");
-
-   # we set $call_sub , coz we risk re-setting $full_com ;
-   my $call_sub = $commands{$full_comm} ;
-   if ( $call_sub ) {
-      &debug_cli (4,"shift: sub($call_sub)");
-
-      # catch wildcards...
-      # and save them as arguments , not commands
-      if ( ! $full_comm ) { 
-         $full_comm = $arg  ;
-         push @P_ARGS , $arg ;
-      }
-      $SAVE_HIST .= "$full_comm " ;
-
-      &rd_line($call_sub) ;
-   }
-   else {
-      &missing_arg(@CLIST)  ;
-   }
-}
-
-# parse a line, this is called EVERYTIME we press <cr> so we can
-# do things like print the prompt
-# we abstract this to keep it in one place
-#
-sub rd_line {
-
-    # we're passed :
-    #  the subroutine to call
-    #  the subroutine arguments
+sub expand_line {
+    # if a user hasn't been presing <tab> we may have valid syntax that
+    # still needs to be pumped through the abbreviation parser.
+    # 
+    # this is a tad tricky because each word needs to be walked through
+    # the command tree to make sure it is in context
     #
-    #  if we are eating more of the args, we append to savehistory...
-
-    my ($command) = @_ ;
-
-    &debug_cli (4,"rd_line b: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
-    &debug_cli (4,"           p_args[@P_ARGS] words[@WORDS]");
-
-    # call the command (and any prev args...)
-    &$command(@P_ARGS,@WORDS);
-
+    # but given input :
     #
-    &debug_cli (4,"rd_line a: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
-    &debug_cli (4,"           p_args[@P_ARGS] words[@WORDS]");
+    #   co z foo.com a
+    #
+    # we need to see that this is BOTH :
+    #
+    #   configure zone foo.com add  (expanded)
+    #   configure zone <zone> add   (used for matching)
+    # 
+    # we do this by returning $expline and $matchline
 
+    my ( $line ) = @_ ;
+    &debug_cli (3,"linex input [$line]");
 
-}
+    # protect stuff in quotes by inserting '%20s'
+    my ( $comment ) = $line =~ /"([^"]*)"?/;
+    ( my $pcomment = $comment ) =~ s/\s/%20s/g;
+    $line =~ s/$comment/$pcomment/;
 
-sub walk_tree {
-   my ( %commands ) = @_ ;
+    # walk each word ( split on <space> )
+    my $expline ;
+    my $matchline ;
+    my $error ;
+    foreach my $thisarg ( split ( /\s+/ , $line ) ) {
 
-   # wow - even i have no idea what i was doing here..
-   # ok - lets look at this again,
-   #
-   # ahh, then a list of args is passed to the command parser, we firts
-   # check if $LIST_COMM is set. If it is then we drop out of the arg
-   # parser and fall into here instead
-   #
-   # lather, rinse , repeat
+       &debug_cli (3,"linex -------");
+       &debug_cli (3,"linex arg     a($thisarg)");
+       &debug_cli (3,"linex partial e[$expline]");
+       &debug_cli (3,"linex partial m[$matchline]");
 
-   foreach my $cmd ( sort keys %commands ) {
-      my $call = $commands{$cmd};
+       # hide special chars (stops us exiting)
+       $thisarg =~ s/\[|\]|\(|\)/!/;
 
-      # so, we do a bit of debugging here to see wher we were and where
-      # we are going.
-      #
-      # we pased to this routine the list of next possible commands.
-      # so there should be a way to
-      #  - print this out better
-      #  - sput out some sort of stuff we can give to graphvis
+       # we now have the short word, 
+       # we have to look at the matchline to get some context
+       # then we can expand the word
 
-      &debug_cli(1,"arg : $cmd => ($call) cli=[@LIST_BRANCH]");
+       # we need the contect so we know what the next word is
 
-      # and, on the way in , print out where we were and where we are
-      # going
-      my $last = $LIST_BRANCH[$#LIST_BRANCH];
-      my $parent = $DOT_BRANCH[$#DOT_BRANCH];
+       my ( @words ) = get_context ( $matchline ) ;
 
-      # a few sanity checks
-      if ( $cmd eq "" ) { $cmd = "<${last}value>" ; }
-      if ( $cmd eq "set" ) { next ; }
-      if ( $cmd eq "get" ) { next ; }
-      if ( $cmd eq "dhcp" ) { next ; }
-      if ( $cmd eq "remove" ) { next ; }
+       my ($done,$sptype,$expword,@matches) = &expand_word ($thisarg,@words) ;
 
-      # if we're going deeper, add to the 'cli' string
-      push ( @LIST_BRANCH , $cmd ) ;
+       &debug_cli (3,"linex match [$done][$sptype] exp($expword)or[@matches]");
+       &debug_cli (3,"linex exp   [$thisarg]->[$expword]");
 
+       if ( $expword and @matches ) {
+          # ambiguous line, drop an error, exit
+          $error = "  Ambiguous : $expline(@matches)";
 
-      # print out dot stuff and ensure uniqieness
-      my $child = "$last$cmd" ;
-         $child =~ s/<|>//g;
+          # break out of the arg reading loop..
+          return ( $expline , $error , $matchline) ;
 
-      push ( @DOT_BRANCH , $child ) ;
+       }
 
-      if ( $last ) {
-         &debug_cli(1,"dot : $parent -> $child");
-      }
-      else {
-         &debug_cli(1,"dot : $child");
-      }
+       elsif ( $sptype ) {
+          # we're a special, record this for regex matching
+          $expline .= "$expword " ;
+          $matchline .= "$sptype " ;
+       }
 
-      # and recurse..
-      if ( $call =~ /commands/ ) {
-         &$call("foo","foo");
-      }
+       elsif ( ! $expword ) {
+          # NO MATCH, Bad word
+          $expline .= "$thisarg" ;
+          $matchline .= "$thisarg" ;
+#           $error = "Unknown argument";
 
-      # on the way out, print the line
-      if ( @LIST_BRANCH ) { print "@LIST_BRANCH\n"; }
+          # find out where the error was.. (kinda tricky)
+          # the bad word will be at the end of $expanded
+          # [ ] need to make this not greedy
+          my ( $bad ) = $thisarg ;
+          ( my $good = $line ) =~ s/$bad.*?$//;
 
-      # pop the stacks
-      pop @LIST_BRANCH ;
-      pop @DOT_BRANCH ;
-   }
-}
+          # and unclean comments
+          $good =~ s/%20s/ /g ;
 
+          # and use this to put a marker at the right place
+          my $slen = length ( $PROMPT) + length ( $good ) ;
+          my $spc = sprintf ( "%*s^" , $slen , " " ) ;
+          &debug_cli (3,"cmpctl estrip [$bad] from [$good] [$spc]");
 
-# PARSER : show xxx
-sub show_commands {
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                'zone' => 'show_zone',
-                'network' => 'show_network',
-                'host' => 'show_host',
-                'version' => 'show_version',
-                # serial cli
-                'interface' => 'do_nothing',
-                'logs' => 'do_nothing',
-                'network' => 'do_nothing',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+          $error = "$spc\n  Unknown argument at '^'";
 
-sub show_version {
-     print "\n$BASE/$NAME\n$REV\n$RDATE\n\n";
-}
+          return ( $expline , $error , $matchline) ;
+       }
 
-# PARSER : download xxx
-sub download_commands {
-   &debug_cli (4,"sub = download_commands");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                "database" => 'get_database',
-#                 "logs" => 'get_logs',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+       else {
+          # standard word
+          $expline .= "$expword" ;
+          $matchline .= "$expword" ;
 
-# PARSER : upload xxx
-sub upload_commands {
-   &debug_cli (4,"sub = upload_commands");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-#                 "database" => 'put_database',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+       }
 
-# PARSER : conf xxx
-#
-# note, 'conf dhcp' (for the present) == 'conf network'
-sub set_commands {
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                'debug' => 'set_debug',
-                'server' => 'add_server',
-                'system' => 'system_commands',
-#                 'password' => 'add_pass',
-                'zone' => 'zone_commands',
-                'realm' => 'realm_commands',
-                'network' => 'network_commands',
-#                 'network' => 'do_nothing',
-                'dhcp' => 'network_commands',
-                # serial commands
-                'interface' => 'do_nothing',
+    }
 
-        ) ;
-   &shift_arg($arg,%commands);
+    # now clean it up
+    $expline =~ s/\s+$//;
+    $matchline =~ s/\s+$//;
+    # and unclean comments
+    $expline =~ s/%20s/ /g;
+    $matchline =~ s/%20s/ /g;
+
+    return ( $expline , $error , $matchline ) ;
 
 }
 
-# PARSER : conf system xxx
-sub system_commands {
-   &debug_cli (4,"sub = system_commands");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'cluster_add_commmands',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+sub lastarg {
+    # given a string, determine what the last arg is.
 
-# PARSER : conf system add xxx
-sub cluster_add_commmands {
-   &debug_cli (4,"sub = cluster_add");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                "member" => 'cluster_add_member',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+    my ($line) = @_ ;
 
-# PARSER : conf realm xxx
-sub realm_commands {
-   &debug_cli (4,"sub = realm_commands");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'add_realm',
-                "delete" => 'remove_realm',
-                "remove" => 'remove_realm',
-                "" => 'mod_realm_commands',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+    # we need the last 2 words to get context 
+    #  - last complete word
+    #  - last incomplete word
+    # this string can be any combination of :
+    # ''
+    # '<str>'
+    # '<str> '
+    # '..<str> <srt>'
+    # '..<str> <srt> '
 
-# PARSER : conf zone xxx
-sub zone_commands {
-   &debug_cli (4,"sub = zone_commands");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'cli_add_zone',
-                "delete" => 'cli_remove_zone',
-                "remove" => 'cli_remove_zone',
-                "" => 'mod_zone_commands',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+    # if there is trailing space - that is the last arg
+    # if there is no trailing space, the last word is the lastarg
 
-# PARSER : conf network xxx
-sub network_commands {
-   &debug_cli (4,"sub = network_commands");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'cli_add_network',
-                "delete" => 'cli_remove_network',
-                "remove" => 'cli_remove_network',
-                "global" => 'mod_global_dhcp',
-                "" => 'set_network_commands',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+    # we also return the previous word, as this is useful sometimes
 
-# PARSER : conf network global xxx
-sub mod_global_dhcp {
-   &debug_cli (4,"sub = glob network_commands");
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'cli_add_global_dhcp',
-                "delete" => 'cli_del_global_dhcp',
-                "remove" => 'cli_del_global_dhcp',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+    &debug_cli (4,"lastarg line  l($line)");
 
-# PARSER : conf network <n.n.n.n/mm> xxx
-sub set_network_commands {
-   &debug_cli (4,"sub = set_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+    my ( $prearg , $lastarg ) = $line =~ /(\S+)\s+(\S+)$/ ;
+    if ( $line =~ /(\S+)\s+$/ ) { $prearg = $1 , $lastarg = "" };
+    if ( $line =~ /^(\S+)$/ ) { $prearg = "NULL" , $lastarg = $1 };
+    if ( $line =~ /^$/ ) { $prearg = "NULL" , $lastarg = $1 };
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "split" => 'cli_split_network',
-                "add" => 'add_to_network_commands',
-                "remove" => 'delete_from_network_commands',
-                "delete" => 'delete_from_network_commands',
-                "modify" => 'modify_network',
-        ) ;
-   &shift_arg($arg,%commands);
-}
-
-# PARSER : conf network <n.n.n.n/mm> add xxx
-sub add_to_network_commands {
-   &debug_cli (4,"sub = add_to_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
-
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "fixed" => 'cli_add_fixed_address',
-                "address" => 'cli_add_fixed_address',
-                "network" => 'add_sub_network',
-                "range" => 'cli_add_dhcp_range',
-                "dhcprange" => 'cli_add_dhcp_range',
-        ) ;
-   &shift_arg($arg,%commands);
-}
-
-# PARSER : conf network <n.n.n.n/mm> delete xxx
-sub delete_from_network_commands {
-   &debug_cli (4,"sub = delete_from_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
-
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "fixed" => 'del_fixed_address',
-                "range" => 'del_dhcprange',
-                "dhcprange" => 'del_dhcprange',
-        ) ;
-   &shift_arg($arg,%commands);
-}
-
-# PARSER : conf realm <realm> xxx
-sub mod_realm_commands {
-   &debug_cli (4,"sub = mod_realm ($SAVE_HIST)(@P_ARGS)(@WORDS)");
-
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'add_to_realm_commands',
-                "delete" => 'remove_from_realm_commands',
-                "remove" => 'remove_from_realm_commands',
-                "modify" => 'modify_realm_commands',
-        ) ;
-   &shift_arg($arg,%commands);
+    return ( $prearg , $lastarg ) ;
 
 }
 
-# PARSER : conf zone <zone> xxx
-sub mod_zone_commands {
-   &debug_cli (4,"sub = mod_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+sub add_context {
+    # shove an new context into the hash
+    my  ( $context , $words , $add_func , $copyfrom ) = @_ ;
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'add_to_zone_commands',
-                "delete" => 'remove_from_zone_commands',
-                "remove" => 'remove_from_zone_commands',
-#                 "import" => 'import_to_zone',
-        ) ;
-   &shift_arg($arg,%commands);
+    # only create NEW structures
+#     unless ( $COMMANDS{ $context }{"words"} ) {
+    unless ( $COMMANDS{ $context } ) {
+       $COMMANDS{ $context }{"words"} = $words ;
 
-}
+       # there should already be a context for $line
+       # so we may choose to copy the function
+       # ( we DON'T do this for things like the lhs of <word>=<var> )
+       my $func = $COMMANDS{ $copyfrom }{"func"} ;
+       if ( $add_func ) {
+          $COMMANDS{ $context }{"func"} = $COMMANDS{ $copyfrom }{"func"} ;
+       }
 
-# PARSER : conf realm <realm> modify xxx
-sub modify_realm_commands {
-   &debug_cli (4,"sub = modify_realm ($SAVE_HIST)(@P_ARGS)(@WORDS)");
-
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "user" => 'mod_realm_opt',
-        ) ;
-   &shift_arg($arg,%commands);
+       &debug_cli (4,"addcon f($func) ($context) [$words]");
+    }
 
 }
 
-# PARSER : conf realm <realm> modify user xxx
-sub mod_realm_opt {
-   &debug_cli (4,"sub = mod_realm_opt ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+sub get_context {
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "" => 'modify_realm_user',
-        ) ;
-   &shift_arg($arg,%commands);
+    # we are passed a string which SHOULD be the whole line EXCEPT for
+    # THE LAST ARG, we use this to get some sort of context and the next
+    # list of possible words
+
+    my ( $line , $lastarg ) = @_ ;
+    $line =~ s/\s+$//;
+    &debug_cli (3,"contxt line [$line]");
+
+    # we need to check is we're at the beginnning of the line
+    if ( ! $line ) { $line = "NULL" } ;
+
+    # the hash is $COMMANDS { "<string>" } { "words|func|help" }
+    #             $COMMANDS { "<string>" } { "words" }
+    #
+    # Can't use an undefined value as an ARRAY reference
+
+    # now find a matching line of context in the commend hash.
+    my @words ;
+    if ( $COMMANDS{"$line"}{'words'} ) {
+       my $wordlist = $COMMANDS{"$line"}{'words'} ;
+
+       # now we need to clean up some of the odd syntaxes the list
+       # of words, so we do neat things before creating an array
+
+       # 'word=<var>' pair : if that's the case we have to get a
+       # tad clever and dynamically add new matches to the context array.
+       # this is easier that generating all permutations at compile time
+       # we'll just add new contextes at run time.
+
+       # walk the words one at a time
+       foreach my $cw ( split ( /\s+/ , $wordlist ) ) {
+          if ( $cw =~ /\|/ ) {
+             # word|word|word :
+             # add an additional context with the same arg list
+             foreach my $alt ( split /\|/ , $cw ) {
+
+                # now check for 'word=<var>|word=<var>|word' :
+                if ( $alt =~ /(\S+)=(<\S+>)/ ) {
+                   push ( @words , $1 ) ;
+                   # add a context for lhs (with no func)
+                   &add_context ( "$line $1" , $2 , 0 , 0 ) ;
+                   # and the rhs with the original list
+                   &add_context ( "$line $1 $2" , $wordlist , 1 , $line ) ;
+                }
+                else {
+                   # just add the word
+                   push ( @words , $alt ) ;
+
+                   # add a context for the altword
+                   &add_context ( "$line $alt" , $wordlist , 1 , $line ) ;
+                }
+             }
+          }
+          elsif ( $cw =~ /(\S+)=(<\S+>)/ ) {
+             # word=<var> :
+             # drop '=<var>' , add an additional context
+             push ( @words , $1 ) ;
+
+             # add a context for lhs
+             &add_context ( "$line $1" , $2 , 0 , 0 ) ;
+             # add a terminating context for rhs
+             &add_context ( "$line $1 $2" , "<cr>" , 1 , $line ) ;
+          }
+
+          else {
+             # normal word
+             push ( @words , $cw ) ;
+          }
+          
+       }
+
+    }
+    else {
+       @words = ( "<cr>" ) ;
+    }
+    &debug_cli (4,"contxt words c(@words) ");
+
+    return ( sort @words ) ;
 
 }
 
-# PARSER : conf realm <realm> modify user <user> xxx
-sub modify_realm_user {
-   &debug_cli (4,"sub = mod_realm_usr ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+################
+# TAB completion
+# This is complex in its simplicity
+################
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "add" => 'modify_realm_user_add',
-                "delete" => 'modify_realm_user_delete',
-        ) ;
-   &shift_arg($arg,%commands);
+sub cmpctl {
+    # completion control... called when we <tab>
+    print "\n" if $DEBUG ;
 
+    # first, we have to get the last input
+    my ( $line , $icur , $ilast ) = $el->line ;
+    chomp $line ;
+
+    # [-] how do you handle a line that has been edited ?
+    #     like you press <tab> before an existing word ?
+    #     A) you ignore it, and don't complete the word
+
+    # Next possible completions : 
+    #       configure download exit get 
+                                                                                
+    
+    # now we have to expand this line and parse it
+    # this seems redundant, but there may be words in the line that were
+    # not previously <tab> completed. 
+
+    # WE only expand
+
+    my ( $expanded , $exerr , $matchline ) = &expand_line ( $line ) ;
+    &debug_cli (3,"cmpctl -------");
+    &debug_cli (3,"cmpctl e[$expanded]");
+    &debug_cli (3,"cmpctl m[$matchline]");
+    
+    # [-] now - expandline may drop an error if we made a typo
+    # if so we should report the syntax error
+    if ( $exerr =~ /unknown/i ) {
+       # find out where the error was.. (kinda tricky)
+       # the bad word will be at the end of $expanded
+
+       print "\n$exerr\n";
+       return CC_REDISPLAY  ;
+    }
+
+    # so we now have expanded the line, we can use this to get the
+    # context (again), but we have to rip out the last arg from it
+
+    my ( $prearg , $lastarg ) = &lastarg ($line ) ;
+    &debug_cli (3,"cmpctl lastarg p($prearg) l($lastarg)");
+
+    my $checkline = $matchline ;
+    if ( $prearg eq "NULL" ) { $checkline = "NULL" }
+    elsif ($lastarg ) {
+       # now we so some tricky substitution
+       # putting the last arg back as it was
+       $checkline =~ s/\s($lastarg)\S*$/ /;
+
+       # or cleansing special markers ( <net> etc )
+       $checkline =~ s/\s<\S*>$/ /;
+    }
+
+    &debug_cli (3,"cmpctl chkline  [$checkline]");
+
+    # we pass the last arg to get_context anyway, as we may need it
+    my ( @words ) = get_context ( $checkline , $lastarg ) ;
+
+    # then we call expand_word() which will find a match and return
+    # - the expanded word (unique match)
+    # - no change ( a special word )
+    # - no change ( ambiguous , list of matches )
+    # - nothing ( no match , list of matches )
+
+    my ($done,$sptype,$expword,@matches) = &expand_word ($lastarg,@words) ;
+    &debug_cli (3,"cmpctl match [$done][$sptype] ($expword) alt[@matches]");
+
+    # based on this, do something useful
+    if ( $expword and $done ) {
+       # finish the line, add the missing charagters
+       &debug_cli (3,"cmpctl uniq ($lastarg)+[$expword]");
+
+       ( my $append = $expword ) =~ s/^$lastarg//i ;
+       # BUT only do it if the cursor is in the right place
+       if ( $icur = $ilast ) {
+          $el->push("$append");
+       }
+    }
+    elsif ( $expword and @matches ) {
+       # print matching options
+       &debug_cli (3,"cmpctl ambig ($expword) [@matches]");
+
+       print "\n@matches\n";
+    }
+    # [ ] don't redisplay, do nothing
+    elsif ( $expword ) {
+       # do nothing (NOTE, specials match AFTER uniqs )
+       &debug_cli (3,"cmpctl spec ($expword) [@matches]");
+    }
+    # [ ] i don't think we ever get here
+    elsif ( ! $expword ) {
+       # delete the string , print all options
+       my $len = length ( $lastarg ) ;
+       &debug_cli (3,"cmpctl cut ($expword)-[$len]");
+
+       $el->deletestr( $len );
+       print "\n@matches\n";
+    }
+
+    # Redisplay entire input line
+    return CC_REDISPLAY  ;
 }
 
-# PARSER : conf realm <realm> modify user <user> add xxx
-sub modify_realm_user_add {
-   &debug_cli (4,"sub = mod_realm_usr_add ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+sub expand_word {
+    # given an input and a list of matches, return either
+    # - the bit to append word (unique match)
+    # - no change ( a special word )
+    # - no change ( ambiguous , list of matches )
+    # - nothing ( no match )
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "attribute" => 'modify_realm_user_add_att',
-        ) ;
-   &shift_arg($arg,%commands);
+    my ( $inword , @words ) = @_ ;
 
-}
+    # then force an error if there are illegal characters
+    # by not making the regex match anything
+    # ( this catches words like '<ip>' )
+    $inword =~ s/^</!/;
+#     $inword =~ s/\[|\]|\(|\)/!/;
 
-sub modify_realm_user_delete {
-   &debug_cli (4,"sub = mod_realm_usr_del ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+    # we need to create a version of inword that is regex friendly
+    # so special chars have to be protected
+    ( my $regex = $inword ) =~ s/(\[|\]|\.|\/)/\\$1/g ;
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "attribute" => 'modify_realm_user_del_att',
-        ) ;
-   &shift_arg($arg,%commands);
+    &debug_cli (5,"wordx arg [$inword] regex #$regex#");
 
-}
+    # generate abbreviations
+    my %abbrevs = abbrev ( @words ) ;
+    # if this is an abbrev of a word...
+    my $expword = $abbrevs{ lc($inword) } ;
+    my @matches ;
+    my $completed = 0 ;
+    my $spectype ;
 
-# PARSER : conf realm <realm> add xxx
-sub add_to_realm_commands {
-   &debug_cli (4,"sub = add_to_realm ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+    if ( $expword ) {
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "attribute" => 'add_attrib_to_realm',
-                "user" => 'add_user_to_realm',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+       # we have a match, stop here, append a <spc>
+       $expword .= " ";
+       &debug_cli (4,"wordx uniq ($inword) -> [$expword]");
+       $completed = 1 ;
+    }
+    else {
 
-# PARSER : conf zone <zone> add xxx
-sub add_to_zone_commands {
-   &debug_cli (4,"sub = add_to_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+       # no match , find alternatives
+       @matches = sort grep ( /^$regex/ , @words ) ;
+       my @specials = sort grep ( /^</ , @words ) ;
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "host" => 'cli_add_host',
-                "cname" => 'add_cname',
-                "a" => 'add_a_rec',
-                "ptr" => 'add_zone_ptr',
-                "bulkhost"   => 'add_bulkhost',
-                "nameserver" => 'NOT_READY',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+       if ( @matches ) {
+          # we have an abiguous word (or a blank)
+          &debug_cli (4,"wordx ambig ($inword) [@matches]+[@specials]");
+          $expword = $inword ;
 
-# PARSER : conf zone <zone> remove xxx
-sub remove_from_zone_commands {
-   &debug_cli (4,"sub = remove_from_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+          if ( $regex ) { @matches = ( @specials , @matches ) ; }
+       }
+       else {
+          # no match, catch special strings or remove the bad word
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "host" => 'cli_remove_host',
-                "cname" => 'remove_cname',
-                "bulkhost" => 'remove_bulkhost',
-                "a" => 'remove_a_rec',
-                "ptr" => 'del_zone_ptr',
-                "nameserver" => 'NOT_READY',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+          my $havespecial ;
+          foreach my $smatch ( sort keys %SPECOPS ) {
+             # if the special is valid in this context
+             # and it has the right regex, ...
 
-# PARSER : conf realm <realm> remove xxx
-sub remove_from_realm_commands {
-   &debug_cli(4,"sub = remove_from_realm ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+             # we lookup the regex to use based on the keyword
+             my $regex = $SPECOPS{$smatch};
+             &debug_cli (5,"wordx spe regex ($smatch) ( $regex ) ");
 
-   my $arg  = shift @WORDS ;
-   my %commands = ( 
-                "user" => 'remove_user_from_realm',
-                "attribute" => 'remove_attrib_from_realm',
-        ) ;
-   &shift_arg($arg,%commands);
-}
+             if ( grep ( /$smatch/ , @words ) and $inword =~ /$regex/ ) {
+                # delete nothing
+                &debug_cli (4,"wordx is spe ($smatch) [$inword]");
+                $expword = $inword ;
+                $havespecial ++ ;
+                $spectype = $smatch ;
+             }
+          }
 
-# PARSER : default
-sub NOT_READY {
-    print "***-  NOT IMPLEMENTED\n";
+          unless ( $havespecial ) {
+
+             # scrub the word
+             $expword = "" ;
+             &debug_cli (4,"wordx cut [$inword] -> ($expword)");
+             @matches = sort @words ;
+
+          }
+
+       }
+
+    }
+
+    # return the results
+    &debug_cli (4,"wordx word  ($inword)>[$expword]");
+    return ( $completed , $spectype , $expword , @matches ) ;
 }
 
 ###########################################
-#
-# here endith the arg parsers
-#
-###########################################
-
-# 2 functions here (and more damn globals - hmm...)
-# do_pub_conn calls the public function
-# do_priv_conn calls the priv function
-
 #
 # call an infoblox function, ONLY if we're connected
 #
+
 sub do_func {
 
     # assume we are passed a single object
     #
     my ( $method , @data ) = @_ ;
-    &debug_cli(1,"do_func ($method)");
+#     &debug_cli(1,"do_func ($method)");
 
-    # format the data for pretty printing
-    &print_data($method,@data);
+    # [ ] format the data for pretty printing
+#     &print_data($method,@data);
 
     my @ret_objects ;
 
-    if ( ! $MAKE ) {
        # actually try and run it
-       if ( $CONNECTED ) {
-          
+       if ( $ONLINE ) {
+
           # call by indirection
           @ret_objects = $SESSION->$method ( @data ) ;
 
@@ -1126,170 +1036,31 @@ sub do_func {
 
           if ( $result > 0 ) {
              # We got error...
-             print "failed [$result] $response\n";
+             print "  Error : $response ($result)\n";
           }
-          else {
-             $MADE_CHANGES = "*" ;
-          }
-
        }
        else {
-          &err_print("CANNOT EXECUTE - no connection is in place");
+          print "  CANNOT EXECUTE - no connection is in place\n";
        }
-
-    }
 
     return ( @ret_objects ) ;
 }
 
-# sub do_priv_func {
-#     # private functions need a different session handler
-#     my ( $ib_call , $key_ptr , $mod_ptr ) = @_ ;
-#     &debug_cli(1,"do_priv_func ($ib_call)");
-# 
-#     # format the data for pretty printing
-# #     &print_data($ib_call,$key_ptr);
-#     print "DUMPER needs updating for multi hashes...\n";
-# 
-#     if ( ! $MAKE ) {
-#        # actually try and run it
-#        if ( $CONNECTED ) {
-#           # type cast correctly and prepend the SESSION
-# 
-#           my ( $res , $info ) = &$ib_call ( $PRI_SESS , $key_ptr , $mod_ptr ) ;
-#        }
-#        else {
-#           &err_print("CANNOT EXECUTE - no connection is in place");
-#        }
-# 
-#     }
-# }
-
-sub do_nothing {
-    my ( $ib_call , @fargs ) = @_ ;
-    &debug_cli(1,"do_nothing ($ib_call) [@fargs]");
-
-    # format the data for pretty printing
-#     my $fstring = &format_ib_func($ib_call,@fargs);
-    &print_data($ib_call,@fargs);
-
-    if ( ! $MAKE ) {
-          &err_print("CANNOT EXECUTE - NOT IMPLEMENTED");
-    }
-}
-
-# sub format_ib_func {
-# 
-#     my ( $ib_call , @fargs ) = @_ ;
-# 
-#     my $p_comm ;
-# 
-#     # V3 code passes args as a hash or many hashes
-# 
-#     my $syntax ;
-#     foreach my $ptr ( @fargs ) {
-#        my %hash = %{ $ptr } ;
-# 
-#        # format each hash
-#        $syntax .= &dump_hash( 0 , "HASH" , %hash );
-#     }
-# 
-#     $p_comm = "my \$result = $ib_call ( \$SESSION ,\n $syntax    );\n\n";
-# 
-# 
-#     # do we print out code instead...
-#     if ( $MAKE ) {
-#        print "\nprint '" . $ib_call . "'.\"\\n\";\n" ;
-# 
-#        print "$p_comm ;\n" ;
-#     }
-# 
-#     # return the formatted string (in case we need it)
-#     return ( $p_comm );
-# }
-
 
 ###########################################
 #
-# actual API functions.
+# actual API calling functions.
 #
 ###########################################
 
 =head1 GENERAL COMMAND REFERENCE
 
 The syntax mostly matches the API syntax. Also, since this is based on
-the API (duh) the same restrictions about requires arguments applies.
+the API (duh) the same restrictions about required arguments applies.
 Don't expect the cli to work around requiring dumb extra arguments. When
 you look deep into the API you realise why they are there.
 
 =cut
-
-# sub get_logs {
-#     #
-#     # download the logs to the current dir
-#     #
-#     my ( $dest ) = @_ ;
-# #     chomp($dest = `pwd`);
-# #     $dest="$dest/IB_files";
-#     if ( ! $dest ) {
-#        &missing_arg("<dir>")  ;
-#        return ;
-#     }
-# 
-#     &err_print("DOWNLOADING ALL LOGS data to $dest ...");
-#     if ( ! -d $dest ) { mkdir($dest,0755); }
-# 
-#     my @function = ("ib_export_logs",$dest);
-#     &do_nothing(@function);
-# 
-#     &err_print("DONE ");
-# 
-# }
-
-=head2 Export the database
-
-    download database
-
-=cut
-
-sub get_database {
-    #
-    # download the database to the current dir
-    #
-    my ( $dest ) = @_ ;
-    if ( ! $dest ) {
-       &missing_arg("<file>")  ;
-       return ;
-    }
-
-    &err_print("DOWNLOADING ALL DATABASE data as $dest ...");
-
-    my %args = (
-          "path" => $dest ,
-          "type" => "backup",
-          "format" => "tar",
-           );
-
-    &do_func("export_data",%args);
-
-    &err_print("DONE ");
-
-}
-
-# sub import_to_zone {
-#     ## DEPRICATED - see 'cli_add_zone' ;
-#     my ( $zone , $ip , $opt ) = @_ ;
-#     if ( ! $ip ) {
-#        &missing_arg("<ip> [noptr]")  ;
-#        return ;
-#     }
-# 
-#     &debug_cli(2,"importing z($zone) ip($ip) ");
-# 
-#     my @function = ("ib_import_zone",$zone,$ip,$opt);
-#     &do_nothing(@function);
-# 
-# }
 
 =head2 Add a Zone
 
@@ -1306,11 +1077,11 @@ Add a reverse zone
 
 Add a zone to specific members
 
-   conf zone add foo.com mem 1.2.3.4 mem 1.2.3.5 mem 1.2.3.6
+   conf zone add foo.com primary 1.2.3.4 secondary 1.2.3.5 sec 1.2.3.6
 
 Add a zone with external primary
 
-   conf zone add foo.com primary ns1.foo.com 1.2.3.4 
+   conf zone add foo.com ext_primary ns1.foo.com,1.2.3.4 
 
 =head2 Import a zone
 
@@ -1330,81 +1101,95 @@ Import a reverse zone
 sub cli_add_zone {
 
     # essentially all options are passed as name value pairs
-    # after the required options
-    # so we pass this array to an abbrev validator that looks at each
-    # second word and abbrev/expands and validates
     # 
-    # the validator has to be passed an array, and a list of keywords
-    # (ARRG!! - 2 arrays...)
-    # 
-    # for the moment we'll not bother to validate
+    my ( $line ) = @_ ;
 
-    my ( $zone , @type_opts) = @_ ;
+    # get the args from the line
+    my ($zone)     = $line =~/zone add (\S+)/ ;
+    my ($import)   = $line =~/ import (\S+)/ ;
+    my ($pri)   = $line =~/ primary (\S+)/ ;
 
-    if ( ! $zone ) { &missing_arg("<zone>") ; return }
+    my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
+    my (@sec)     = $line =~/ secondary (\S+)/g ;
+    my (@ext_sec) = $line =~/ ext_secondary (\S+)/g ;
 
-    &debug_cli(2,"addz n($zone) oo(@type_opts)");
+    &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec)(@ext_sec)");
 
-    # what are allowed options ?
-    my @opts = ( "import" , "primary" , "member" );
-    my %optlist = abbrev ( @opts ) ;
+    # create the zone...
+    my $obj = Infoblox::DNS::Zone->new ( "name" => $zone, );
 
-    # if we don't have any args we do the default...
-    my $obj = Infoblox::DNS::Zone->new (
-                     "name" => $zone,
-                     "primary" => $MASTER ,
-          );
+    # find a member to be the primary (external or otherwise)
+    if ( $pri ) {
+       # member primary
+       my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $pri, );
+       $obj->primary( $pri_ns ) ;
 
-    # remember secondaries
-    my @secondaries ;
+       &debug_cli (2,"addz z($zone) mem-p($pri)");
+    }
+    elsif ( @ext_pri ) {
+       # external primaries
+       my @ext_svrs ;
+       foreach my $external ( @ext_pri ) {
+          # we override with an external primary
+          my ( $nsname , $ip ) = split ( /,/ , $external ) ;
 
-    # walk the options
-    while ( my $type = shift @type_opts ) {
-       my $value = shift @type_opts ;
-       my $etype = $optlist{ lc($type) } ;
+          &debug_cli (2,"addz z($zone) ext-p($nsname)($ip)");
+          my $primary = Infoblox::DNS::Nameserver->new ( 
+                     'name' => $nsname, 
+                     'ipv4addr' => $ip, 
+                      );
 
-       if ( ! $etype ) { 
-          &missing_arg(@opts);
-          return ;
+          push @ext_svrs , $primary ;
        }
 
-       &debug_cli(2,"addz o($type) v($value) oo(@type_opts)");
+       $obj->primary( \@ext_svrs ) ;
 
-       # internal or external primary ?
-       if ( $etype eq "primary" ) {
-          # we override with an external primary
-          my $nsname = $value ;
-          my $ip = shift @type_opts ;
+    }
+    elsif ( $MASTER_IP ) {
+       # use the server as the primary
+       my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $MASTER_IP, );
 
-          my $primary = Infoblox::DNS::Nameserver->new ( 
+       $obj->primary( $pri_ns ) ;
+       &debug_cli (2,"addz z($zone) mas-p($MASTER_IP)");
+    }
+
+    # find secondaries
+    my @sec_svrs ;
+
+    foreach my $sec_ip ( @sec ) {
+       # normaal members
+       push @sec_svrs , Infoblox::DNS::Member->new(
+#                              "name" => $value ,
+                             "ipv4addr" => $sec_ip ,
+                             );
+       &debug_cli (2,"addz z($zone) sec($sec_ip)");
+    }
+
+    foreach my $ext_ip ( @ext_sec ) {
+       # external secondaries
+       my ( $nsname , $ip ) = split ( /,/ , $ext_ip ) ;
+
+       # IP is optional (kinda)
+       if ( ! $ip ) { $ip = "255.255.255.255" }
+
+       my $secondary = Infoblox::DNS::Nameserver->new ( 
                         'name' => $nsname, 
                         'ipv4addr' => $ip, 
                       );
 
-          $obj = Infoblox::DNS::Zone->new (
-                     "name" => $zone,
-                     "primary" => [ $primary ] ,
-          );
-       }
-
-       # do we add grid secondaries ?
-       if ( $etype eq "member" ) {
-          # push them to the array , only use ip address
-          push @secondaries , Infoblox::DNS::Member->new(
-#                              "name" => $value ,
-                             "ipv4addr" => $value ,
-                             );
-       }
-
-       # do we import ?
-       if ( $etype eq "import" ) {
-          $obj->import_from ( $value ) ;
-       }
+       push @sec_svrs , $secondary ;
+       &debug_cli (2,"addz z($zone) ext-s($nsname)($ip)");
     }
 
     # add any secondaries we found parsing the args
-    $obj->secondaries ( \@secondaries ) ;
-   
+    $obj->secondaries ( \@sec_svrs ) ;
+
+    # do we import ?
+    if ( $import ) {
+       $obj->import_from ( $import ) ;
+       &debug_cli (2,"addz z($zone) imp($import)");
+    }
+
     # now add the damn thing
     &do_func("add",$obj);
 
@@ -1424,10 +1209,12 @@ Remove a reverse zone
 
 =cut
 
-sub cli_remove_zone {
-    my ( $zone ) = @_ ;
-    if ( ! $zone ) { &missing_arg("<zone>") ; return }
-    &debug_cli(2,"remz n($zone)");
+sub cli_delete_zone {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    ( my $zone)     = $line =~/zone delete (\S+)/ ;
+    &debug_cli(1,"remz n($zone)");
 
     my $obj = Infoblox::DNS::Zone->new (
                   "name" => $zone,
@@ -1441,17 +1228,21 @@ sub cli_remove_zone {
 
    conf zone foo.com add host test 1.2.3.4
 
+   conf zone foo.com add host test 1.2.3.4 comment "this is a comment"
+
 =cut
 
 sub cli_add_host {
-    my ( $zone , $host , $ip , $comment ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<host> <ip>")  ;
-       return ;
-    }
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $host , $ip ) = $line =~/add host (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
     my $name="$host.$zone";
 
-    &debug_cli(2,"addh n($name) n($ip) c($comment)");
+    &debug_cli(1,"addh n($name) n($ip) c($comment)");
 
     # create the object
     my $obj = Infoblox::DNS::Host->new (
@@ -1472,15 +1263,16 @@ sub cli_add_host {
 
 =cut
 
-# [ ] remove host does not work
-sub cli_remove_host {
-    my ( $zone , $host ) = @_ ;
-    if ( ! $host ) {
-       &missing_arg("<host>")  ;
-       return ;
-    }
+sub cli_del_host {
+    my ( $line ) = @_ ;
 
-    &debug_cli(2,"addh n($host.$zone) ");
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $host ) = $line =~/host (\S+)/ ;
+
+    my $name="$host.$zone";
+
+    &debug_cli(1,"delh n($host.$zone) ");
 
     # create the object
     my $obj = Infoblox::DNS::Host->new (
@@ -1498,12 +1290,13 @@ sub cli_remove_host {
 
 =cut
 
-sub add_a_rec {
-    my ( $zone , $host , $ip , $comment ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<host> <ip>")  ;
-       return ;
-    }
+sub cli_add_a_rec {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
     my $obj = Infoblox::DNS::Record::A->new (
                   "name" => "$host.$zone",
@@ -1512,7 +1305,7 @@ sub add_a_rec {
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
-    &debug_cli(2,"add1h n($host) n($ip) ");
+    &debug_cli(1,"add1h n($host) n($ip) c($comment)");
 
     # addit
     &do_func("add",$obj);
@@ -1525,19 +1318,19 @@ sub add_a_rec {
 
 =cut
 
-sub remove_a_rec {
-    my ( $zone , $host , $ip ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<host> <ip>")  ;
-       return ;
-    }
+sub cli_del_a_rec {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
 
     my $obj = Infoblox::DNS::Record::A->new (
                   "name" => "$host.$zone",
                   "ipv4addr" => "$ip",
     );
 
-    &debug_cli(2,"del1h n($host) n($ip) ");
+    &debug_cli(1,"del1h n($host) n($ip) ");
 
     # addit
     &do_func("remove",$obj);
@@ -1548,32 +1341,31 @@ sub remove_a_rec {
 
    conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20
 
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 comment "bah"
+
 =cut
 
-sub add_bulkhost {
-    my ( $zone , $prefix , $fip , $lip , $comment ) = @_ ;
+sub cli_add_bulk {
+    my ( $line ) = @_ ;
 
-    if ( $zone and $prefix and $fip and $lip ) {
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
-       &debug_cli(2,"addbh n($zone) p($prefix) n($fip,$lip) ");
+    &debug_cli(1,"addbh z($zone) p($prefix) n($fip,$lip) c($comment)");
 
-       my $obj = Infoblox::DNS::BulkHost->new (
+    my $obj = Infoblox::DNS::BulkHost->new (
                    "zone" => $zone ,
                    "prefix" => $prefix ,
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
-         );
+    );
 
-       if ( $comment ) { $obj->comment ( $comment ) }
+    if ( $comment ) { $obj->comment ( $comment ) }
 
-       # addit
-       &do_func("add",$obj);
-
-    }
-    else {
-       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
-       return ;
-    }
+    # addit
+    &do_func("add",$obj);
 
 }
 
@@ -1583,28 +1375,25 @@ sub add_bulkhost {
 
 =cut
 
-sub remove_bulkhost {
-    my ( $zone , $prefix , $fip , $lip ) = @_ ;
+sub cli_del_bulk {
+    my ( $line ) = @_ ;
 
-    if ( $zone and $prefix and $fip and $lip ) {
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
 
-       &debug_cli(2,"addbh n($zone) p($prefix) n($fip,$lip) ");
+    &debug_cli(1,"delbh z($zone) p($prefix) n($fip,$lip) ");
 
-       my $obj = Infoblox::DNS::BulkHost->new (
+    my $obj = Infoblox::DNS::BulkHost->new (
                    "zone" => $zone ,
                    "prefix" => $prefix ,
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
-         );
+      );
 
-       # addit
-       &do_func("remove",$obj);
+    # addit
+    &do_func("remove",$obj);
 
-    }
-    else {
-       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
-       return ;
-    }
 }
 
 =head2 Add a CNAME to a zone
@@ -1613,14 +1402,15 @@ sub remove_bulkhost {
 
 =cut
 
-sub add_cname {
-    my ( $zone , $alias , $cname , $comment ) = @_ ;
-    if ( (! $alias ) or ( ! $cname ) ) {
-       &missing_arg("<alias> <cname>")  ;
-       return ;
-    }
+sub cli_add_cname {
+    my ( $line ) = @_ ;
 
-    &debug_cli(2,"addcn a($alias) cn($cname) ");
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    &debug_cli(1,"addcn z($zone) a($alias) cn($cname) c($comment)");
 
     my $obj = Infoblox::DNS::Record::CNAME->new (
                   "name" => "$alias.$zone",
@@ -1640,14 +1430,14 @@ sub add_cname {
 
 =cut
 
-sub remove_cname {
-    my ( $zone , $alias , $cname ) = @_ ;
-    if ( ! $alias ) {
-       &missing_arg("<alias>")  ;
-       return ;
-    }
+sub cli_del_cname {
+    my ( $line ) = @_ ;
 
-    &debug_cli(2,"delcn n($alias) ");
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
+
+    &debug_cli(1,"delcn z($zone) n($alias) cn($cname)");
 
     my $obj = Infoblox::DNS::Record::CNAME->new (
                   "name" => "$alias.$zone",
@@ -1665,18 +1455,19 @@ sub remove_cname {
 
 Add a PTR with comments
 
-   conf zone 10.0.0.0/24 add PTR 10.0.0.20 ns2.foo.com "comment string"
+   conf zone 10.0.0.0/24 add PTR 10.0.0.20 ns2.foo.com comment "string"
 
 =cut
 
-sub add_zone_ptr {
-    my ( $network , $ip , $host , $comment ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<ip> <host>")  ;
-       return ;
-    }
+sub cli_add_ptr {
+    my ( $line ) = @_ ;
 
-    &debug_cli(2,"addnp n($network) ip($ip) h($host)");
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $ip , $host ) = $line =~/ ptr_record (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    &debug_cli(1,"addptr n($zone) ip($ip) h($host) c($comment)");
 
     my $obj = Infoblox::DNS::Record::PTR->new (
                   "ipv4addr" => $ip ,
@@ -1696,13 +1487,14 @@ sub add_zone_ptr {
 
 =cut
 
-sub del_zone_ptr {
-    my ( $network , $ip , $host ) = @_ ;
-    if ( ( ! $ip ) or ( ! $host ) ) {
-       &missing_arg("<ip> <host>")  ;
-       return ;
-    }
-    &debug_cli(2,"remnp n($network) ip($ip) ho($host)");
+sub cli_del_ptr {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $ip , $host ) = $line =~/ ptr_record (\S+) (\S+)/ ;
+
+    &debug_cli(1,"delptr n($zone) ip($ip) h($host)");
 
     my $obj = Infoblox::DNS::Record::PTR->new (
                   "ipv4addr" => $ip ,
@@ -1713,6 +1505,365 @@ sub del_zone_ptr {
     &do_func("remove",$obj);
 
 }
+
+=head2 Add a network
+
+   conf network add 1.1.1.0/24
+
+Add a network with members
+
+   conf network add 1.1.1.0/24 member 1.1.1.2,1.1.1.4
+
+Add a network with options
+
+   conf network add 1.1.1.0/24 option 82,"some data"
+
+Add a network with comments (comments must come last)
+
+   conf network add 1.1.1.0/24 comment "comment string"
+
+=cut
+
+# direct options :
+# [ ] lease_time , domain_name , etc etc
+
+sub cli_add_network {
+    # essentially all options are passed as name value pairs
+    # 
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $network ) = $line =~/ network add (\S+)/ ;
+    my ( $parent )  = $line =~/ parent (\S+)/ ;
+    my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+
+    my @options  = $line =~/ option (\S+)/g ;
+    my @members  = $line =~/ member (\S+)/g ;
+
+    &debug_cli (1,"addnet n($network) p($parent) m(@members) o(@options) c($comment)");
+
+    # create the network object :
+
+    my $net = Infoblox::DHCP::Network->new (
+                   "network" => $network ,
+                   "comment" => $comment ,
+                   "network_container" => $parent ,
+                );
+
+    # members :
+    if ( @members ) {
+       my @memsvrs ;
+       foreach my $memval ( @members ) {
+          # split on ',' get all the IPs
+          &debug_cli(2,"addnet mem($memval)");
+          push @memsvrs, Infoblox::DHCP::Member->new("ipv4addr"=>$memval);
+       }
+       # and add them to the object
+       $net->members ( \@memsvrs ) ;
+    }
+    elsif ( $MASTER_IP ) {
+       # just add the grid master
+       &debug_cli(2,"addnet mem($MASTER_IP)");
+       my $DHMASTER = Infoblox::DHCP::Member->new ('ipv4addr' => $MASTER_IP);
+#        my @memsvrs = ( $DHMASTER ) ;
+#        $net->members ( \@memsvrs ) ;
+       $net->members ( [ $DHMASTER ] ) ;
+    }
+
+    # options
+    if ( @options ) {
+
+       my @opt_list ;
+       foreach my $optval ( @options ) {
+          # set some custom options;
+          # split on the ','
+          my ( $opt , $val ) = $optval =~  /^(.*?),(.*)/ ;
+   
+          &debug_cli(2,"addnet o($opt) v($val)");
+   
+          my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
+          push @opt_list , $opt_obj ;
+       }
+
+#        $net->options ( \@opt_list ) ;
+
+    }
+
+    # add the object 
+    &do_func("add",$net);
+
+}
+
+=head2 Remove a network
+
+   conf network del 1.1.1.0/24
+
+=cut
+
+sub cli_delete_network {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $network ) = $line =~/ network delete (\S+)/ ;
+
+    &debug_cli(1,"delnet n($network)");
+
+    my $net = Infoblox::DHCP::Network->new (
+                   "network" => $network ,
+                );
+
+    &do_func("remove",$net);
+
+}
+
+=head2 Split a network
+
+You need to specify the netmaks of the children networks when you are
+doing a split. So to split a /16 into /20 networks :
+
+   conf network 1.1.0.0/16 split /24
+
+Split a network and add all children
+
+   conf network 1.1.0.0/16 split /24 all
+
+=cut
+
+sub cli_split_network {
+    #
+    # splitting either creates ALL networks or only the ones
+    # we have to have (which could be none)
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $ncidr ) = $line =~/ split \/(\S+)/ ;
+    my ( $type )  = $line =~/ split \/\S+ (\S+)/ ;
+
+    &debug_cli(2,"splitnet n($network) s($ncidr) t($type)");
+
+    # create the split object
+    my $obj = Infoblox::DHCP::SplitNetwork->new (
+                   "network" => $network ,
+                   "prefix" => $ncidr ,
+                );
+
+    # check the type
+    if ( $type eq "required" ) { 
+       $obj->add_all_subnetworks ( "false" ) ;
+    }
+    if ( $type eq "all" ) { 
+       $obj->add_all_subnetworks ( "true" ) ;
+    }
+
+    &do_func("add",$obj);
+
+}
+
+=head2
+
+When you split a network and want to add children you just add them to
+the parent network. All other options are the same as for adding networks
+
+   conf network 1.1.0.0/16 add 1.1.4.0/22 
+
+=cut
+
+sub cli_add_sub_network {
+    my ( $line ) = @_ ;
+
+    # we hack this by change the arg list to the correct syntax
+    # and just calling cli_add_network
+
+    # [ ] Add options , (or use mod_net ?)
+
+    my ( $par , $sub ) = $line =~/ network (\S+) add network (\S+)/ ;
+
+    $line =~ s/ network $par add network $sub/ network add $sub parent $par/;
+
+    &debug_cli(2,"addsn pn($par) cn($sub)");
+    &debug_cli(2,"addsn l[$line]");
+
+    &cli_add_network ( $line ) ;
+
+}
+
+=head2 Add a fixed address
+
+   conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 
+
+Add a fixed address with comments
+
+   conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 "comment string"
+
+=cut
+
+sub cli_add_fixed_address {
+    my ( $line ) = @_ ;
+
+    my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $ip , $mac ) = $line =~/ add fixed (\S+) (\S+)/ ;
+    my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+
+    &debug_cli(1,"addfix n($network) ip($ip) mac($mac) c($comment)");
+
+    my $obj = Infoblox::DHCP::FixedAddr->new (
+                  "network" => $network ,
+                  "ipv4addr" => $ip ,
+                  "mac" => $mac ,
+    );
+
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    # addit
+    &do_func("add",$obj);
+
+}
+
+=head2 Remove a fixed address
+
+For some clever reason, you don't really need to specify the parent
+network to remove a fixed address, but we enforct it here to keep people
+sane (In reality, any bogus string for the network name will work)
+
+   conf network 10.0.1.0 delete fixed 1.2.3.4
+
+=cut
+
+# [ ] remove fixed does not work
+sub cli_del_fixed_address {
+    my ( $line ) = @_ ;
+
+    my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $ip ) = $line =~/ fixed (\S+)/ ;
+    my ( $mac ) = $line =~/ fixed \S+ (\S+)/ ;
+
+    &debug_cli(2,"delfix ip($ip) mac($mac)");
+
+    my $obj = Infoblox::DHCP::FixedAddr->new (
+                  "network" => $network ,
+                  "ipv4addr" => $ip ,
+                  "mac" => $mac ,
+    );
+
+    # addit
+    &do_func("remove",$obj);
+
+}
+
+=head2 Add a dhcp range to a network
+
+Dhcp ranges, by default, will get added to the cluster master unless you
+override that setting with the 'member <ip>' syntax
+
+   conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40
+
+Failover associations are an additional argument
+
+   conf net 10.1.1.1/24 add range 10... failover "my_peering"
+
+As are adding the member 
+
+   conf net 10.1.1.1/24 add range 10... member 1.1.1.2
+
+=cut
+
+sub cli_add_dhcp_range {
+    # essentially all options are passed as name value pairs
+    # 
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $fip , $lip )  = $line =~/ add range (\S+) (\S+)/ ;
+    my ( $failover )  = $line =~/ failover (\S+)/ ;
+    my ( $member )  = $line =~/ member (\S+)/ ;
+    my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+
+    my @options  = $line =~/ option (\S+)/g ;
+
+    &debug_cli (1,"addrng n($network) s($fip) e($lip) o(@options)");
+    &debug_cli (1,"addrng n($network) m($member) c($comment) f($failover)");
+
+    # create the object
+    my $obj = Infoblox::DHCP::Range->new (
+                   "network" => $network ,
+                   "start_addr" => $fip ,
+                   "end_addr" => $lip ,
+#                    "comment" => $comment ,
+#                    "options" => \@opt_list ,
+#                    "member" => $member ,
+                );
+
+    # add the optional extras
+    if ( $comment ) { $obj->comment ( $comment ) }
+    if ( $failover ) { $obj->failover_assoc ( $failover ) }
+
+    # find a member to put this range on
+    if ( $member ) {
+       # not the grid master
+       &debug_cli(2,"addrng mem($member)");
+       my $memobj = Infoblox::DHCP::Member->new("ipv4addr"=>$member);
+       $obj->member ( $memobj ) ;
+    }
+    elsif ( $MASTER_IP ) {
+       &debug_cli(2,"addrng mem($MASTER_IP)");
+       my $DHMASTER = Infoblox::DHCP::Member->new ('ipv4addr' => $MASTER_IP);
+       $obj->member ( $DHMASTER ) ;
+
+    }
+
+    # options
+    if ( @options ) {
+
+       my @opt_list ;
+       foreach my $optval ( @options ) {
+          # set some custom options;
+          # split on the ','
+          my ( $opt , $val ) = $optval =~  /^(.*?),(.*)/ ;
+   
+          &debug_cli(2,"addnet o($opt) v($val)");
+   
+          my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
+          push @opt_list , $opt_obj ;
+       }
+
+#        $net->options ( \@opt_list ) ;
+
+    }
+
+    # add the object
+    &do_func("add",$obj);
+
+}
+
+=head2 Remove a dhcp range
+
+   conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40
+
+=cut
+
+sub cli_del_dhcp_range {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $fip , $lip )  = $line =~/ range (\S+) (\S+)/ ;
+
+    &debug_cli (1,"delrng n($network) s($fip) e($lip)");
+
+    my $obj = Infoblox::DHCP::Range->new (
+                   "network" => $network ,
+                   "start_addr" => $fip ,
+                   "end_addr" => $lip ,
+                );
+
+    &do_func("remove",$obj);
+
+}
+
+# [ ] broken until i get syntax to set the cluster name
 
 =head2 add global DHCP settings
 
@@ -1877,155 +2028,7 @@ sub cli_add_global_dhcp {
 
 =cut
 
-# sub cli_del_global_dhcp {
-# }
-
-=head2 Add a network
-
-   conf network add 1.1.1.0/24
-
-Add a network with members
-
-   conf network add 1.1.1.0/24 member 1.1.1.2 mem 1.1.1.3 mem 1.1.1.4
-
-Add a network with comments (comments must come last)
-
-   conf network add 1.1.1.0/24 comment "comment string"
-
-When you split a network and want to add children you just add them to
-the parent network. All other options are the same as for adding networks
-
-   conf network 1.1.0.0/16 add 1.1.4.0/22 
-
-=cut
-
-sub add_sub_network {
-
-    # we hack this by change the arg list to the correct syntax
-    # and just calling add_network
-
-    my ( $network , $subnet , @type_opts ) = @_ ;
-    if ( ! $subnet ) { &missing_arg("<n.n.n.n/mm>") ; return }
-
-    &debug_cli(2,"addsn pn($network) n($subnet)");
-
-    &cli_add_network ( $subnet , "parent" , $network , @type_opts ) ;
-
-}
-
-sub cli_add_network {
-    my ( $network , @type_opts ) = @_ ;
-
-    if ( ! $network ) { 
-            &missing_arg("<n.n.n.n/mm>") ; 
-            return 
-    }
-
-    &debug_cli(2,"addn n($network)");
-
-    # set the list of acceptable options
-    my @opts = ( "parent" , "network_container" , "member" 
-                 , "comment" , "option" );
-    my %optlist = abbrev ( @opts ) ;
-
-    my $comment ;
-    my @opt_list ;
-    my @memsvrs ;
-    my $parent ;
-
-    # build the rest as name value pairs
-    while ( my $type = shift @type_opts ) {
-       my $value = shift @type_opts ;
-       my $etype = $optlist{ lc($type) } ;
-
-       &debug_cli(3,"addnet t($type) et($etype) v($value) oo(@type_opts)");
-
-       if ( ! $etype || ! $value ) { 
-          &missing_arg(@opts );
-          return ;
-       }
-
-       # check for comments ?
-       if ( $etype eq "comment" ) {
-          # comments need a special handler
-          ( $value , @type_opts ) = &get_comment ( $value , @type_opts) ;
-          $comment = $value ;
-       }
-
-       if (    $etype eq "network_container" 
-            || $etype eq "parent" ) {
-          # we're adding to a parent
-          $parent = $value ;
-       }
-
-       if ( $etype eq "option" ) {
-          # set some custom options;
-          # split on the FIRST '='
-          my ( $opt , $val ) = $value =~  /^(.*?)=(.*)/ ;
-
-          &debug_cli(3,"addrng o($opt) v($val) oo(@type_opts)");
-
-          my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
-          push @opt_list , $opt_obj ;
-
-       }
-       # multiple members
-       elsif ( $etype eq "member" ) {
-          &debug_cli(3,"addnet mem($value) oo(@type_opts)");
-          push @memsvrs, Infoblox::DHCP::Member->new("ipv4addr"=>$value);
-       }
-
-       else {
-          # just set the hash
-       }
-
-    }
-
-    # add to the default member, if required
-    if ( ! @memsvrs) {
-       push @memsvrs, $DHMASTER ;
-    }
-    &debug_cli(2,"addnet mem(@memsvrs)");
-
-    # create the object
-    my $net = Infoblox::DHCP::Network->new (
-                   "network" => $network ,
-                   "comment" => $comment ,
-                   "members" => \@memsvrs ,
-                   "network_container" => $parent ,
-#                    "options" => \@opt_list ,
-                );
-
-    if ( @opt_list ) { $net->options ( \@opt_list ) }
-
-    &do_func("add",$net);
-
-}
-
-=head2 Remove a network
-
-   conf network del 1.1.1.0/24
-
-=cut
-
-# [ ] remove network does not work ??
-sub cli_remove_network {
-    my ( $network ) = @_ ;
-    if ( ! $network ) { &missing_arg("<n.n.n.n/mm>") ; return }
-
-    &debug_cli(2,"remn n($network)");
-
-    my $net = Infoblox::DHCP::Network->new (
-                   "network" => $network ,
-                );
-
-    &do_func("remove",$net);
-
-    my $net = Infoblox::DHCP::Network->new (
-                   "network" => "2.0.0.0/24",
-                );
-    $SESSION->remove ( $net ) ;
-
+sub cli_del_global_dhcp {
 }
 
 =head2 modify a network
@@ -2034,901 +2037,188 @@ TBD
 
 =cut
 
-=head2 Add a fixed address
-
-   conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 
-
-Add a fixed address with comments
-
-   conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 "comment string"
-
-=cut
-
-sub cli_add_fixed_address {
-    my ( $network , $ip , $mac , $comment ) = @_ ;
-    if ( (! $ip ) or ( ! $mac ) ) {
-       &missing_arg("<ip> <mac>")  ;
-       return ;
-    }
-    &debug_cli(2,"addfix n($network) ip($ip) mac($mac) c($comment)");
-
-    my $obj = Infoblox::DHCP::FixedAddr->new (
-                  "network" => $network ,
-                  "ipv4addr" => $ip ,
-                  "mac" => $mac ,
-    );
-
-    if ( $comment ) { $obj->comment ( $comment ) }
-
-    # addit
-    &do_func("add",$obj);
-
+sub cli_mod_network {
 }
 
-=head2 Remove a fixed address
+# End -- API ---
 
-For some clever reason, you don't really need to specify the parent
-network to remove a fixed address, but we enforct it here to keep people
-sane (In reality, any bogus string for the network name will work)
+#
+# show stuff
+#
 
-   conf network 10.0.1.0 remove fixed 1.2.3.4
+=head1 SHOW commands
 
-=cut
+=head2 Showing Zones
 
-# [ ] remove fixed does not work
-sub del_fixed_address {
-    my ( $network , $ip , $mac ) = @_ ;
-    if ( ! $ip or ! $mac or ! $network ) {
-       &missing_arg("<ip>")  ;
-       return ;
-    }
-    &debug_cli(2,"remfix ip($ip)");
+Show all zones
 
-    my $obj = Infoblox::DHCP::FixedAddr->new (
-                  "network" => $network ,
-                  "ipv4addr" => $ip ,
-                  "mac" => $mac ,
-    );
+    show zone
 
-    # addit
-    &do_func("remove",$obj);
+Show all forward zones
 
-}
+    show zone forward
 
-=head2 Add a dhcp range to a network
+Show all reverse zones
 
-Dhcp ranges, by default, will get added to the cluster master unless you
-override that setting with the member <member> syntax
+    show zone reverse
 
-   conf network 10.1.1.1/24 add dhcp_range 10.1.1.20 10.1.1.40
+Show just 1 zone
 
-Ranges can also take alternative (lazy) syntax
-
-   conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40
-
-Failover associations are an additional argument
-
-   conf net 10.1.1.1/24 add range 10... failover "my_peering"
-
-As are adding the member
-
-   conf net 10.1.1.1/24 add range 10... member 1.1.1.2
+    show zone foo.com
 
 =cut
 
-sub cli_add_dhcp_range {
-    my ( $network , $fip , $lip , @type_opts ) = @_ ;
-    if ( (! $fip ) or ( ! $lip ) ) {
-       &missing_arg("<first_ip> <last_ip>")  ;
-       return ;
-    }
 
-    &debug_cli(2,"addrng n($network) s($fip) e($lip) oo(@type_opts)");
-
-    # set the list of acceptable options
-    my @opts = ( "member" , "comment" , "failover_association" , "option" );
-    my %optlist = abbrev ( @opts ) ;
-
-    # build the rest as name value pairs
-
-    my $comment ;
-    my @opt_list ;
-    my $member ;
-
-    while ( my $type = shift @type_opts ) {
-       my $value = shift @type_opts ;
-       my $etype = $optlist{ lc($type) } ;
-
-       &debug_cli(3,"addrng t($type) et($etype) v($value) oo(@type_opts)");
-
-       if ( ! $etype || ! $value ) { 
-          &missing_arg(@opts );
-          return ;
-       }
-
-       # comments need a special handler
-       if ( $etype eq "comment" ) {
-          ( $value , @type_opts ) = &get_comment ( $value , @type_opts) ;
-          $comment = $value ;
-          &debug_cli(3,"addrng comm($etype) v($value) oo(@type_opts)");
-       }
-
-       if ( $etype eq "option" ) {
-          # set some custom options;
-          # split on the FIRST '='
-          my ( $opt , $val ) = $value =~  /^(.*?)=(.*)/ ;
-
-          &debug_cli(3,"addrng o($opt) v($val) oo(@type_opts)");
-
-          my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
-          push @opt_list , $opt_obj ;
-
-       }
-       # multiple members
-       if ( $etype eq "member" ) {
-          &debug_cli(3,"addnet mem($value) oo(@type_opts)");
-          $member = Infoblox::DHCP::Member->new("ipv4addr"=>$value);
-       }
-
-    }
-
-    # add to the default member, if required
-    if ( ! $member) {
-       $member = $DHMASTER ;
-    }
-    &debug_cli(2,"addnet mem($member)");
-
-    # create the object
-    my $obj = Infoblox::DHCP::Range->new (
-                   "network" => $network ,
-                   "start_addr" => $fip ,
-                   "end_addr" => $lip ,
-                   "comment" => $comment ,
-#                    "options" => \@opt_list ,
-                   "member" => $member ,
-                );
-    if ( @opt_list ) { $obj->options ( \@opt_list ) }
-
-
-    &do_func("add",$obj);
-
-}
-
-=head2 Remove a dhcp range
-
-   conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40
-
-=cut
-
-sub del_dhcprange {
-    my ( $network , $fip , $lip ) = @_ ;
-    if ( ( ! $fip ) or ( ! $lip )  ) {
-       &missing_arg("<first_ip> <last_ip>")  ;
-       return ;
-    }
-
-    # we don't need the network..
-    &debug_cli(2,"remrng n($network) s($fip) e($lip)");
-
-    my $obj = Infoblox::DHCP::Range->new (
-                   "network" => $network ,
-                   "start_addr" => $fip ,
-                   "end_addr" => $lip ,
-                );
-
-    &do_func("remove",$obj);
-
-}
-
-=head2 Split a network
-
-You need to specify the netmaks of the children networks when you are
-doing a split. So to split a /16 into /20 networks :
-
-   conf network 1.1.0.0/16 split /24
-
-Split a network and add all children
-
-   conf network 1.1.0.0/16 split /24 all
-
-=cut
-
-sub cli_split_network {
+sub cli_show_zone {
     #
     # splitting either creates ALL networks or only the ones
     # we have to have (which could be none)
 
-    my($network,$ncidr,$type) = @_ ;
+    my ( $line ) = @_ ;
 
-    # remove '/'
-    $ncidr =~ s/\///;
+    # get the args from the line
+    my ( $type ) = $line =~/ zone (\S+)/ ;
 
-    &debug_cli(2,"split net ($network) nb ($ncidr)");
+    &debug_cli(2,"showz t($type)");
 
-    # check for optional args...
-    my $etype ;
-    if ( $type ) {
-       my @opts = ( "all","required");
-       my %optlist = abbrev ( @opts ) ;
-       $etype = $optlist{ lc($type) } ;
+    # get all the zones
+    my %opthash = (
+           "object" => "Infoblox::DNS::Zone", 
+           "name" => ".*" 
+    );
 
-       if ( ! $etype ) { 
-          &missing_arg(@opts);
-          return ;
-       }
+    my @zones = &do_func("search", %opthash );
+
+    # we can't sort on oid, we have to sort on name
+    my @forzones ;
+    my @revzones ;
+    foreach my $zone (@zones) {
+      my $name = $zone->name();
+      if ( $name =~ /\/\d+$/ ) {
+         push @revzones , "  $name\n";
+      }
+      else {
+         push @forzones , "  $name\n";
+      }
     }
 
-    my $obj = Infoblox::DHCP::SplitNetwork->new (
-                   "network" => $network ,
-                   "prefix" => $ncidr ,
-                );
-
-    if ( $etype eq "required" ) { 
-       $obj->add_all_subnetworks ( "false" ) ;
+    # now print them (sorted)
+    if ( $type eq "forward" ) { print sort @forzones ; }
+    elsif ( $type eq "reverse" ) { print sort by_ip @revzones ; }
+      # specific zone ?
+    elsif ( $type ) { }
+    else { 
+       print sort @forzones ; 
+       print sort by_ip @revzones ; 
     }
-    if ( $etype eq "all" ) { 
-       $obj->add_all_subnetworks ( "true" ) ;
-    }
-
-    &do_func("add",$obj);
-
+    
 }
 
-##########################################################
-#
-# RADIUS commands
-#
-##########################################################
-
-=head1 RADIUS commands
-
-The cli will also speak to a RADIUS One...
-
-=head2 Adding a realm
-
-   conf realm add my_realm
-
-Add a realm with options
-
-   conf realm add my_realm <option> <value> <option> <value>
+=head2 Showing networks
 
 =cut
 
-sub add_realm {
-    my ( $realm , @type_opts) = @_ ;
-
-    # only "name" is required
-    if ( ! $realm ) { &missing_arg("<realm>") ; return }
-
-    &debug_cli(2,"addrm n($realm) oo(@type_opts)");
-
+sub cli_show_network {
     #
-    # type_opts is a list of name value pairs, we just eat these into a
-    # hash and shove them into the request
-    #
+    # splitting either creates ALL networks or only the ones
+    # we have to have (which could be none)
 
-    # format the type opts
-    my %opthash ;
-    $opthash{'name'}=$realm;
+    my ( $line ) = @_ ;
 
-    # build the rest ad name value pairs
-    while ( my $key = shift @type_opts ) {
-       my $value = shift @type_opts ;
-       $opthash{$key} = $value ;
+    # get the args from the line
+    my ( $net ) = $line =~/ network (\S+)/ ;
+
+    &debug_cli(2,"shown n($net)");
+
+    # get all the zones
+    my %opthash = (
+           "object" => "Infoblox::DHCP::Network", 
+           "network" => ".*" 
+    );
+
+    my @nets = &do_func("search", %opthash );
+
+    my @netlist ;
+    foreach my $net (@nets) {
+      my $name = $net->name();
+      push @netlist , "  $name\n";
     }
 
-    my @function = ("RADIUSOne::realm_insert",%opthash);
-
-    &do_func(@function);
-
+    # now print them (sorted)
+    print sort @netlist ; 
+    
 }
 
-=head2 Removing a realm
+=head2 Showing records
 
-   conf realm delete "my_realm"
+Show a host
+
+    show host test.foo.com
 
 =cut
 
-sub remove_realm {
-    my ( $realm ) = @_ ;
-
-    # only "name" is required
-    if ( ! $realm ) { &missing_arg("<realm>") ; return }
-
-    &debug_cli(2,"delrm n($realm)");
-
-    my %opthash ;
-    $opthash{'name'}=$realm;
-
-    my @function = ("RADIUSOne::realm_delete",%opthash);
-
-    &do_func(@function);
-
-}
-
-=head2 Adding an attribute to a realm
-
-You need to specify if this is a CHECK or RELPY item
-
-   conf realm myrealm add attribute check name value
-
-   conf realm ms.com add attr check Nas-IP-Address 45.0.0.1
-   conf realm ms.com add attr reply framed-ip-netmask 255.255.255.0
+=head2 Showing ranges
 
 =cut
-
-# add an attribute to a realm
-sub add_attrib_to_realm {
-    #
-    my ( $realm , $type , $name , $value ) = @_ ;
-
-    # syntax check next arg...
-    my $etype ;
-    my @opts = ( "check","reply");
-    my %optlist = abbrev ( @opts ) ;
-    $etype = $optlist{ lc($type) } ;
-
-    &debug_cli(2,"add2r n($realm) t($type) et($etype) ($name)=($value)");
-
-    if ( ! $etype ) { 
-       &missing_arg(@opts);
-       return ;
-    }
-
-    if ( ! $name or ! $value ) { 
-       &missing_arg("<name> <value>");
-       return ;
-    }
-
-    # convert opts to a hash
-    my %opthash;
-    $opthash{'name'}=$realm;
-    $opthash{'check_reply'}=$etype;
-    $opthash{'attribute'}=$name;
-    $opthash{'value'}=$value;
-
-    my @function = ("RADIUSOne::realm_av_pair_insert",%opthash);
-    &do_func(@function);
-
-}
-
-=head2 Removing an attribute from a realm
-
-You need to specify if this is a CHECK or REPLY item
-
-   conf realm myrealm del attribute check name value
-
-   conf realm ms.com del attr check Nas-IP-Address 45.0.0.1
-   conf realm ms.com del attr reply framed-ip-netmask 255.255.255.0
-
-=cut
-
-# delete an attribute to a realm
-sub remove_attrib_from_realm {
-    #
-    my ( $realm , $type , $name , $value ) = @_ ;
-
-    # syntax check next arg...
-    my $etype ;
-    my @opts = ( "check","reply");
-    my %optlist = abbrev ( @opts ) ;
-    $etype = $optlist{ lc($type) } ;
-
-    &debug_cli(2,"add2r n($realm) t($type) et($etype) ($name)=($value)");
-
-    if ( ! $etype ) { 
-       &missing_arg(@opts);
-       return ;
-    }
-
-    if ( ! $name or ! $value ) { 
-       &missing_arg("<name> <value>");
-       return ;
-    }
-
-    # convert opts to a hash
-    my %opthash;
-    $opthash{'name'}=$realm;
-    $opthash{'check_reply'}=$etype;
-    $opthash{'attribute'}=$name;
-    $opthash{'value'}=$value;
-
-    my @function = ("RADIUSOne::realm_av_pair_delete",%opthash);
-    &do_func(@function);
-
-}
-
-=head2 Adding a user to a realm
-
-   conf realm foo.com add user brian password xxxx
-
-To add the default user:
-
-   conf realm foo.com add user default
-
-=cut
-
-# add an user to a realm
-sub add_user_to_realm {
-    #
-    my ( $realm , $name , $popt , $passwd ) = @_ ;
-
-    # syntax check next arg...
-    my $etype ;
-    my @opts = ( "password");
-    my %optlist = abbrev ( @opts ) ;
-    $etype = $optlist{ lc($popt) } ;
-
-    &debug_cli(2,"add2r n($realm) n($name) p($popt) ep($etype) ($passwd)");
-
-    if ( ! $name ) { 
-       &missing_arg("<name>");
-       return ;
-    }
-
-    # convert opts to a hash
-    my %opthash;
-
-    $opthash{'realm'}=$realm;
-    # default user ?
-    if ( $name =~ /^default$/i ) {
-       $opthash{'default'}="true";
-    }
-    else {
-       # check for password
-       if ( ! $etype ) { 
-          &missing_arg(@opts);
-          return ;
-       }
-       if ( ! $passwd ) { 
-          &missing_arg("<password>");
-          return ;
-       }
-
-       # set values
-       $opthash{'default'}="false";
-       $opthash{'name'}=$name;
-       $opthash{'user_password'}=$passwd;
-    }
-
-    my @function = ("RADIUSOne::radius_user_insert",%opthash);
-    &do_func(@function);
-
-}
-
-=head2 Remove a user from a realm
-
-   conf realm foo.com del user brian
-
-=cut
-
-# remove an user to a realm
-sub remove_user_from_realm {
-    #
-    my ( $realm , $name ) = @_ ;
-
-    &debug_cli(2,"del2r n($realm) n($name)");
-
-    if ( ! $name ) { 
-       &missing_arg("<name>");
-       return ;
-    }
-
-    # convert opts to a hash
-    my %opthash;
-
-    $opthash{'realm'}=$realm;
-    # default user ?
-    if ( $name =~ /^default$/i ) {
-       $opthash{'default'}="true";
-    }
-    else {
-       # set values
-       $opthash{'default'}="false";
-       $opthash{'name'}=$name;
-    }
-
-    my @function = ("RADIUSOne::radius_user_delete",%opthash);
-    &do_func(@function);
-
-}
-
-=head2 Adding an attribute to a user
-
-You must specify CHECK or REPLY
-
-   conf realm foo modify user brian add attrib check foo 1.2.3.4
-
-=cut
-
-sub modify_realm_user_add_att {
-    #
-    my ( $realm , $name , $type , $att , $value ) = @_ ;
-
-    # syntax check next arg...
-    my $etype ;
-    my @opts = ( "check","reply");
-    my %optlist = abbrev ( @opts ) ;
-    $etype = $optlist{ lc($type) } ;
-
-    &debug_cli(2,"modru r($realm) n($name) t($type) et($etype) ($att)=($value)");
-
-    if ( ! $etype ) { 
-       &missing_arg(@opts);
-       return ;
-    }
-
-    if ( ! $name or ! $value ) { 
-       &missing_arg("<name> <value>");
-       return ;
-    }
-
-    # convert opts to a hash
-    my %opthash;
-    $opthash{'realm'}=$realm;
-    $opthash{'check_reply'}=$etype;
-    $opthash{'attribute'}=$att;
-    $opthash{'value'}=$value;
-
-    # is this the default user ?
-    $opthash{'default'}="false";
-    if ( $name =~ /^default$/i ) {
-       $opthash{'default'}="true";
-    }
-    else {
-       $opthash{'radius_user'}=$name;
-    }
-
-
-    my @function = ("RADIUSOne::user_av_pair_insert",%opthash);
-    &do_func(@function);
-
-}
-
-=head2 Removing an attribute from a user
-
-You must specify CHECK or REPLY
-
-   conf realm foo modify user brian del attrib check foo 1.2.3.4
-
-=cut
-
-sub modify_realm_user_del_att {
-    #
-    my ( $realm , $name , $type , $att , $value ) = @_ ;
-
-    # syntax check next arg...
-    my $etype ;
-    my @opts = ( "check","reply");
-    my %optlist = abbrev ( @opts ) ;
-    $etype = $optlist{ lc($type) } ;
-
-    &debug_cli(2,"modru r($realm) n($name) t($type) et($etype) ($att)=($value)");
-
-    if ( ! $etype ) { 
-       &missing_arg(@opts);
-       return ;
-    }
-
-    if ( ! $name or ! $value ) { 
-       &missing_arg("<name> <value>");
-       return ;
-    }
-
-    # convert opts to a hash
-    my %opthash;
-    $opthash{'realm'}=$realm;
-    $opthash{'check_reply'}=$etype;
-    $opthash{'attribute'}=$att;
-    $opthash{'value'}=$value;
-
-    # is this the default user ?
-    $opthash{'default'}="false";
-    if ( $name =~ /^default$/i ) {
-       $opthash{'default'}="true";
-    }
-    else {
-       $opthash{'radius_user'}=$name;
-    }
-
-
-    my @function = ("RADIUSOne::user_av_pair_delete",%opthash);
-    &do_func(@function);
-
-}
-
-###########################################3
-#
-###########################################3
-
-sub missing_arg {
-    &debug_cli(4,"MISS ARG call");
-    if ( $CLI ) {
-       print "Next possible completions : \n\t@_\n";
-    }
-    else {
-       &err_print("UNRECOGNISED command");
-    }
-    $GOOD_COMMAND = 0 ;
-}
-
-#
-# PROMPT
-#
-sub print_prompt {
-    if ( $CLI ) {
-       print "[$DEBUG] $MADE_CHANGES $PROMPT" ;
-    }
-}
-
-#
-# ERRORS
-#
-sub err_print {
-    if ( $CLI ) {
-       print "@_\n" ;
-    }
-    else {
-       # comment if making..
-       if ( $MAKE ) { print "# " }
-       print "@_ : $LINE\n";
-    }
-}
-
-=head2 Change (or Set) the debug level
-
-   conf debug <level>
-
-=cut
-
-#
-# SET DEBUG
-#
-sub set_debug {
-
-    if ( "@_" =~ /\d+/ ) {
-       $DEBUG = shift @_ ;
-    }
-    else {
-       &missing_arg("$SAVE_HIST <level>");
-    }
-}
-
-#
-# SHOW THE HISTORY:
-#
-
-sub addhistory {
-    my ($line) = "@_" ;
-
-    #cleanup spacing
-    $line =~ s/^\s*//;
-    $line =~ s/\s+/ /g;
-    $line =~ tr/A-Z/a-z/;
-
-    push @HISTORY , $line ;
-
-}
-
-=head2 Show the history
-
-    [0] * 10.0.1.230 > history
-
-=cut
-
-sub show_history {
-    my $lineno = 1 ;
-
-    # walk through the history array and print what we input
-    print "\n-- COMMAND HISTORY --\n";
-    foreach my $command ( @HISTORY ) {
-       print "-- $lineno\t$command\n";
-       $lineno ++ ;
-    }
-    print "\n";
-
-#     $GOOD_COMMAND = 1 ;
-
-}
 
 #
 # SERVER CONNECTION STUFF.....
 #
 
+=head1 Server Management
+
 =head2 Connect to a server
 
-    CONF SERVER <SERVER> USER <USERNAME> PASSWORD <PASSWD>
+    conf server <SERVER> user <USERNAME> password <PASSWD>
 
 Select a server to talk to
 
-    [0] ! no server > conf server 10.0.1.230 
+    server ? > conf server 10.0.1.230 
+    10.0.1.20 >
 
 Supply the username and or password
-
-    [0] ! no server > conf server 10.0.1.230 user admin
-    [0] ! no server > conf server 10.0.1.230 password infoblox
-
-All on one line
-
-    [0] ! no server > conf ser 10.0.1.230 user admin pass infoblox
-        
-=cut
-        
-sub add_server {
-    my ($type,@args) = @_ ;
-    # save the server id and see if we have enough info to connect
-    # password can be passed on this line, if not specified, assume
-    # no password
-
-    &debug_cli(2,"adding server t[$type] args[@args]");
-
-    # bootstrap defaults
-    my ( $server , $pass , $user ) ;
-
-    # set some defaults
-    $CONN_INFO{'cli_type'}="dns";
-
-    # if we don't recognise the arg, 
-    # then we assume it is a servername
-
-    # syntax check next arg...
-    my $etype ;
-    my @opts = ( "dns","radius","user","password");
-    my %optlist = abbrev ( @opts ) ;
-    $etype = $optlist{ lc($type) } ;
-
-    # Set the servername
-    if ( ! $etype ) { 
-       # must be a servername
-       $server = $type ;
-       $CONN_INFO{'master'} = $server ;
-       &debug_cli(3,"conf server s($server)");
-
-       # create the master NS object
-       $MASTER = Infoblox::DNS::Member->new ( 'ipv4addr' => $server, );
-       $DHMASTER = Infoblox::DHCP::Member->new ( 'ipv4addr' => $server, );
-
-    }
-    else {
-       # hack things by fudging the arglist
-       # we make 'conf server user brian'
-       # look like 'conf server xxx user brian'
-
-       unshift ( @args , $type ) ;
-       &debug_cli(3,"conf server push t[$type] args[@args]");
-    }
-
-=pod
-
-IF you change any of the settings, the others are kept. this lets you do
-potentially usefull (dangerous) things like keep the username and password
-between different servers
-
-    [0] ! no server > conf server 1.2.3.4 user admin passwd infoblox
    
-    # switch servers, same user and pass.
-    [0] ! 1.2.3.4 > conf server 1.2.4.20
-
+    server ? > conf ser 10.0.1.230 user admin pass infoblox
+    admin@10.0.1.20 >
+        
 =cut
+
+sub cli_add_server {
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    ( my $server)  = $line =~/server (\S+)/ ;
+    ( my $user)    = $line =~/user (\S+)/ ;
+    ( my $passwd)  = $line =~/password (\S+)/ ;
+
+    &debug_cli (2,"add svr s($server) u($user) p($passwd)");
+
+    $MASTER_IP = $server ;
+
+    # create the session handler
+       $SESSION = Infoblox::Session->new( 
+                     "master" => $server,
+                     "username" => $user,
+                     "password" , $passwd ,
+                  );
+
+      $ONLINE = 1 ;
+#     if ( $ONLINE ) {
+#     }
+#     else {
+#       print "OFFLINE!\n" ;
+#     }
+ 
+    # update the prompt ;
+
+    $PROMPT = "$user\@$server > " ;
+    $el->set_prompt ( $PROMPT );
     
-    # walk the rest of the arg list
-    while ( my $arg = shift @args ) {
-
-       # do we have a match ?
-       my $earg = $optlist{ lc($arg) } ;
-
-       if ( ! $earg ) {
-          &missing_arg(@opts);
-          return ;
-       }
-
-       # grab the user
-       if ( $earg eq "user" ) {
-          $user = shift @args ;
-          $CONN_INFO{'username'} = $user ;
-#           $CONN_INFO{'UserName'} = $user ;
-          &debug_cli(3,"conf server arg($arg) u($user)");
-       }
-       # grab the password
-       if ( $earg eq "password" ) {
-          $pass = shift @args ;
-          $CONN_INFO{'password'} = $pass ;
-#           $CONN_INFO{'UserPassword'} = $pass ;
-          &debug_cli(3,"conf server arg($arg) p($pass)");
-       }
-
-       # [ ] insert stuff here for radius
-       if ( $earg eq "radius" or $earg eq "dns" ) {
-          $CONN_INFO{'cli_type'}=$earg ;
-          &debug_cli(3,"conf server arg($arg) t($earg)");
-       }
-
-    }
-
-    my $c_type = $CONN_INFO{'cli_type'};
-    &debug_cli(2,"adding server t[$c_type] s($server) p($pass) u($user)");
-
-    &connect ;
 
 }
 
-#
-# [ ] really need 2 routines here, one for batch mode and one for calls
-# to 'connect' from the cli
-#
-sub connect {
-    # make a connection
-    # unless we have both server and password,  die
-
-    # all the CLI conf server calls can just
-    # poke the hash, that way we can keep the same user, but
-    # change the server.
-    #
-
-    my $conhash = Dumper( { %CONN_INFO } );
-    &debug_cli(3,"conn $conhash");
-    
-    # try and set the prompt anyway
-    if ( $CONN_INFO{'master'} ) {
-        $PROMPT = "$CONN_INFO{'master'} > " ;
-    }
-
-    # otherwise try and connect
-      if ( $CONN_INFO{'master'} 
-           && $CONN_INFO{'username'}
-           && $CONN_INFO{'password'} ) {
-
-         # set the prompt
-         $MADE_CHANGES = " " ;
-         $PROMPT = "$CONN_INFO{'username'}\@$CONN_INFO{'master'} > " ;
-
-         &debug_cli(1,"connect -> $PROMPT");
-
-         # DO a RADIUS connection
-         #
-         if ( $CONN_INFO{'cli_type'} eq 'radius' ) {
-            if ( $MAKE ) {
-               # pretty print the hash 
-               &print_data("RADIUSOne::server_session_create",%CONN_INFO);
-            }
-            else {
-               my $res ;
-#                ($res,$SESSION)=RADIUSOne::server_session_create(%CONN_INFO);
-            }
-         }
-
-         # DO a DNS connection
-         #
-         # set the global SESSION or PRIV_SESS
-         # which we will call later
-         else {
-            # pretty print the hash 
-            if ( $MAKE ) {
-               my $cptr = \%CONN_INFO ;
-#                my $pptr = \%priv_hash ;
-
-               # format the data for pretty printing
-#                &print_data("Infoblox::Session->new",$cptr);
-#                &print_data("Infoblox::InfobloxSession->new",$pptr);
-            }
-            else {
-               # set up the handlers
-               $SESSION = Infoblox::Session->new( %CONN_INFO );
-            }
-         }
-
-   
-         # this will never change until you quit
-         $CONNECTED = 1 ;
-
-      }
-      else {
-#          &err_print ("CANNOT CONNECT :: no server|user|password supplied");
-         &debug_cli(3,"NOOP - incomplete details for server connection");
-      }
-}
-
-=head1 RESTARTING services
+=head2 Restarting services
 
 the cli will not restart services, you have to do that manually
 
@@ -2941,695 +2231,102 @@ IF you want to delay the restart you can do that also
 
 =cut
 
-sub restart {
+sub cli_restart {
 
-    my ( $service , $delay , $timer ) = @_ ;
+    my ( $line ) = @_ ;
 
-    my $eopt ;
-    my @opts = ( "dns","dhcp");
-    my %optlist = abbrev ( @opts ) ;
-    $eopt = $optlist{ lc($service) } ;
+    # get the args from the line
+    ( my $service)  = $line =~/restart (\S+)/ ;
+    ( my $delay)  = $line =~/delay (\S+)/ ;
 
-    if ( ! $eopt ) { 
-       &missing_arg(@opts);
-       return ;
-    }
-
-    &debug_cli(2,"restart t($eopt) [$timer]");
+    &debug_cli (2,"restart s($service) d($delay)");
 
     my %opthash ;
     $opthash{'service'}=$service;
     $opthash{'when'}=0;
-
-    # delay ?
-    my $edel ;
     if ( $delay ) {
-       my @opts = ( "delay");
-       my %optlist = abbrev ( @opts ) ;
-       $edel = $optlist{ lc($delay) } ;
-
-       if ( ! $edel ) { 
-          &missing_arg(@opts);
-          return ;
-       }
-
-       if ( $timer ) {
-          $opthash{'delay'}=$timer;
-       }
-       else {
-          &missing_arg("@opts <time>");
-          return ;
-       }
+       $opthash{'delay'}=$delay;
     }
 
     my @function=("restart",%opthash);
     &do_func(@function);
 
-    $MADE_CHANGES = " " ;
-
 }
 
-# sub commit {
-# 
-#     #
-#     # call 'publish changes' ??
-#     #
-# #     &err_print ( "COMMIT -  NOT WORKING");
-# 
-#     if ( $CONNECTED ) {
-#        print "SERVER :: Committing Changes .. ";
-# 
-#        ib_close_connection();
-#        sleep 3 ;
-#        ib_open_connection($CONN_INFO{'Host'},$CONN_INFO{'UserPassword'}) ;
-# 
-# #        ib_update_server();
-# 
-#        print "DONE.\n";
-# 
-#        $MADE_CHANGES = " " ;
-#     }
-#     else {
-#        &err_print ("CANNOT COMMIT - no connection is in place");
-#     }
-# }
+=head2 Export the database
 
-# sub disconnect {
-# 
-#     &err_print ( "Disconnect :: depricated");
-# 
-#     if ( $CONNECTED ) {
-# #        &commit ;
-# #        ib_close_connection();
-# #    [ ] restart service ??
-#        $CONNECTED = 0 ;
-# 
-#        $PROMPT = "no server > " ;
-#     }
-# #     else {
-# #        &err_print ( "CANNOT DISCONNECT - no connection is in place");
-# #     }
-# 
-# }
-
-#
-# DIGS AND GET ROUTINES
-#
-
-=head1 SHOW commands
-
-What ? I thought the API didn't support 'show' ? You are correct, the
-API doesn't but we can wrap a more abstract syntax around commands like
-'dig' and or 'nslookup'. Now, we aren't really interrogating the
-database, just the Protocol server, but this is a good thing since we
-want to make sure that the data has actually been published anyway.
-
-Show a zone (SOA by default)
-
-    show zone foo.com
-
-Show the full zone file
-
-    show zone foo.com axfr
-
-Show a host
-
-    show host test.foo.com
-
-NOTE, in order to make sure we are getting data from the server, all
-queries are non-recursive.
+    download database
 
 =cut
 
-sub show_host {
-    my ($query,$verbose) = @_ ;
+sub cli_download {
 
-    # use dig...
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $dest)  = $line =~/database (\S+)/ ;
 
-    if ( ! $query ) {
-       &missing_arg("$SAVE_HIST <host> (verbose)") ;
-       return (0) ;
-    }
-
-    &debug_cli(2,"showing zone [@_]");
-
-    &do_dig($CONN_INFO{'master'},$query,$verbose);
-
-
-}
-
-sub show_zone {
-    my ($query,$type,$verbose) = @_ ;
-
-    # use dig...
-    # forget about the verbose option for now, dig can do that directly.
-
-    if ( ! $query ) {
-       &missing_arg("$SAVE_HIST <zone> (type)") ;
-       return (0) ;
-    }
-
-    &debug_cli(2,"showing zone [@_]");
-
-    if ( ! $type ) { $type = "SOA" }
-
-    &do_dig($CONN_INFO{'master'},$query,$type,$verbose);
-}
-
-sub show_network {
-    my ($query,$type,$verbose) = @_ ;
-
-    # use dig...
-    # forget about the verbose option for now, dig can do that directly.
-
-    if ( ! $query ) {
-       &missing_arg("$SAVE_HIST <network> (type)") ;
-       return (0) ;
-    }
-
-    &debug_cli(2,"showing network [@_]");
-
-    if ( ! $type ) { $type = "SOA" }
-
-    # force a revrse lookup
-    $verbose = "reverse" ;
-    &do_dig($CONN_INFO{'master'},$query,$type,$verbose);
-}
-
-sub do_dig {
-    # use a 'dig' to get zone data.
-#     my $DIG = '/usr/bin/dig' ;
-    my $DIG = 'dig' ;
-    my $DIGOPTS = '+multiline +nostat +nocmd +norecur';
-    my $TERSEOPTS = '+noquestion +noauthority +noadditional +nocomments';
-    my $REVOPTS = '+noquestion +noadditional +nocomments';
-
-    my $V_DIG = "$DIG $DIGOPTS";
-    my $T_DIG = "$DIG $DIGOPTS $TERSEOPTS";
-    my $R_DIG = "$DIG $DIGOPTS $REVOPTS";
-
-    # so we pass args to dig to work out what type of dig to do
-    &debug_cli(3,"dig reqest =  [@_]");
-    my ($server,$query,$type,$verbose) = @_ ;
-
-    my $COMM ;
-
-    # verbose is disabled for now, i'll use it for something else.
-    if ($verbose) {
-       $COMM = "$V_DIG \@$server $query $type";
-       if ( $verbose eq "reverse" ) {
-          $COMM = "$R_DIG \@$server -x $query $type";
-       }
-    }
-    else {
-       $COMM = "$T_DIG \@$server $query $type";
-    }
-
-    &debug_cli(2,"dig comm =  [$COMM]");
-
-#     if ( ! $CONNECTED ) {
-#        &err_print( "CANNOT dig - no connection is in place");
-#     }
-#     else {
-#        print "\n";
-#        system("$COMM");
-#        print "\n";
-#     }
-
-    print "\n";
-    system("$COMM");
-    print "\n";
-
-}
-
-# ib_open_connection(\$SERVER_ID,\$SERVER_PASS);
-sub script_header {
-
-    print "#!/usr/bin/perl
-#
-# AUTOGENERATED from $NAME 
-#
-\n";
-print "use Infoblox::InfobloxDNS;\n";
-print "use Infoblox::RADIUSOne;\n";
-print "use Infoblox;\n";
-print "\n";
-
-}
-
-sub script_footer {
-
-    print "
-
-exit ; \n";
-
-}
-
-
-############################################3
-
-
-sub rename_custom_option {
-  # remap some variables
-    my $option = shift;
-    my %lookup = (
-        "1" => "Option  1: subnet-mask",
-        "2" => "Option  2: time-offset",
-        "3" => "Option  3: router",
-        "4" => "Option  4: time-servers",
-        "5" => "Option  5: ien116-name-servers",
-        "6" => "Option  6: dns_server",
-        "7" => "Option  7: log-servers",
-        "8" => "Option  8: cookie-servers",
-        "9" => "Option  9: lpr-servers",
-        "10" => "Option  10: impress-servers",
-        "11" => "Option  11: resource-location-servers",
-        "12" => "Option  12: host-name",
-        "13" => "Option  13: boot-size",
-        "14" => "Option  14: merit-dump",
-        "15" => "Option  15: default_domain",
-        "16" => "Option  16: swap-server",
-        "17" => "Option  17: root-path",
-        "18" => "Option  18: extensions-path",
-        "19" => "Option  19: ip-forwarding",
-        "20" => "Option  20: non-local-source-routing",
-        "21" => "Option  21: policy-filter",
-        "22" => "Option  22: max-dgram-reassembly",
-        "23" => "Option  23: default-ip-ttl",
-        "24" => "Option  24: path-mtu-aging-timeout",
-        "25" => "Option  25: path-mtu-plateau-table",
-        "26" => "Option  26: interface-mtu",
-        "27" => "Option  27: all-subnets-local",
-        "28" => "Option  28: broadcast_address",
-        "29" => "Option  29: perform-mask-discovery",
-        "30" => "Option  30: mask-supplier",
-        "31" => "Option  31: router-discovery",
-        "32" => "Option  32: router-solicitation-address",
-        "33" => "Option  33: static-routes",
-        "34" => "Option  34: trailer-encapsulation",
-        "35" => "Option  35: arp-cache-timeout",
-        "36" => "Option  36: ieee802-3-encapsulation",
-        "37" => "Option  37: default-tcp-ttl",
-        "38" => "Option  38: tcp-keepalive-interval",
-        "39" => "Option  39: tcp-keepalive-garbage",
-        "40" => "Option  40: nis-domain",
-        "41" => "Option  41: nis-servers",
-        "42" => "Option  42: ntp-servers",
-        "43" => "Option  43: vendor-encapsulated-options",
-        "44" => "Option  44: netbios-name-servers",
-        "45" => "Option  45: netbios-dd-server",
-        "46" => "Option  46: netbios-node-type",
-        "47" => "Option  47: netbios-scope",
-        "48" => "Option  48: font-servers",
-        "49" => "Option  49: x-display-manager",
-        "50" => "Option  50: dhcp-requested-address",
-        "51" => "Option  51: lease_time",
-        "52" => "Option  52: dhcp-option-overload",
-        "53" => "Option  53: dhcp-message-type",
-        "54" => "Option  54: dhcp-server-identifier",
-        "55" => "Option  55: dhcp-parameter-request-list",
-        "56" => "Option  56: dhcp-message",
-        "57" => "Option  57: dhcp-max-message-size",
-        "58" => "Option  58: dhcp-renewal-time",
-        "59" => "Option  59: dhcp-rebinding-time",
-        "60" => "Option  60: vendor-class-identifier",
-        "61" => "Option  61: dhcp-client-identifier",
-        "62" => "Option  62: nwip-domain",
-        "63" => "Option  63: nwip-suboptions",
-        "64" => "Option  64: nisplus-domain",
-        "65" => "Option  65: nisplus-servers",
-        "66" => "Option  66: tftp-server-name",
-        "67" => "Option  67: boot_file",
-        "68" => "Option  68: mobile-ip-home-agent",
-        "69" => "Option  69: smtp-server",
-        "70" => "Option  70: pop-server",
-        "71" => "Option  71: nntp-server",
-        "72" => "Option  72: www-server",
-        "73" => "Option  73: finger-server",
-        "74" => "Option  74: irc-server",
-        "75" => "Option  75: streettalk-server",
-        "76" => "Option  76: streettalk-directory-assistance-server",
-        "77" => "Option  77: user-class",
-        "78" => "Option  78: slp-directory-agent",
-        "79" => "Option  79: slp-service-scope",
-        "80" => "Option  80: option-80",
-        "81" => "Option  81: fqdn",
-        "82" => "Option  82: relay-agent-information",
-        "83" => "Option  83: option-83",
-        "84" => "Option  84: option-84",
-        "85" => "Option  85: nds-servers",
-        "86" => "Option  86: nds-tree-name",
-        "87" => "Option  87: nds-context",
-        "88" => "Option  88: option-88",
-        "89" => "Option  89: option-89",
-        "90" => "Option  90: option-90",
-        "91" => "Option  91: option-91",
-        "92" => "Option  92: option-92",
-        "93" => "Option  93: option-93",
-        "94" => "Option  94: option-94",
-        "95" => "Option  95: option-95",
-        "96" => "Option  96: option-96",
-        "97" => "Option  97: option-97",
-        "98" => "Option  98: uap-servers",
-        "99" => "Option  99: option-99",
-        "100" => "Option  100: option-100",
-        "101" => "Option  101: option-101",
-        "102" => "Option  102: option-102",
-        "103" => "Option  103: option-103",
-        "104" => "Option  104: option-104",
-        "105" => "Option  105: option-105",
-        "106" => "Option  106: option-106",
-        "107" => "Option  107: option-107",
-        "108" => "Option  108: option-108",
-        "109" => "Option  109: option-109",
-        "110" => "Option  110: option-110",
-        "111" => "Option  111: option-111",
-        "112" => "Option  112: option-112",
-        "113" => "Option  113: option-113",
-        "114" => "Option  114: option-114",
-        "115" => "Option  115: option-115",
-        "116" => "Option  116: option-116",
-        "117" => "Option  117: option-117",
-        "118" => "Option  118: subnet-selection",
-        "119" => "Option  119: option-119",
-        "120" => "Option  120: option-120",
-        "121" => "Option  121: option-121",
-        "122" => "Option  122: option-122",
-        "123" => "Option  123: option-123",
-        "124" => "Option  124: option-124",
-        "125" => "Option  125: option-125",
-        "126" => "Option  126: option-126",
-        "127" => "Option  127: option-127",
-        "128" => "Option  128: option-128",
-        "129" => "Option  129: option-129",
-        "130" => "Option  130: option-130",
-        "131" => "Option  131: option-131",
-        "132" => "Option  132: option-132",
-        "133" => "Option  133: option-133",
-        "134" => "Option  134: option-134",
-        "135" => "Option  135: option-135",
-        "136" => "Option  136: option-136",
-        "137" => "Option  137: option-137",
-        "138" => "Option  138: option-138",
-        "139" => "Option  139: option-139",
-        "140" => "Option  140: option-140",
-        "141" => "Option  141: option-141",
-        "142" => "Option  142: option-142",
-        "143" => "Option  143: option-143",
-        "144" => "Option  144: option-144",
-        "145" => "Option  145: option-145",
-        "146" => "Option  146: option-146",
-        "147" => "Option  147: option-147",
-        "148" => "Option  148: option-148",
-        "149" => "Option  149: option-149",
-        "150" => "Option  150: option-150",
-        "151" => "Option  151: option-151",
-        "152" => "Option  152: option-152",
-        "153" => "Option  153: option-153",
-        "154" => "Option  154: option-154",
-        "155" => "Option  155: option-155",
-        "156" => "Option  156: option-156",
-        "157" => "Option  157: option-157",
-        "158" => "Option  158: option-158",
-        "159" => "Option  159: option-159",
-        "160" => "Option  160: option-160",
-        "161" => "Option  161: option-161",
-        "162" => "Option  162: option-162",
-        "163" => "Option  163: option-163",
-        "164" => "Option  164: option-164",
-        "165" => "Option  165: option-165",
-        "166" => "Option  166: option-166",
-        "167" => "Option  167: option-167",
-        "168" => "Option  168: option-168",
-        "169" => "Option  169: option-169",
-        "170" => "Option  170: option-170",
-        "171" => "Option  171: option-171",
-        "172" => "Option  172: option-172",
-        "173" => "Option  173: option-173",
-        "174" => "Option  174: option-174",
-        "175" => "Option  175: option-175",
-        "176" => "Option  176: option-176",
-        "177" => "Option  177: option-177",
-        "178" => "Option  178: option-178",
-        "179" => "Option  179: option-179",
-        "180" => "Option  180: option-180",
-        "181" => "Option  181: option-181",
-        "182" => "Option  182: option-182",
-        "183" => "Option  183: option-183",
-        "184" => "Option  184: option-184",
-        "185" => "Option  185: option-185",
-        "186" => "Option  186: option-186",
-        "187" => "Option  187: option-187",
-        "188" => "Option  188: option-188",
-        "189" => "Option  189: option-189",
-        "190" => "Option  190: option-190",
-        "191" => "Option  191: option-191",
-        "192" => "Option  192: option-192",
-        "193" => "Option  193: option-193",
-        "194" => "Option  194: option-194",
-        "195" => "Option  195: option-195",
-        "196" => "Option  196: option-196",
-        "197" => "Option  197: option-197",
-        "198" => "Option  198: option-198",
-        "199" => "Option  199: option-199",
-        "200" => "Option  200: option-200",
-        "201" => "Option  201: option-201",
-        "202" => "Option  202: option-202",
-        "203" => "Option  203: option-203",
-        "204" => "Option  204: option-204",
-        "205" => "Option  205: option-205",
-        "206" => "Option  206: option-206",
-        "207" => "Option  207: option-207",
-        "208" => "Option  208: option-208",
-        "209" => "Option  209: option-209",
-        "210" => "Option  210: authenticate",
-        "211" => "Option  211: option-211",
-        "212" => "Option  212: option-212",
-        "213" => "Option  213: option-213",
-        "214" => "Option  214: option-214",
-        "215" => "Option  215: option-215",
-        "216" => "Option  216: option-216",
-        "217" => "Option  217: option-217",
-        "218" => "Option  218: option-218",
-        "219" => "Option  219: option-219",
-        "220" => "Option  220: option-220",
-        "221" => "Option  221: option-221",
-        "222" => "Option  222: option-222",
-        "223" => "Option  223: option-223",
-        "224" => "Option  224: option-224",
-        "225" => "Option  225: option-225",
-        "226" => "Option  226: option-226",
-        "227" => "Option  227: option-227",
-        "228" => "Option  228: option-228",
-        "229" => "Option  229: option-229",
-        "230" => "Option  230: option-230",
-        "231" => "Option  231: option-231",
-        "232" => "Option  232: option-232",
-        "233" => "Option  233: option-233",
-        "234" => "Option  234: option-234",
-        "235" => "Option  235: option-235",
-        "236" => "Option  236: option-236",
-        "237" => "Option  237: option-237",
-        "238" => "Option  238: option-238",
-        "239" => "Option  239: option-239",
-        "240" => "Option  240: option-240",
-        "241" => "Option  241: option-241",
-        "242" => "Option  242: option-242",
-        "243" => "Option  243: option-243",
-        "244" => "Option  244: option-244",
-        "245" => "Option  245: option-245",
-        "246" => "Option  246: option-246",
-        "247" => "Option  247: option-247",
-        "248" => "Option  248: option-248",
-        "249" => "Option  249: option-249",
-        "250" => "Option  250: option-250",
-        "251" => "Option  251: option-251",
-        "252" => "Option  252: option-252",
-        "253" => "Option  253: option-253",
-        "254" => "Option  254: option-254",
+    my %opthash = (
+          "path" => $dest ,
+          "type" => "backup",
+          "format" => "tar",
     );
 
-    # fix it ?
-    if ( $lookup{$option} ) {
-       return ( $lookup{$option} );
-    }
-    else {
-       return ( $option );
-    }
+    print "DOWNLOADING ALL DATABASE data as $dest ...\n";
 
-}
+    my @function=("export_data",%opthash);
+    &do_func(@function);
 
-sub get_comment {
-    # strip a comment string out of an array.
-    # comments look like this 
-    #   "this is a comment"
-    #
-    # but in the array, it will look likt this
-    #  ( "this , is , a , comment" )
-    #
-    #  so we have to aggressively look ahead and massage
-    # options array
-
-    # input an array , return ( value , array )
-
-    my ( $val , @opts ) = @_ ;
-
-    &debug_cli(3,"getcomm v($val) oo(@opts)");
-    if ( $val =~ /^"/ ) {
-
-       # special case for single quoted words ( "foo" )
-       if ( $val !~ /"$/ ) {
-       
-          # slurp the rest of the line ,  or quotes
-          while ( my $tval = shift @opts ) {
-             # append it
-             $val .= " $tval" ;
-             &debug_cli(3,"getcomm v($val) t($tval) oo(@opts)");
-   
-             # exit at the next quote
-             last if $tval =~ /"$/ ;
-          }
-       }
-       $val =~ s/"//g;
-
-    }
-
-    return ( $val , @opts ) ;
-
+    print "DONE\n";
 }
 
 
-sub cidrfind {
-    # match up netmasks to cidr syntax
-    # YES, i /KNOW/ i can do this using math, but this took me
-    # 20 seconds with cut and paste and it works, so move along
-    # there's nothing to see here.
-    #  (besides, a hash lookup is probably faster)
-    my ($cidr) = @_ ;
-    my %mlook = (
-       8 =>  '255.0.0.0' ,
-       9 =>  '255.128.0.0' ,
-       10 => '255.192.0.0' ,
-       11 => '255.224.0.0' ,
-       12 => '255.240.0.0' ,
-       13 => '255.248.0.0' ,
-       14 => '255.252.0.0' ,
-       15 => '255.254.0.0' ,
-       16 => '255.255.0.0' ,
-       17 => '255.255.128.0' ,
-       18 => '255.255.192.0' ,
-       19 => '255.255.224.0' ,
-       20 => '255.255.240.0' ,
-       21 => '255.255.248.0' ,
-       22 => '255.255.252.0' ,
-       23 => '255.255.254.0' ,
-       24 => '255.255.255.0' ,
-       25 => '255.255.255.128' ,
-       26 => '255.255.255.192' ,
-       27 => '255.255.255.224' ,
-       28 => '255.255.255.240' ,
-       29 => '255.255.255.248' ,
-       30 => '255.255.255.252' ,
-    ) ;
+###########################################
+#
+# END API calling functions.
+#
+###########################################
 
-    &debug_cli(3,"CIDR is [$cidr]");
-    &debug_cli(3,"MASK is [$mlook{$cidr}]");
-
-    return($mlook{$cidr}) ;
+sub make_dhcp_option {
+    print "  OPTIONS not supported\n";
 }
 
-=head1 More on Debugging :
-
-when the debug level is set high, or if you use the -m (for make) option
-you will get the hash data structure dumped back at you in perl parsable
-syntax.
-
-However, this does rely on you having Data::Dumper installed
-
-=cut
-
-
-sub print_data {
-    # use the data dumper for pretty printing
-    use Data::Dumper ;
-    my ($func , $hash ) = @_ ;
-
-    # extra info for '-m'
-    my $pre_print = "print \"$func \\n\";";
-
-    # terse removes the $VAL
-    # lesser indent and pad x spaces
-    $Data::Dumper::Terse = 1 ;
-    $Data::Dumper::Indent = 1 ;
-    $Data::Dumper::Pad = "     " ;
-
-    # format the hash
-    my $p_hash = Dumper($hash);
-    
-    my $fstring = "  my \$result = $func ( \$SESSION ,\n$p_hash   );";
-
-    if ( $MAKE ) {
-       print "$pre_print\n";
-       print "$fstring\n";
-    }
-    else {
-       &debug_cli(3,$fstring);
-    }
+sub by_ip {
+    # used for sorting (by_ip)
+    &abs_ip($a) <=> &abs_ip($b) ;
 }
 
-# sub dump_hash {
-#     # recursively walk a data structure
-#     my ($depth,$type,@data) = @_ ;
-# 
-#     # we're going to stuff all this into a variable
-#     my $syntax ;
-# 
-#     # set the spacer
-#     my $spc ;
-#     for my $i ( 0 .. $depth ) { $spc .= "    " }
-# 
-#     # type dependent
-#     if ( $type eq "HASH" ) {
-#        my %hash = @data ;
-#        $syntax .= "$spc { \n";
-#        foreach my $key ( sort keys %hash ) {
-#           my $value = $hash{$key} ;
-# 
-#           # do we recurse or print ?
-#           if ( $value =~ /^HASH/ ) {
-#              $syntax .= "$spc '$key' => \n";
-#              $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $hash{$key} } );
-#           }
-#           elsif ( $value =~ /^ARRAY/ ) {
-#              $syntax .= "$spc '$key' => \n";
-#              $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $hash{$key} } );
-#           }
-#           else {
-#             $syntax .= "$spc '$key' => '$value',\n";
-#           }
-#        }
-#        $syntax .= "$spc }, \n";
-#     }
-# 
-#     elsif ( $type eq "ARRAY" ) {
-#        $syntax .= "$spc [\n";
-#        foreach my $value ( @data ) {
-#           if ( $value =~ /^HASH/ ) {
-#              $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $value } );
-#           }
-#           elsif ( $value =~ /^ARRAY/ ) {
-#              $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $value } );
-#           }
-#           else {
-#              $syntax .= "$spc'$value',\n";
-#           }
-#        }
-#        $syntax .= "$spc ], \n";
-#     }
-# 
-#     return ( $syntax ) ;
-# 
-# }
+sub abs_ip {
+    # get an IP as a real absval
+    my ( $ip ) = @_ ;
+
+    # strip cidr crap
+    $ip =~ s/\/.*//;
+
+    my @octets = split(/\./,$ip) ;
+
+    my $absval = $octets[3] + ( 2 ** 8 * $octets[2] ) ;
+       $absval = $absval + ( 2 ** 16 * $octets[1] ) ;
+       $absval = $absval + ( 2 ** 24 * $octets[0] ) ;
+
+    return ($absval) ;
+}
+
+
+sub debug_commands {
+    # dump crap to tty
+    print Dumper ( \%COMMANDS );
+}
+
+sub set_debug {
+                
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $level)  = $line =~/debug (\S+)/ ;
+
+    print "DEBUG = $level\n";
+    $DEBUG = $level ;
+}
+
 
 sub debug_cli {
     # we're passed a message and a level
@@ -3638,15 +2335,18 @@ sub debug_cli {
     my $level = shift @_ ;
 
     if ($level <= $DEBUG) {
-        if ( $MAKE ) { print "# " ; }
+#         if ( $MAKE ) { print "# " ; }
         print "($level) DEBUG: @_\n";
     }
 
 }
 
-###########################################################
+#############################
 
 # $Log: ibcli,v $
+# Revision 2.11  2005/08/14 23:13:11  horne
+# *** empty log message ***
+#
 # Revision 2.10  2005/08/14 23:07:23  horne
 # last version, this now gets replaced by complt with Readline
 #
