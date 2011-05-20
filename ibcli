@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.5 2006/05/31 03:27:02 horne Exp $ ;
-my $REV = q$Revision: 3.5 $;
-# $Date: 2006/05/31 03:27:02 $
+my $ID  = q$Id: ibcli,v 3.6 2006/06/01 01:58:47 horne Exp $ ;
+my $REV = q$Revision: 3.6 $;
+# $Date: 2006/06/01 01:58:47 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -172,6 +172,21 @@ my $PROMPT = 'server ? > ';
 my %COMMANDS = &init_commands ;
 
 # initialise editline ( or not ) and return a handler
+
+# use Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
+
+my $USE_EL = 0 ;
+
+# define some constants for Editline
+# ( I hope to hell these don't change because they are supposed to be
+#   imported from the module )
+
+use constant CC_REDISPLAY => 8 ;
+use constant CC_REFRESH => 4 ;
+use constant CC_EOF => 2 ;
+
+# continue initialising
+# my $el = &init_editline ;
 my ( $USE_EL , $el ) = &init_editline ;
 
 ##########################################################
@@ -303,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.5 $
+$Revision: 3.6 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -598,7 +613,7 @@ sub expand_line {
 #        }
 
        &debug_cli (3,"linex arg     a($thisarg)<-($origarg)");
-       &debug_cli (3,"linex partial e[$expline]");
+#        &debug_cli (3,"linex partial e[$expline]");
        &debug_cli (3,"linex partial m[$matchline]");
 
        # hide special chars (stops us exiting)
@@ -3125,8 +3140,8 @@ sub init_editline {
     # with the undefined value.  
     # This makes "die" the way to raise an exception.
     eval { 
-        require Term::eEditLine;
-#         require Term::EditLine;
+#         require Term::eEditLine;
+        require Term::EditLine;
     } ;
     if ( $@ =~ /Can't locate Term.* in \@INC/ ) {
         # return NULL
@@ -3138,7 +3153,8 @@ sub init_editline {
     }
     
     # continue importing
-    import Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
+    import Term::EditLine ;
+
 
     # create the object
     my $el = Term::EditLine->new('progname');
@@ -3212,6 +3228,7 @@ sub init_editline {
     if ( $el ) { $use_el = 1 }
 
     # return the handler
+#     return ( $el );
     return ( $use_el , $el );
 }
 
@@ -3599,6 +3616,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.6  2006/06/01 01:58:47  horne
+# BugId: 8205
+# Reviewer(s): Kevin
+# Description: fixed some require/import problems with constants
+#
 # Revision 3.5  2006/05/31 03:27:02  horne
 # BugId: 8205
 # Reviewer(s): Geoff
