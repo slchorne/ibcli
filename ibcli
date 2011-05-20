@@ -47,9 +47,9 @@
 ###############################################################################
 
 
-# $Id: ibcli,v 1.4 2003/09/18 02:28:56 horne Exp $
-# $Revision: 1.4 $
-# $Date: 2003/09/18 02:28:56 $
+# $Id: ibcli,v 1.5 2003/09/20 01:22:36 horne Exp $
+# $Revision: 1.5 $
+# $Date: 2003/09/20 01:22:36 $
 #
 
 # Perl CGI common chunks
@@ -57,6 +57,8 @@
 use strict ;
 no strict "refs" ;
 use Getopt::Long ;
+use Text::Abbrev ;
+
 
 
 # include infoblox
@@ -86,9 +88,20 @@ my $GOOD_COMMAND ;
 # my $NO_COMMAND ;
 my $SAVE_HIST ;
 my @CLIST ;
+my @WORDS ;
+my @P_ARGS ;
 my @HISTORY ;
 
 my $PROMPT ;
+
+#
+# WTF is P_ARGS ??
+#
+# Well, grasshopper, some subroutines need to know some of the earlier
+# arguments, so we keep these in a stack and pass them around where
+# necessary. it is a global because all sorts of subs will want to play
+# with it...
+#
 
 #
 #####################
@@ -115,8 +128,10 @@ GetOptions(
       "d=s" => \$DEBUG ,
    );
 
-if ( ! $SERVER_ID ) { $PROMPT = "no server > " ; }
-else                { $PROMPT = "$SERVER_ID > " ; }
+if ( $SERVER_ID ) { &add_server($SERVER_ID) }
+else              { $PROMPT = "no server > " ; }
+
+if ( $SERVER_PASS ) { &add_pass($SERVER_PASS) }
 
 if ( ! $CONFIG ) {
    print "CLI version\n";
@@ -139,6 +154,7 @@ while (<>) {
    if ( /^\s*$/ ) { &print_prompt ; next ; } ;
 
    $GOOD_COMMAND = 1 ;
+   $SAVE_HIST = "" ;
 #    $NO_COMMAND   = 1;
 
    chomp ;
@@ -173,48 +189,34 @@ while (<>) {
 
 
    # SO break the commandline into components
-   my (@words) = split /\s+/ ;
-   my $arg = shift @words ;
+   #
+   # @WORDS is a global, because we want to keep eating the array
+   # regardless of what routine we are in. At the end of the parsing, we
+   # should end up with the command ($SAVE_HIST) and the args (@WORDS)
+   #
+   @WORDS  = split /\s+/ ;
+   @P_ARGS = () ;
+   my $arg = shift @WORDS ;
 
-   use Text::Abbrev ;
    my %commands = ( 
                 'history' => 'show_history',
                 'commit' => 'commit',
+                'connect' => 'connect',
                 'disconnect' => 'disconnect',
                 'set' => 'set_commands' ,
                 'show' => 'show_commands' ,
         ) ;
-   @CLIST = sort keys %commands ;
-   my %clookup = abbrev ( @CLIST ) ;
 
-   my $full_comm = $clookup{ lc($arg) };
-   &debug (3,"command = [$full_comm]");
-
-
-   # $full_comm does the abbreviation lookup and gets the
-   # ACTUAL full comand name, or returns '0' so the expansion
-   # is automatic
-   
-   if ( $full_comm ) {
-      &rd_line($commands{$full_comm},$full_comm,@words) ;
-      $SAVE_HIST = "$full_comm" ;
-   }
-   else {
-      print "Ambiguous : $_\n";
-      print "\t@CLIST\n";
-      $GOOD_COMMAND = 0 ;
-   }
-
+   &shift_arg($arg,%commands);
 
    # history - if kosher
    # ( done at the end, after all other line processing... )
    if ( $GOOD_COMMAND ) {
-      &addhistory($SAVE_HIST , @words);
+      &addhistory($SAVE_HIST , @WORDS);
    }
 
    # lastly - the prompt
    &print_prompt ;
-
    
 }
 
@@ -225,135 +227,367 @@ exit ;
 
 ################################################################
 
-sub set_commands {
-   
-   my @words = @_ ;
-   my $arg = shift @words ;
+#
+# shift arg, once we've set up a new %commands hash
+# we just want to call shift_arg to do the rest of the processing
+#
+sub shift_arg {
 
-   my %commands = ( 
-                'debug' => 'set_debug',
-                'server' => 'add_server',
-                'password' => 'add_pass',
-        ) ;
+   my ( $arg , %commands ) = @_ ;
+
    @CLIST = sort keys %commands ;
    my %clookup = abbrev ( @CLIST ) ;
 
+   # $full_comm does the abbreviation lookup and gets the
+   # ACTUAL full comand name, or returns '0' so the expansion
+   # is automatic, but sometimes full_comm can be a wildcard
+   # so we check the existence of the subroutine to call instead.
+   #
+   # and we hack history accordingly
+   
    my $full_comm = $clookup{ lc($arg) };
-   &debug (3,"set command = [$full_comm]");
+   &debug (4,"shift: h($SAVE_HIST) arg($arg) com[$full_comm]");
 
-   if ( $full_comm ) {
-      &rd_line($commands{$full_comm},$full_comm,@words)
+   # we set $call_sub , cos we risk re-setting $full_com ;
+   my $call_sub = $commands{$full_comm} ;
+   if ( $call_sub ) {
+      &debug (4,"shift: sub($call_sub)");
+
+      # catch wildcards...
+      if ( ! $full_comm ) { 
+         $full_comm = $arg  ;
+         push @P_ARGS , $arg ;
+      }
+      $SAVE_HIST .= "$full_comm " ;
+
+      &rd_line($call_sub) ;
    }
    else {
       print "Next possible completions :\n";
       print "\t@CLIST\n";
       $GOOD_COMMAND = 0 ;
-#       &print_prompt ;
    }
-   
-   # set commands
-   if ($arg =~ /^SE\w*/i) {
-      $arg="set";
-      &debug(1,"arg=[$arg]");
+}
 
-      if (@words) {
-         my $arg1 = shift @words ;
-
-         # DEBUG
-         if ($arg1 =~ /^DEB\w*/i) { 
-             $arg1 = "debug";
-            if (@words) { &rd_line("set_debug","$arg $arg1",@words) }
-            else        { &missing_arg("$arg $arg1 <level>"); }
-         }
-
-         # SERVER
-         if ($arg1 =~ /^SER\w*/i) { 
-             $arg1 = "server";
-            if (@words) { &rd_line("add_server","$arg $arg1",@words) }
-            else        { &missing_arg("$arg $arg1 <server>"); }
-         }
-
-         # PASSWORD
-         if ($arg1 =~ /^P\w*/i) { 
-             $arg1 = "password";
-            if (@words) { &rd_line("add_pass","$arg $arg1",@words) }
-            else        { &missing_arg("$arg $arg1 <password>"); }
-         }
-
-      }
-      else        { &missing_arg("set ?"); }
-   }
+sub set_commands {
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                'debug' => 'set_debug',
+                'server' => 'add_server',
+                'password' => 'add_pass',
+                'zone' => 'zone_commands',
+                'network' => 'network_commands',
+        ) ;
+   &shift_arg($arg,%commands);
 
 }
 
 sub show_commands {
-
-   my ( $arg , @words ) ;
-
-   # show commands
-   if ($arg =~ /^SH\w*/i) {
-      $arg="show";
-      &debug(1,"arg=[$arg]");
-
-      if (@words) {
-          my $arg1 = shift @words ;
-
-          # zone
-          if ($arg1 =~ /^Z\w*/i)   { 
-             $arg1 = "zone";
-             if (@words) { &rd_line("get_zone","$arg $arg1",@words) }
-             else        { &missing_arg("$arg $arg1 <zone>"); }
-          }
-          
-          # network
-          if ($arg =~ /^N\w*/i)   { 
-             $arg1 = "network";
-             if (@words) { &rd_line("get_zone","$arg $arg1",@words) }
-             else        { &missing_arg("$arg $arg1 <1.2.3.4>"); }
-          }
-      }
-      else        { &missing_arg("show <zone|network>"); }
-      
-   }
-}
-
-sub other_commands {
-   
-   my ( $arg , @words ) ;
-
-   # add
-   if ($arg =~ /^A\w*/i) {
-      &debug(1,"[$arg]=add");
-      my $arg = shift @words ;
-      # zone
-      if ($arg =~ /^Z\w*/i)   { &add_zone(@words)   ; &addhistory($_) }
-      # network
-      if ($arg =~ /^N\w*/i)   { &add_net(@words)    ; &addhistory($_) }
-      # subnet
-      if ($arg =~ /^S\w*/i)   { &add_sub(@words)    ; &addhistory($_) }
-      # host
-      if ($arg =~ /^HO\w/i)    { &add_host(@words)   ; &addhistory($_) }
-   }
-
-   # delete
-   if ($arg =~ /^DEL\w*/i) {
-      my $arg = shift @words ;
-      # network
-      if ($arg =~ /^N\w*/i)  { &remove_net(@words)   ; &addhistory($_) }
-      # host
-      if ($arg =~ /^H\w*/i)  { &remove_host(@words)  ; &addhistory($_) }
-      # zone
-      if ($arg =~ /^Z\w*/i)  { &remove_zone(@words)  ; &addhistory($_) }
-   }
-
-   # split
-   if ($arg =~ /^SP\w*/i) {
-      my $arg = shift @words ;
-      # network
-      if ($arg =~ /^N\w*/i) { &split_net(@words)  ; &addhistory($_) }
-   }
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                'zone' => 'show_zone',
+                'network' => 'show_zone',
+        ) ;
+   &shift_arg($arg,%commands);
 
 }
+
+sub zone_commands {
+   &debug (4,"sub = zone_commands");
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                "add" => 'add_zone',
+                "delete" => 'remove_zone',
+                "" => 'mod_zone',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+sub network_commands {
+   &debug (4,"sub = network_commands");
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                "add" => 'add_network',
+                "delete" => 'remove_network',
+                "" => 'mod_network',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+sub mod_zone {
+   &debug (4,"sub = mod_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+
+   my $arg  = shift @WORDS ;
+   my %commands = ( 
+                "add" => 'add_to_zone',
+                "delete" => 'remove_from_zone',
+        ) ;
+   &shift_arg($arg,%commands);
+
+}
+
+sub add_to_zone {
+   &debug (4,"sub = add_to_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+
+   my $arg  = shift @WORDS ;
+   my %commands = ( 
+                "host" => 'add_host',
+                "cname" => 'add_cname',
+                "onewayhost" => 'add_one_host',
+                "bulkhost"   => 'add_bulkhost',
+                "nameserver" => 'NOT_READY',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+sub remove_from_zone {
+   &debug (4,"sub = remove_from_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+
+   my $arg  = shift @WORDS ;
+   my %commands = ( 
+                "host" => 'remove_host',
+                "cname" => 'remove_cname',
+                "bulkhost" => 'remove_bulkhost',
+                "nameserver" => 'NOT_READY',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+sub NOT_READY {
+    print "***-  NOT IMPLEMENTED\n";
+}
+
+###########################################
+#
+# here endith the arg parsers
+#
+###########################################
+
+#
+# call an infoblox function, ONLY if we're connected
+#
+sub do_ib_func {
+    my ($function) = @_ ;
+    &debug (3,"do_ib_func [$function]");
+
+    if ( $CONNECTED ) {
+       eval $function ;
+    }
+    else {
+       print "CANNOT EXECUTE - no connection is in place\n";
+    }
+}
+
+
+###########################################
+#
+# actual ib_ functions.
+#
+###########################################
+
+sub add_host {
+    my ( $zone , $host , $ip ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<host> <ip>")  ;
+       return ;
+    }
+    my $name="$host.$zone";
+
+    &debug (2,"addh n($name) n($ip) ");
+
+    my $function = "ib_insert_host(\"$name\",\"$ip\")";
+    &do_ib_func($function);
+
+}
+
+sub remove_host {
+    my ( $zone , $host ) = @_ ;
+    if ( ! $host ) {
+       &missing_arg("<host>")  ;
+       return ;
+    }
+    my $name="$host.$zone";
+
+    &debug (2,"addh n($name) ");
+
+    my $function = "ib_remove_host(\"$name\")";
+    &do_ib_func($function);
+
+}
+
+sub add_one_host {
+    my ( $zone , $host , $ip ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<host> <ip>")  ;
+       return ;
+    }
+    my $name="$host.$zone";
+
+    &debug (2,"add1h n($name) n($ip) ");
+
+    my $function = "ib_insert_oneway_host(\"$name\",\"$ip\")";
+    &do_ib_func($function);
+
+}
+
+sub add_bulkhost {
+    my ( $zone , $prefix , $fip , $nip ) = @_ ;
+
+    if ( $zone and $prefix and $fip and $nip ) {
+
+       &debug (2,"addbh n($zone) p($prefix) n($fip,$nip) ");
+
+       my $func="ib_insert_bulk_host(\"$zone\",\"$prefix\",\"$fip\",\"$nip\")";
+       &do_ib_func($func);
+    }
+    else {
+       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
+       return ;
+    }
+
+}
+
+sub remove_bulkhost {
+    my ( $zone , $prefix , $fip , $nip ) = @_ ;
+
+    if ( $zone and $prefix and $fip and $nip ) {
+
+       &debug (2,"addbh n($zone) p($prefix) n($fip,$nip) ");
+
+       my $func="ib_remove_bulk_host(\"$zone\",\"$prefix\",\"$fip\",\"$nip\")";
+       &do_ib_func($func);
+    }
+    else {
+       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
+       return ;
+    }
+}
+
+sub add_cname {
+    my ( $zone , $cname , $host ) = @_ ;
+    if ( (! $host ) or ( ! $cname ) ) {
+       &missing_arg("<cname> <host>")  ;
+       return ;
+    }
+    my $fcname="$cname.$zone";
+
+    &debug (2,"addh n($fcname) n($host) ");
+
+    my $function = "ib_insert_cname(\"$fcname\",\"$host\")";
+    &do_ib_func($function);
+
+}
+
+sub remove_cname {
+    my ( $zone , $host ) = @_ ;
+    if ( ! $host ) {
+       &missing_arg("<host>")  ;
+       return ;
+    }
+    my $name="$host.$zone";
+
+    &debug (2,"addh n($name) ");
+
+    my $function = "ib_remove_cname(\"$name\")";
+    &do_ib_func($function);
+
+}
+
+sub add_zone {
+    my ( $zone , $type ) = @_ ;
+
+    if ( ! $zone ) { &missing_arg("<zone>") ; return }
+    my $etype ;
+
+    #
+    # etype is the expanded version of whatever we typed for $type
+    #
+    if ( $type ) {
+       my @opts = ( "authoritative","nonauthoritative","delegated","secondary");
+       my %optlist = abbrev ( @opts ) ;
+       $etype = $optlist{ lc($type) } ;
+
+       if ( ! $etype ) { 
+          &missing_arg(@opts);
+          return ;
+       }
+    }
+    else { ( $etype = "authoritative" ) ; }
+
+    &debug (2,"addz n($zone) a($etype) ");
+
+    my $function = "ib_insert_zone(\"$zone\",\"$etype\")";
+    &do_ib_func($function);
+
+}
+
+sub remove_zone {
+    my ( $zone ) = @_ ;
+    if ( ! $zone ) { &missing_arg("<zone>") ; return }
+    &debug (2,"remz n($zone)");
+
+    my $function = "ib_remove_zone(\"$zone\")";
+    &do_ib_func($function);
+
+}
+
+sub add_network {
+    my ( $netarg , $type ) = @_ ;
+    if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
+    my $etype ;
+
+    #
+    # etype is the expanded version of whatever we typed for $type
+    # [ I've used this twice now, can i make it a sub ?? ]
+    #
+    if ( $type ) {
+       my @opts = ( "authoritative",,"delegated","secondary");
+       my %optlist = abbrev ( @opts ) ;
+       $etype = $optlist{ lc($type) } ;
+
+       if ( ! $etype ) { 
+          &missing_arg(@opts);
+          return ;
+       }
+    }
+    else { ( $etype = "authoritative" ) ; }
+
+    #
+    # use the /cidr to find the mask etc etc
+    #
+    my ($net,$cidr) = split(/\//,$netarg);
+    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"addn n($net) c($cidr) m($mask) ");
+
+    # add net now requires a bogus parent
+    # not that this will add it at the root level. you need to
+    # use add subnet for anything else
+    my $func="ib_insert_network(\"$net\",\"$mask\",\"0.0.0.0\",\"0.0.0.0\")";
+    &do_ib_func($func);
+
+}
+
+sub remove_network {
+    my ( $netarg ) = @_ ;
+    if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
+
+    # use the /cidr to find the mask etc etc
+    #
+    my ($net,$cidr) = split(/\//,$netarg);
+    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"remn n($net) c($cidr) m($mask) ");
+
+    my $func="ib_remove_network(\"$net\",\"$mask\")";
+    &do_ib_func($func);
+
+}
+
+sub mod_network {
+    print "MODIFY NET -  NOT IMPLEMENTED\n";
+}
+
 
 ##########################################################
 #
@@ -373,37 +607,33 @@ sub other_commands {
 # parse a line, this is called EVERYTIME we press <cr> so we can
 # do things like print the prompt
 # we abstract this to keep it in one place
+#
 sub rd_line {
 
     # we're passed :
     #  the subroutine to call
-    #  the ORIGINAL LINE (post cleanup)
     #  the subroutine arguments
+    #
+    #  if we are eating more of the args, we append to savehistory...
 
-    my ($command,$hstring,@args) = @_ ;
+    my ($command) = @_ ;
 
-    &debug (3,"rd_line b: c[$command] h[$hstring] , go_c [$GOOD_COMMAND]");
+    &debug (4,"rd_line b: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
+    &debug (4,"           p_args[@P_ARGS] words[@WORDS]");
 
-#     $NO_COMMAND = 1 ;
-
-    # call the command
-    &$command(@args);
+    # call the command (and any prev args...)
+    &$command(@P_ARGS,@WORDS);
 
     #
-    &debug (3,"rd_line a: c[$command] h[$hstring] , go_c [$GOOD_COMMAND]");
-#     &debug (3,"good_c [$GOOD_COMMAND] , go_c [$GOOD_COMMAND]");
+    &debug (4,"rd_line a: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
+    &debug (4,"           p_args[@P_ARGS] words[@WORDS]");
 
-    # prompt
-#     &print_prompt ;
 
 }
 
 sub missing_arg {
-    print "Next possible completions : @_\n";
+    print "Next possible completions : \n\t@_\n";
     $GOOD_COMMAND = 0 ;
-#     $NO_COMMAND = 0 ;
-
-#     &print_prompt ;
 }
 
 #
@@ -417,13 +647,13 @@ sub print_prompt {
 # SET DEBUG
 #
 sub set_debug {
+
     if ( "@_" =~ /\d+/ ) {
        $DEBUG = shift @_ ;
-#        $GOOD_COMMAND = 1 ;
     }
-#     else {
-#        &missing_arg("debug <level>");
-#     }
+    else {
+       &missing_arg("$SAVE_HIST <level>");
+    }
 }
 
 #
@@ -473,6 +703,9 @@ sub add_server {
 
        &connect ;
     }
+    else {
+       &missing_arg("$SAVE_HIST <server>");
+    }
 }
 
 sub add_pass {
@@ -484,25 +717,28 @@ sub add_pass {
        $SERVER_PASS = $arg ;
        &connect ;
     }
+    else {
+       &missing_arg("$SAVE_HIST <password>");
+    }
+
+
 }
 
 sub connect {
     # make a connection
-    # unless we have both server and password die
+    # unless we have both server and password,  die
+
     if ( $SERVER_ID && $SERVER_PASS ) {
+       if ( $CONNECTED ) {
+          print "SERVER :: already connected \n";
+          return ;
+       }
+
        &debug (1,"connecting to server [$SERVER_ID] [$SERVER_PASS]");
 
        print "SERVER :: connecting \n";
 
-       ######
-       print "Connections :: DISABLED \n";
-       ######
-
-#        ib_open_connection($SERVER_ID,$SERVER_PASS) ;
-
-       my $ibc='ib_open_connection($SERVER_ID,$SERVER_PASS)';
-       &debug (3,"ibc [$ibc]");
-       eval $ibc ;
+       ib_open_connection($SERVER_ID,$SERVER_PASS) ;
 
        $PROMPT = "$SERVER_ID > " ;
        $CONN_STRING = "*" ;
@@ -511,6 +747,7 @@ sub connect {
 
     }
     else {
+       print "CANNOT CONNECT :: no server|pass supplied \n";
        &debug (3,"NOOP - incomplete details for server connection");
     }
 
@@ -522,6 +759,8 @@ sub disconnect {
        print "SERVER :: disconnecting \n";
        ib_close_connection();
        $CONNECTED = 0 ;
+
+       $PROMPT = "no server > " ;
     }
     else {
        print "CANNOT DISCONNECT - no connection is in place\n";
@@ -530,10 +769,14 @@ sub disconnect {
 }
 
 sub commit {
+    print "COMMIT -  NOT WORKING\n";
+
     if ( $CONNECTED ) {
-       &debug (1,"comitting changes");
+#        &debug (1,"comitting changes");
        print "SERVER :: Comitting Changes .. ";
+
        ib_update_server();
+
        print "DONE.\n";
 
        $CONN_STRING = " " ;
@@ -547,18 +790,25 @@ sub commit {
 # DIGS AND GET ROUTINES
 #
 
-sub get_zone {
+sub show_zone {
+    my ($query,$type,$verbose) = @_ ;
+
     # use dig...
-    &debug (2,"getting zone [@_]");
-    my ($query,$type,$verb) = @_ ;
+
+    if ( ! $query ) {
+       &missing_arg("$SAVE_HIST <zone> (type) (verbose)") ;
+       return (0) ;
+    }
+
+    &debug (2,"showing zone [@_]");
 
     if ( ! $type ) { $type = "SOA" }
 
-    if ( ! $SERVER_ID ) {
-       print "CANNOT dig - no server is specified\n";
+    if ( ! $CONNECTED ) {
+       print "CANNOT dig - no connection is in place\n";
     }
     else {
-       &do_dig($SERVER_ID,$query,$type,$verb);
+       &do_dig($SERVER_ID,$query,$type,$verbose);
     }
 
 
@@ -625,8 +875,8 @@ sub cidrfind {
        30 => '255.255.255.252' ,
     ) ;
 
-    &debug(2,"CIDR is [$cidr]");
-    &debug(2,"MASK is [$mlook{$cidr}]");
+    &debug(3,"CIDR is [$cidr]");
+    &debug(3,"MASK is [$mlook{$cidr}]");
 
     return($mlook{$cidr}) ;
 }
@@ -638,7 +888,7 @@ sub debug {
     my $level = shift @_ ;
 
     if ($level <= $DEBUG) {
-           print "DEBUG : @_\n";
+           print "($level) DEBUG: @_\n";
     }
 
 }
@@ -646,6 +896,11 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.5  2003/09/20 01:22:36  horne
+# First full working version with the abstracted argument parser.
+# there is still a lot of gumpf in here, but most of the repeatable code is
+# now packed into subroutines
+#
 # Revision 1.4  2003/09/18 02:28:56  horne
 # *** empty log message ***
 #
