@@ -1,5 +1,7 @@
 = The Tao of the CLI =
 
+
+
 == How does a CLI work ? ==
 
 Like it nor not, the combination of a structured database and a command
