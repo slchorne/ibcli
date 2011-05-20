@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.2.2.3 2006/02/16 21:46:14 horne Exp $ ;
-my $REV = q$Revision: 3.2.2.3 $;
-# $Date: 2006/02/16 21:46:14 $
+my $ID  = q$Id: ibcli,v 3.2.2.4 2006/05/01 22:44:13 horne Exp $ ;
+my $REV = q$Revision: 3.2.2.4 $;
+# $Date: 2006/05/01 22:44:13 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -61,9 +61,9 @@ no strict "refs" ;
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-use lib "lib" ;
 use lib "$FindBin::Bin" ;
 use lib "$FindBin::Bin/lib" ;
+use lib "lib" ;
 
 # BEGIN {
 #    push (@INC, "lib");
@@ -150,7 +150,7 @@ my %COMMANDS = (
            func => "cli_show_view", },
 
     'show zone' => { 
-           words => "<cr> <zone>|forward|reverse",  
+           words => "<cr> <zone>|forward|reverse|view=<name>",  
            func => "cli_show_zone", },
 
     'show network' => { 
@@ -344,7 +344,7 @@ my %COMMANDS = (
     'configure network add' => { 
            words => "<n.n.n.n/mm>", },
     'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr> comment=<comment>|member=<ip>|option=<name,value>",  
+           words => "<cr> nozone|comment=<comment>|member=<ip>|option=<name,value>",  
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
@@ -630,7 +630,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.2.2.3 $
+$Revision: 3.2.2.4 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2019,6 +2019,7 @@ sub cli_add_network {
     my ( $network ) = $line =~/ network add (\S+)/ ;
     my ( $parent )  = $line =~/ parent (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+    my ( $nozone ) = $line =~/ (nozone)/ ;
 
     my @options  = $line =~/ option (\S+)/g ;
     my @members  = $line =~/ member (\S+)/g ;
@@ -2032,6 +2033,11 @@ sub cli_add_network {
                    "comment" => $comment ,
                    "network_container" => $parent ,
                 );
+
+    # auto create reverses ?
+    if ( $nozone ) {
+        $net->auto_create_reversezone ( "FALSE" );
+    }
 
     # members :
     if ( @members ) {
@@ -2578,17 +2584,26 @@ sub cli_show_zone {
 
     # get the args from the line
     my ( $type ) = $line =~/ zone (\S+)/ ;
+    my ( $view ) = $line =~/ view (\S+)/ ;
 
     &debug_cli(2,"showz t($type)");
 
     # we can get either all forward, rev or just a zone
-    if ( !$type or $type eq "forward" or $type eq "reverse" ) {
+    if ( !$type or $type eq "forward" 
+                or $type eq "reverse" 
+                or $type eq "view" 
+       ) {
         # get all the zones
         my %opthash = (
                "object" => "Infoblox::DNS::Zone", 
                "name" => ".*" 
         );
     
+        # do we have a specific view ?
+        if ( $view ) { 
+            $opthash{"view"} = $view ;
+        };
+
         my @zones = &do_func("search", %opthash );
     
         # we can't sort on oid, we have to sort on name
@@ -2620,6 +2635,11 @@ sub cli_show_zone {
                "name" => $type 
         );
     
+        # do we have a specific view ?
+        if ( $view ) { 
+            $opthash{"view"} = $view ;
+        };
+
         my ( $zone ) = &do_func("get", %opthash );
 
         &dump_object ( $zone ) ;
@@ -3089,6 +3109,12 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.2.2.4  2006/05/01 22:44:13  horne
+#
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: added voews to show zone, added nozone to add networks
+#
 # Revision 3.2.2.3  2006/02/16 21:46:14  horne
 # BugId: 8209
 # Reviewer(s): Geoff
