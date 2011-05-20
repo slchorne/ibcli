@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.43 2009/07/27 17:39:31 horne Exp $ ;
-my $REV = q$Revision: 3.43 $;
-# $Date: 2009/07/27 17:39:31 $
+my $ID  = q$Id: ibcli,v 3.44 2009/09/24 19:56:23 horne Exp $ ;
+my $REV = q$Revision: 3.44 $;
+# $Date: 2009/09/24 19:56:23 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2009
@@ -406,7 +406,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.43 $.
+$Revision: 3.44 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -674,14 +674,15 @@ sub process_line {
     # [ ] protect special chars
     $line =~ s/\*/\\\*/g;
 
-#     # [ ] replace the line with any aliases
-#     foreach my $amatch ( keys %ALIASES ) {
-#         if ( $line =~ /^$amatch/ ) {
-#             # replace the alias with the real string
-#             my $arep = $ALIASES{$amatch} ;
-#             $line =~ s/^$amatch/$arep/;
-#         }
-#     }
+    # [ ] replace the line with any aliases
+    # this may work for substitution matches
+    foreach my $amatch ( keys %ALIASES ) {
+        if ( $line =~ /^$amatch/ ) {
+            # replace the alias with the real string
+            my $arep = $ALIASES{$amatch} ;
+            $line =~ s/^$amatch/$arep/;
+        }
+    }
 
 
     &debug_cli (1,"");
@@ -1863,6 +1864,16 @@ sub cli_add_zone {
        &debug_cli (2,"addz z($zone) sec($sec_ip)");
     }
 
+    # lead secondaries
+    my ($lead)      = $line =~/ lead (\S+)/ ;
+    if ( $lead ) {
+       push @sec_svrs , Infoblox::DNS::Member->new(
+                             "ipv4addr" => $lead ,
+                            'lead' => "TRUE" ,
+                             );
+       &debug_cli (2,"addz n($zone) l-sec($lead)");
+    }
+
     # stealth secondaries
     foreach my $sec_ip ( @stealth_sec ) {
        # normaal members
@@ -2018,6 +2029,7 @@ sub cli_add_nsgroup {
     # get the args from the line
     my ($type , $name)     = $line =~/ zone (add|modify) nsgroup (\S+)/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
+    my ($lead)      = $line =~/ lead (\S+)/ ;
     my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
     my (@sec)     = $line =~/ secondary (\S+)/g ;
@@ -2122,6 +2134,16 @@ sub cli_add_nsgroup {
                              "ipv4addr" => $sec_ip ,
                              );
        &debug_cli (2,"addnsg n($name) sec($sec_ip)");
+    }
+
+    # lead secondaries
+    my ($lead)      = $line =~/ lead (\S+)/ ;
+    if ( $lead ) {
+       push @sec_svrs , Infoblox::DNS::Member->new(
+                             "ipv4addr" => $lead ,
+                            'lead' => "TRUE" ,
+                             );
+       &debug_cli (2,"addnsg n($name) l-sec($lead)");
     }
 
     # stealth secondaries
@@ -3151,6 +3173,101 @@ sub cli_del_ptr {
 
 =head1 DHCP Configuration
 
+=head2 Add a network view
+
+  conf net add view internal
+
+You can also modify existing views
+
+  conf net modify view internal set external_ddns_primaries=1.1.1.1,2.2.2.2
+
+=cut
+
+sub cli_add_network_view {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $type, $view )     = $line =~/ (add|modify) view (\S+)/ ;
+    my ( $disable )     = $line =~/ (disabled)/ ;
+    my @settings  = $line =~/ set (\S+)/g ;
+
+    # get and de-urlencode the comment string
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    $comment = &decode_comment ( $comment ) ;
+
+    &debug_cli(1,"addnv v($view) c($comment)");
+
+    my $obj = Infoblox::DHCP::View->new (
+                  "name" => "$view",
+    );
+
+    # if we are in modify mode, get the view first...
+    if ( $type eq "modify" ) {
+        # this might become a subroutine
+        my %opthash = (
+            "object" => "Infoblox::DHCP::View", 
+            "name" => $view
+        );
+        my @views = &do_func("get", %opthash );
+
+        if ( $#views > 0 ) {
+            # we found too many
+            my $list = &dump_summ ( "name" , @views );
+            print "  Error : $view : More than 1 views found : $list\n";
+            # exit here
+            return
+        }
+        elsif ( ! @views ) {
+            # we found too few
+            print "  Error : $view : No views found\n";
+            # exit here
+            return
+        }
+        else {
+            $obj = shift @views ;
+        }
+
+    }
+
+    if ( $comment ) { $obj->comment ( $comment ) }
+    if ( $disable ) { $obj->disable ( "TRUE" ) }
+
+    if ( @settings ) {
+
+        foreach my $setval ( @settings ) {
+            # set some custom options;
+            # split on the ','
+            my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+            $val = &decode_comment ( $val ) ;
+
+            &debug_cli(2,"addzset s($set) v($val)");
+
+            # if the value is an array, we need to cast it accordingly
+            my @avals ;
+            if ( $val =~ /^\[/ ) {
+                $val =~ s/\[\s*//;
+                $val =~ s/\s*\]//;
+                @avals = split ( /\s*,\s*/ , $val );
+
+                &debug_cli(2,"addnvatt s($set) va(@avals)");
+
+                # set this object
+                $obj->$set ( \@avals ) ;
+
+            }
+            else {
+                # and set this on the object
+                $obj->$set ( $val ) ;
+            }
+
+        }
+    }
+
+    # addit
+    &do_func($type,$obj);
+
+}
+
 =head2 Add a network
 
    conf network add 1.1.1.0/24
@@ -3230,9 +3347,11 @@ sub cli_add_network {
     # bug in 4.3r3, $2 needs to be reset to NULL...
     my ( $netmask ) = $line =~/ netmask (\S+)/ ;
     my ( $parent )  = $line =~/ parent (\S+)/ ;
+    my ( $view )  = $line =~/ view (\S+)/ ;
     my ( $template )  = $line =~/ template (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my ( $addrev ) = $line =~/ (addreverse)/ ;
+    my ( $disable ) = $line =~/\b(disabled)\b/ ;
     my ( $disable ) = $line =~/\b(disabled)\b/ ;
 
     my @options  = $line =~/ option (\S+)/g ;
@@ -3307,6 +3426,12 @@ sub cli_add_network {
     }
     # disabled
     if ( $disable ) { $net->disable ( "TRUE" ) }
+
+    # views
+    if ( $view ) {
+        my $viewobj = Infoblox::DHCP::View->new("name"=>$view);
+        $net->network_view ( $viewobj ) ;
+    }
 
     # members :
     if ( @members ) {
@@ -4232,6 +4357,10 @@ You can also add filters to a range (multiples are allowed)
 
    conf net 10.1.1.1/24 add range 10... macfilter <name>=<permission>
 
+And add new filters to an existing range
+
+   conf net 10.1.1.1/24 mod range 10... macfilter <name>=<permission>
+
 =head2 Modifying Ranges
 
 You cannot renumber a range, only modify the contents of it.
@@ -4364,6 +4493,10 @@ sub cli_add_dhcp_range {
     if ( @macfilters ) {
 
        my @filters ;
+       # get the current list
+       if ( $type eq 'modify' ) {
+            @filters = @{ $obj->filters() }
+       }
        foreach my $filter ( @macfilters ) {
           # split on the '='
           my ( $fname , $perm ) = $filter =~  /^(.*?)=(.*)/ ;
@@ -4410,6 +4543,7 @@ sub cli_add_dhcp_range {
 =head2 Remove a dhcp range
 
    conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40
+   conf net delete range 1.1.1.20 1.1.1.40
 
 =cut
 
@@ -4422,13 +4556,25 @@ sub cli_del_dhcp_range {
 
     &debug_cli (1,"delrng n($network) s($fip) e($lip)");
 
-    my $obj = Infoblox::DHCP::Range->new (
+    my $obj ;
+    if ( $network ) {
+        $obj = Infoblox::DHCP::Range->new (
                    "network" => $network ,
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
                 );
+    }
+    else {
+        $obj = Infoblox::DHCP::Range->new (
+#                    "network" => $network ,
+                   "start_addr" => $fip ,
+                   "end_addr" => $lip ,
+                );
+    }
 
-    &do_func("remove",$obj);
+    if ( $obj ) {
+        &do_func("remove",$obj);
+    }
 
 }
 
@@ -4445,6 +4591,7 @@ sub cli_add_macfilter {
 
     # get the args from the line
     my ( $name ) = $line =~/ macfilter (\S+)/ ;
+    $name = &decode_comment ( $name ) ;
 
     &debug_cli (1,"addmfil n($name)");
 
@@ -4489,6 +4636,9 @@ Add a mac address to a filter with comments
 
     conf network filter my_filter add mac aa:bb:cc:11:22:33 comment "my comment"
 
+Modify a filter entry
+
+    conf network filter my_filter modify mac aa:bb:cc:11:22:33 comment "my comment"
 =cut
 
 sub cli_add_macfilteraddr {
@@ -4496,7 +4646,7 @@ sub cli_add_macfilteraddr {
 
     # get the args from the line
     my ( $name ) = $line =~/ filter (\S+)/ ;
-    my ( $mac ) = $line =~/ macaddress (\S+)/ ;
+    my ( $type, $mac ) = $line =~/ (add|modify) macaddress (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
@@ -4511,13 +4661,36 @@ sub cli_add_macfilteraddr {
 
     &debug_cli (1,"addmaddr f($name) m($mac) c($comment)");
 
-    my $obj = Infoblox::DHCP::MAC->new (
+    # get or add ?
+    my $obj ;
+    if ( $type eq 'modify' ) {
+        # get the current network
+        my %opthash = (
+            "object" => "Infoblox::DHCP::MAC", 
+            "filter" => $name ,
+            "mac" => $mac ,
+        );
+
+        ( $obj ) = &do_func("get", %opthash );
+
+        # check errors
+        if ( ! $obj ) {
+            print "  mac $mac is not in the filter $name\n";
+            return ;
+        }
+    }
+    else {
+
+        $obj = Infoblox::DHCP::MAC->new (
                    "filter" => $name ,
                    "mac" => $mac ,
-                   "comment" => $comment ,
+#                    "comment" => $comment ,
                 );
+    }
+    if ( $comment ) { $obj->comment ( $comment ) }
 
-    &do_func("add",$obj);
+    # make the change
+    &do_func($type,$obj);
 
 }
 
@@ -4603,7 +4776,7 @@ sub cli_add_attribute {
     my @values  = $line =~/ value (\S+)/g ;
 
     # remove '%20' crud from dev types with spaces in them
-    $attr = &decode_comment ( $attr ) ;
+    $attr = decode_comment( $attr ) ;
 
     &debug_cli (1,"addattr d($attr) m($multi) r($required) t($type) v[@values]");
 
@@ -4629,18 +4802,19 @@ sub cli_add_attribute {
 
         my @vlist ;
         foreach my $v ( @values ) {
+            $v = decode_comment($v);
             my $lval = Infoblox::Grid::ExtensibleAttributeDef::ListValue->new(
                         value  => $v,
                     );
             push @vlist , $lval ;
         }
 
-        print Dumper ( \@vlist ) ;
+#         print Dumper ( \@vlist ) ;
         $dobj->list_values( \@vlist ) ;
     }
     else {
-        # just add the first value
-        $dobj->default_value( $values[0] ) ;
+        # just add the first value (decoded)
+        $dobj->default_value( decode_comment($values[0]) ) ;
     }
 
     # add it !
@@ -5005,21 +5179,51 @@ sub cli_show_radius_device {
 
    configure admin add admin_group locals
 
+make them superuser
+
+   configure admin add admin_group locals superuser
+
+Add roles to the group
+
+   configure admin add admin_group locals role "DNS Admin"
+
+You can also modify admin groups (to add roles or perms)
+This will ADD to the current list(s), not replace it
+
+   configure admin modify admin_group locals role "DNS Admin"
 =cut
 
 sub cli_add_admin_group {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $name ) = $line =~/ admin_group (\S+)/ ;
+    my ( $type , $name ) = $line =~/ (add|modify) admin_group (\S+)/ ;
     my ( $su ) = $line =~/\b(superuser)\b/ ;
     my ( $disable ) = $line =~/\b(disabled)\b$/ ;
 
     &debug_cli (1,"addgrp g($name)");
 
-    my $obj = Infoblox::Grid::Admin::Group->new (
+    my $obj ;
+    if ( $type eq "modify" ) {
+        # this might become a subroutine
+        # get the object 
+        my %opthash = (
+            "object" => "Infoblox::Grid::Admin::Group", 
+            "name" => $name
+        );
+        ( $obj ) = &do_func("get", %opthash );
+
+        unless ( $obj ) {
+            print "  Error : $name : No group found\n";
+            # exit here
+            return
+        }
+    }
+    else {
+        $obj = Infoblox::Grid::Admin::Group->new (
                    "name" => $name ,
                 );
+    }
 
     # de-urlencode the comment string
     # and add an optional comment
@@ -5030,7 +5234,46 @@ sub cli_add_admin_group {
     if ( $su ) { $obj->superuser ( "TRUE" ) }
     if ( $disable ) { $obj->disabled ( "TRUE" ) }
 
-    &do_func("add",$obj);
+    # set some roles
+    my ( @roles ) = $line =~/\brole\s+(\S+)/g ;
+    if ( @roles ) {
+        my @rvalues ;
+        # get current settings
+        if ( $type eq 'modify' ) {
+            @rvalues = @{ $obj->roles() };
+        }
+        foreach my $rstring ( @roles ) {
+            push @rvalues , &decode_comment ( $rstring ) ;
+        }
+        $obj->roles( \@rvalues ) ;
+    }
+
+    &do_func($type,$obj);
+
+}
+
+=head2 Adding Administrator Roles
+
+   configure admin add role locals
+
+=cut
+
+sub cli_add_admin_role {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $type , $name ) = $line =~/ (add|modify) role (\S+)/ ;
+    $name = &decode_comment ( $name ) ;
+
+    &debug_cli (1,"addrole n($name)");
+
+    my $obj = Infoblox::Grid::Admin::Role->new ( "name" => $name );
+
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    $comment = &decode_comment ( $comment ) ;
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    &do_func($type,$obj);
 
 }
 
@@ -5046,7 +5289,7 @@ sub cli_add_user {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $user ) = $line =~/ user (\S+)/ ;
+    my ( $type , $user ) = $line =~/ (add|modify) user (\S+)/ ;
     my ( $pass ) = $line =~/ password (\S+)/ ;
     my ( $group ) = $line =~/ group (\S+)/ ;
     my ( $email ) = $line =~/ email (\S+)/ ;
@@ -5054,18 +5297,38 @@ sub cli_add_user {
 
     &debug_cli (1,"adduser u($user) p($pass) g($group)");
 
-    unless ( $user and $pass and $group ) {
-        print "  Error : user, password and group are required\n";
-        return ;
+    my $obj ;
+    if ( $type eq "modify" ) {
+        # this might become a subroutine
+        # get the object 
+        my %opthash = (
+            "object" => "Infoblox::Grid::Admin::User", 
+            "name" => $user
+        );
+        ( $obj ) = &do_func("get", %opthash );
+        unless ( $obj ) {
+            print "  Error : $user : No user found\n";
+            # exit here
+            return
+        }
     }
+    else {
+        unless ( $user and $pass and $group ) {
+            print "  Error : user, password and group are required\n";
+            return ;
+        }
 
-    my $obj = Infoblox::Grid::Admin::User->new (
+        my $obj = Infoblox::Grid::Admin::User->new (
                    "name" => $user ,
                    "password" => $pass ,
                    "admin_group" => $group ,
                 );
+    }
 
-    # set some variables
+    # set some variables, these seem redundant because of
+    # the 'modify' behaviour
+    if ( $group ) { $obj->admin_group ( $group ) }
+    if ( $pass ) { $obj->password ( $pass ) }
     if ( $email ) { $obj->email ( $email ) }
     if ( $disable ) { $obj->disabled ( "TRUE" ) }
 
@@ -5075,14 +5338,14 @@ sub cli_add_user {
     $comment = &decode_comment ( $comment ) ;
     if ( $comment ) { $obj->comment ( $comment ) }
 
-    &do_func("add",$obj);
+    &do_func($type,$obj);
 
 }
 
 =head2 Adding permissions
 
-Permissions can be any of 'read' 'write' or 'deny', and ar applied to an
-admin group or an admin
+Permissions can be any of 'read' 'write' or 'deny', and are applied to an
+admin group or an admin or an admin_role
 
   conf admin add permission <perm> <type> <name> group <group_name>
 
@@ -5092,6 +5355,16 @@ admin group or an admin
   conf admin add perm read range 45.0.0.10-45.0.0.20 group dhcp_guys
 (ranges actually only need the 'start_addr' )
   conf admin add perm read range 45.0.0.10 group dhcp_guys
+
+Add permissions to a role
+
+  conf admin add perm write zone foo.com role "AAA Admin"
+
+You can also add resource_types :
+
+  conf admin add perm write type "All DHCP Templates" group dhcp_guys
+  conf admin add perm write type "All DHCP Templates" role "DHCP Admin"
+
 
 In some cases you can also do this when configuring the object :
 
@@ -5110,19 +5383,32 @@ sub cli_add_permission {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $otype, $oname ) = $line =~/ permission \S+ (\S+) (\S+)/ ;
     my ( $perm ) = $line =~/permission\s+(read|write|deny)\s/ ;
+    my ( $otype, $oname ) = $line =~/ permission \S+ (\S+) (\S+)/ ;
     my ( $group ) = $line =~/ group (\S+)/ ;
+    my ( $role ) = $line =~/ role (\S+)/ ;
+    my ( $view ) = $line =~/ view (\S+)/ ;
 
     $oname = &decode_comment ( $oname ) ;
+    $role = &decode_comment ( $role ) ;
 
-    &debug_cli (1,"addperm t($otype) n($oname) p($perm) g($group)");
+    &debug_cli (1,"addperm t($otype) n($oname) p($perm) r($role) g($group)");
 
     #  make this generic for different object types
     my $pobj ;
     if ( $otype eq "zone" ) {
         # create a zone handle
         $pobj = Infoblox::DNS::Zone->new(
+                       name => $oname,
+               );
+        if ( $view ) {
+            $pobj->views ([ Infoblox::DNS::View->new( "name" => $view ) ]);
+        }
+
+    }
+    if ( $otype eq "view" ) {
+        # create a zone handle
+        $pobj = Infoblox::DNS::View->new(
                        name => $oname,
                );
     }
@@ -5155,27 +5441,48 @@ sub cli_add_permission {
             )
         );
     }
-
-
+    if ( $otype eq "lease"  and $oname eq "history" ) {
+        # fake out some syntax shorteing
+        $otype = "type";
+        $oname = "Lease History Access";
+    }
 
     # try an make the permissions
     my $permission ;
-    if ( $pobj ) {
-        # now create the permission
-        $permission = Infoblox::Grid::Admin::Permission->new(
-            admin_group      => $group,
-            resource_object  => $pobj,
-            permission => $perm,
-        );
-
-    }
-    elsif ( $otype eq "lease"  and $oname eq "history" ) {
+    if ( $otype eq "type" ) {
         # we set resource_type permissions
-        $permission = Infoblox::Grid::Admin::Permission->new(
-            admin_group      => $group,
-            resource_type  => "Lease History Access",
-            permission => $perm,
-        );
+        if ( $group ) {
+            $permission = Infoblox::Grid::Admin::Permission->new(
+                admin_group      => $group,
+                resource_type  => $oname,
+                permission => $perm,
+            );
+        }
+        elsif ( $role ) {
+            $permission = Infoblox::Grid::Admin::Permission->new(
+                role      => $role,
+                resource_type  => $oname,
+                permission => $perm,
+            );
+        }
+    }
+    elsif ( $pobj ) {
+        # we set resource_object permissions
+        if ( $group ) {
+            $permission = Infoblox::Grid::Admin::Permission->new(
+                admin_group      => $group,
+                resource_object  => $pobj,
+                permission => $perm,
+            );
+        }
+        elsif ( $role ) {
+            $permission = Infoblox::Grid::Admin::Permission->new(
+                role      => $role,
+                resource_object  => $pobj,
+                permission => $perm,
+            );
+        }
+
     }
     else {
         print "  Error, can't create resource_object ($otype) ($oname)\n";
@@ -5358,6 +5665,11 @@ Disable the NTP service
 
    configure grid Infoblox disable ntp
 
+or set a random API method
+
+   configure grid Infoblox set <method>=<value>
+   configure grid Infoblox set query_comm_string=public
+
 =cut
 
 
@@ -5430,6 +5742,36 @@ sub cli_mod_grid {
             $grid->enable_ntp( "TRUE" );
         }
 
+        # settings - these are additional fields that the API supports
+        my @settings  = $line =~/ set (\S+)/g ;
+        if ( @settings ) {
+
+            foreach my $setval ( @settings ) {
+
+                # split on the ','
+                my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+                $val = &decode_comment ( $val ) ;
+
+                &debug_cli(2,"addset s($set) v($val)");
+
+                # if the value is an array, we need to cast it accordingly
+                if ( $val =~ /^\[/ ) {
+                    $val =~ s/\[\s*//;
+                    $val =~ s/\s*\]//;
+                    my @avals = split ( /\s*,\s*/ , $val );
+
+                    &debug_cli(2,"addsar s($set) va(@avals)");
+
+                    # set this object
+                    $grid->$set ( \@avals ) ;
+                }
+                else {
+                    # and set this on the object
+                    $grid->$set ( $val ) ;
+                }
+
+            }
+        } # if settings
         # push the changes, if we were ok
         &do_func("modify",$grid);
     }
@@ -5447,6 +5789,10 @@ Change the IP address
 
     conf grid Infoblox modify member infoblox.localdomain ipaddress 10.64.128.40/24
 
+change the name
+
+    conf grid Infoblox modify member infoblox.localdomain ipaddress 10.64.128.40/24 name dns1.myzone.com
+
 Make this an HA pair
 
     conf grid blox modify member foo.com hapair 10.64.128.41,10.64.128.42,10.64.128.43,10.64.128.44 routerid 40
@@ -5460,6 +5806,7 @@ sub cli_mod_member {
     ( my $member)  = $line =~/modify member (\S+)/ ;
 
     my ($address)    = $line =~/ ipaddress (\S+)/ ;
+    my ($name)    = $line =~/ name (\S+)/ ;
     my ($gateway)    = $line =~/ gateway (\S+)/ ;
     my ($haaddr)    = $line =~/ hapair (\S+)/ ;
     my ($harid)    = $line =~/ routerid (\S+)/ ;
@@ -5488,6 +5835,8 @@ sub cli_mod_member {
     if ( $memobj ) {
 
         if ( $comment ) { $memobj->comment ( $comment ) }
+
+        if ( $name ) { $memobj->name ( $name ) }
 
         if ( $use_ntp ) { $memobj->enable_ntp ( $use_ntp ) }
 
@@ -5732,7 +6081,7 @@ sub cli_add_member {
 
     # create the object
     my $memobj = Infoblox::Grid::Member->new(
-          "Grid" => $grid ,
+          "grid" => $grid ,
           "name" => $member ,
           "gateway" => $gateway ,
           "ipv4addr" => $ip ,
@@ -5978,8 +6327,6 @@ sub cli_add_option_space {
 }
 sub cli_add_option_def {
 
-    # [ ] can't add 'array of IP address'
-
 # Infoblox::DHCP::OptionDefinition
 # my $option_definition1 = Infoblox::DHCP::OptionDefinition->new(
 #                     space => "SUNW",
@@ -5997,6 +6344,8 @@ sub cli_add_option_def {
     my ( $type ) = $line =~/ type (\S+)/ ;
     my ( $space ) = $line =~/ space (\S+)/ ;
 
+    # [ ] can't add 'array of IP address'
+    $type = &decode_comment ( $type ) ;
     
     my $def = Infoblox::DHCP::OptionDefinition->new(
     #               space => "SUNW",
@@ -6006,6 +6355,7 @@ sub cli_add_option_def {
                     );
 
     if ( $space ) { $def->space( $space ) };
+
     # Submit for adding
     &do_func("add",$def);
 
@@ -6131,6 +6481,10 @@ Show all zones
 
     show zone
 
+Show all zones with details
+
+    show zone detailed
+
 Show all forward zones
 
     show zone forward
@@ -6138,6 +6492,10 @@ Show all forward zones
 Show all reverse zones
 
     show zone reverse
+
+Show all secondary (external_primary) zones
+
+    show zone secondary
 
 Show just 1 zone
 
@@ -6168,14 +6526,18 @@ sub cli_show_zone {
     my ( $type ) = $line =~/ zone (\S+)/ ;
     my ( $name ) = $line =~/ zone \S+ (\S+)/ ;
     my ( $view ) = $line =~/ view (\S+)/ ;
+    my ( $detailed ) = $line =~/\bdetailed\b/ ;
     my ( $shared ) = $line =~/ shared_record_group (\S+)/ ;
 
     &debug_cli(1,"showz t($type)");
 
     # we can get either all forward, rev or just a zone
-    if ( !$type or $type eq "forward" 
-                or $type eq "reverse" 
-                or $type eq "view" 
+    if ( !$type 
+         or $type eq "detailed" 
+         or $type eq "forward" 
+         or $type eq "reverse" 
+         or $type eq "secondary" 
+         or $type eq "view" 
        ) {
         # get all the zones
         my %opthash = (
@@ -6193,35 +6555,102 @@ sub cli_show_zone {
         # we can't sort on oid, we have to sort on name
         # and we don't want the view name to get in the way, so we will
         # store this in a hash...
-        my @forzones ;
-        my @revzones ;
-        my %fzones ;
+        my %forzones ;
+        my %revzones ;
+
+        my @fsummary ;
+        my @rsummary ;
+        my @ssummary ;
+
+        my @fobjects ;
+        my @robjects ;
+
+        # we need a 'sorted' list of objects
+        # so first we get forward or reverse zones
+        # and drop them into hashes for sorting
+        #
+        # we also need to key these by the view to avoid colbbering dupes
 
         foreach my $zone (@zones) {
-          my $name = $zone->name();
-          my $view = $zone->{views}[0]->{name};
-          if ( $name =~ /\/\d+$/ ) {
-             push @revzones , "  $name view $view\n";
-          }
-          else {
-             $fzones{$name} = $view ;
-#              push @forzones , "  $name view $view\n";
-          }
+            my $name = $zone->name();
+            my $view = $zone->{views}[0]->{name};
+            my $is_secondary = $zone->{'use_external_primary'};
+
+#             print "n[$name] v[$view] s($is_secondary)\n";
+            my $nkey = "$view.$name";
+
+            # only get the zones we need
+            if ( $name =~ /\/\d+$/ ) {
+                $revzones{$nkey}{'name'} = $name ;
+                $revzones{$nkey}{'view'} = $view ;
+                $revzones{$nkey}{'obj'} = $zone ;
+                $revzones{$nkey}{'sec'} = $is_secondary ;
+            }
+            else {
+                $forzones{$nkey}{'name'} = $name ;
+                $forzones{$nkey}{'view'} = $view ;
+                $forzones{$nkey}{'obj'} = $zone ;
+                $forzones{$nkey}{'sec'} = $is_secondary ;
+            }
+
         }
 
-        # now sort the forward zones
-        foreach my $fz ( sort by_dom keys %fzones ) {
-             push @forzones , "  $fz view $fzones{$fz}\n";
-        }
-            
+        # now sort both forward and reverse
+        foreach my $fz ( sort by_dom keys %forzones ) {
+             my $name = $forzones{$fz}{'name'} ;
+             push @fsummary , "  $name view $forzones{$fz}{'view'}\n";
+             push @fobjects , $forzones{$fz}{'obj'} ;
 
+#              print "z[$fz] ($forzones{$fz}{'sec'})\n";
+
+             if ( $forzones{$fz}{'sec'} == 1 ) {
+                push @ssummary , "  $name view $forzones{$fz}{'view'}\n";
+             }
+        }
+        foreach my $rz ( sort by_ip keys %revzones ) {
+             my $name = $revzones{$rz}{'name'} ;
+             push @rsummary , "  $name view $revzones{$rz}{'view'}\n";
+             push @robjects , $revzones{$rz}{'obj'} ;
+             if ( $revzones{$rz}{'sec'} == 1 ) {
+                push @ssummary , "  $name view $revzones{$rz}{'view'}\n";
+             }
+        }
 
         # now print them (sorted)
-        if ( $type eq "forward" ) { print @forzones ; }
-        elsif ( $type eq "reverse" ) { print sort by_ip @revzones ; }
+        if ( $type eq "forward" ) { 
+            if ( $detailed ) {
+                &dump_object ( @fobjects ) ;
+            }
+            else {
+                print @fsummary ; 
+            }
+        }
+        elsif ( $type eq "reverse" ) { 
+            if ( $detailed ) {
+                &dump_object ( @robjects ) ;
+            }
+            else {
+                print @rsummary ; 
+            }
+        }
+        elsif ( $type eq "secondary" ) { 
+            print @ssummary ; 
+#             if ( $detailed ) {
+#                 &dump_object ( @robjects ) ;
+#             }
+#             else {
+#                 print @rsummary ; 
+#             }
+        }
         else { 
-           print @forzones ; 
-           print sort by_ip @revzones ; 
+            # all zones
+            if ( $detailed ) {
+                &dump_object ( @robjects , @fobjects ) ;
+            }
+            else {
+                print @rsummary ; 
+                print @fsummary ; 
+            }
         }
     
     }
@@ -6273,9 +6702,15 @@ sub cli_show_zone {
             $opthash{"view"} = $view ;
         };
 
-        my ( $zone ) = &do_func("get", %opthash );
+        # multiple views...
+        my @zlist = &do_func("get", %opthash );
 
-        &dump_object ( $zone ) ;
+        if ( @zlist ) {
+            &dump_object ( @zlist ) ;
+        }
+        else {
+            print "zone $type (view $view) not found\n";
+        }
 
     }
 
@@ -6287,9 +6722,17 @@ Show all views
 
     show views
 
+    or 
+
+    show zone view
+
 Show just One view
 
-    show view default
+    show views default
+
+    or 
+
+    show zone view default
 
 =cut
 
@@ -6301,6 +6744,7 @@ sub cli_show_view {
 
     # get the args from the line
     my ( $name ) = $line =~/ views (\S+)/ ;
+    $name = &decode_comment ( $name ) ;
 
     &debug_cli(2,"showv t($name)");
 
@@ -6531,7 +6975,12 @@ sub cli_show_network {
             my $name = $nobj->network();
             my $comm = $nobj->comment();
 
-            $name = "$name ($comm)";
+            my $view ;
+            if ( require_api ( "4.3r5-0" ) ) {
+                $view = $nobj->network_view->name();;
+            }
+
+            $name = "$name ($comm) ($view)";
             
             # get the membership as well
             foreach my $sobj ( @{ $nobj->{'members'} } ) {
@@ -6556,6 +7005,111 @@ sub cli_show_network {
         }
     }
     
+}
+
+=head2 Showing networks templates
+
+   show network template
+
+   show network template <name>
+
+=cut
+
+sub cli_show_network_template {
+    #
+    # try and shopw a network
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ template (\S+)/ ;
+
+    &debug_cli(2,"shownt t($name)");
+
+    # do we get all nets
+    my $search = ".*";
+
+    # or a specific list
+    if ( $name ) { $search = $name ; }
+
+    # get all the templates
+    my %opthash = (
+           "object" => "Infoblox::DHCP::NetworkTemplate", 
+           "name" => $search,
+    );
+
+    my @nets = &do_func("search", %opthash );
+
+    # dump the network(s) or just the list
+    if ( $name ) {
+        &dump_object ( @nets ) ;
+    }
+    else {
+        # sput a sumary list
+
+        my @names = map ( "  " . $_->name() , @nets ) ;
+        my $sorted = join ( "\n" , sort @names ) ;
+        print "$sorted\n";
+
+    }
+    
+}
+
+=head2 Showing Network Views
+
+Show all views
+
+    show network view
+
+Show just One view
+
+    show network view default
+
+=cut
+
+
+sub cli_show_network_views {
+    #
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ views (\S+)/ ;
+    $name = &decode_comment ( $name ) ;
+
+    &debug_cli(2,"showv t($name)");
+
+    # all net views
+    if ( ! $name ) {
+        # get all the views
+        my %opthash = (
+               "object" => "Infoblox::DHCP::View", 
+               "name" => ".*" 
+        );
+    
+        my @views = &do_func("search", %opthash );
+    
+        my @vlist ;
+        foreach my $view (@views) {
+          my $name = $view->name();
+          push @vlist , "  $name\n";
+        }
+
+        print sort @vlist ; 
+    
+    }
+    else {
+        # specific net view
+        my %opthash = (
+               "object" => "Infoblox::DHCP::View", 
+               "name" => $name 
+        );
+        my ( $view ) = &do_func("get", %opthash );
+
+        &dump_object ( $view ) ;
+
+    }
+
 }
 
 =head2 Showing network failover
@@ -7101,6 +7655,10 @@ Get a list of all grid members
 
    show grid Infoblox member
 
+Get a detailed list of all grid members
+
+   show grid Infoblox member detailed
+
 Get specific member details
 
    show grid Infoblox member 45.0.12.20
@@ -7117,6 +7675,7 @@ sub cli_show_member {
 
     my ( $show_mems ) = $line =~/\b(member)\b/ ;
     my ( $member ) = $line =~/member (\S+)/ ;
+    my ( $detailed ) = $line =~/\bdetailed\b/ ;
 
     &debug_cli (2,"sgm g($gridname) sm($show_mems) m($member)");
 
@@ -7138,29 +7697,21 @@ sub cli_show_member {
         $opthash{'name'} = $member ;
     }
 
-#     my ( $grid ) = &do_func("get", %opthash );
+    # get the member list
     my @mems = &do_func("search", %opthash );
 
-    # for some reason search seems to be broken,
-    # so we will just filter after the search{}.
-
-#     if ( $grid ) {
-    &dump_object ( @mems ) ;
-
-#     if ( @mems ) {
-#         foreach my $mobj ( @mems ) {
-#             my $mname = $mobj->name();
-# 
-#             # just 1 member
-#             if ( $member ) {
-#                 next unless $member eq $mname ;
-#             }
-# 
-#             print "---\nMember : $mname\n";
-#             &dump_object ( $mobj ) ;
-# 
-#         }
-#     }
+    if ( $detailed ) {
+        &dump_object ( @mems ) ;
+    }
+    else {
+        if ( @mems ) {
+            foreach my $mobj ( @mems ) {
+                my $mname = $mobj->name();
+                my $mip = $mobj->ipv4addr();
+                print "  $mname : $mip\n";
+            }
+        }
+    }
 
 }
 
@@ -7172,6 +7723,8 @@ sub cli_show_member {
 
    show admin admin_group <name>
 
+   show admin role <name>
+
 =cut
 
 sub cli_show_admin {
@@ -7180,6 +7733,7 @@ sub cli_show_admin {
 
     my ( $type ) = $line =~/^show admin (\S+)/ ;
     my ( $name ) = $line =~/^show admin \S+ (\S+)/ ;
+    $name = &decode_comment ( $name ) ;
 
     &debug_cli (2,"show adm t($type) u($name)");
 
@@ -7193,6 +7747,12 @@ sub cli_show_admin {
     if ( $type eq "user" ) {
             %opthash = (
                 "object" => "Infoblox::Grid::Admin::User",
+                "name" => $search ,
+            );
+    }
+    if ( $type eq "role" ) {
+            %opthash = (
+                "object" => "Infoblox::Grid::Admin::Role",
                 "name" => $search ,
             );
     }
@@ -8125,14 +8685,25 @@ sub dump_data {
         # get the value for grins
         my $ktype = $obj->{$key};
 
-        # look for sub objects by jey 'name'
+        # look for sub objects by key 'name'
         if ( $key eq "primary" 
              or $key eq "member"
              or $key eq "network_view"
              or $key eq "secondary"
            ) {
+
             # get the name
             my $sobj = $obj->{$key} ;
+
+            # find out if we have an array or not
+            # (this is the case for external primaries)
+            if ( ref($sobj) == 'ARRAY' ) {
+                $sobj = @{ $sobj } [0]
+            }
+
+#            print "k[$key]\n";
+#            print Dumper ( $sobj ) ;
+
             $data = $sobj->{'name'};
         }
 
@@ -8174,11 +8745,15 @@ sub dump_data {
             my @values;
             foreach my $field ( keys %{ $obj->{$key} } ) {
                 my $val = $obj->{$key}{$field};
-                push @values , "$field=$val";
+                # re-assemble arrays
+                if ( $val =~ /ARRAY/ ) { $val = join( "," , @{$val}) }
+#                 push @values , "$field=$val";
+                # print the line directly
+                printf ( "%35s : %s = %s\n", $key , $field,$val ) ;
             }
 
-            # remember it
-            $data = "@values";
+#             # remember it
+#             $data = "@values";
         }
 
         # host ipaddress can have nested fixed addresses, arrg
@@ -8385,6 +8960,7 @@ sub dump_data {
                 }
             }
         }
+
         # generic catchall for arrays
         elsif ( $ktype =~ /ARRAY/ ) {
 
@@ -8397,6 +8973,9 @@ sub dump_data {
         else {
             $data = $obj->{$key} ;
         }
+
+        # strip 'false' settings
+        next if $data eq 'false' ;
 
         # print it
         if ( $data ) {
@@ -9410,7 +9989,10 @@ my %COMMANDS = (
 
 # show admins
     'show admin' => { 
-           words => "user admin_group",  },
+           words => "role user admin_group",  },
+    'show admin role' => { 
+           words => "<cr>|<name>",  
+           func => "cli_show_admin", },
     'show admin user' => { 
            words => "<cr>|<name>",  
            func => "cli_show_admin", },
@@ -9447,10 +10029,12 @@ my %COMMANDS = (
            words => "cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
            func => "cli_show_record", },
 
-
     'show zone' => { 
-           words => "<cr> <zone>|forward|reverse|shared_record_group|nsgroup|view=<name>",  
+           words => "<cr> <zone>|secondary|detailed|forward|reverse|shared_record_group|nsgroup|view=<name>",  
            func => "cli_show_zone", },
+
+    'show zone view' => { 
+           func => "cli_show_view", },
 
     'show zone nsgroup' => { 
            words => "<name>",
@@ -9466,11 +10050,24 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> details <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           words => "<cr> views details <n.n.n.n/mm> template ranges statistics lease options failover fixed filter",  
            func => "cli_show_network", },
+
+    'show network template' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_network_template", },
+    'show network template <name>' => { 
+           func => "cli_show_network_template", },
 
     'show network details' => { 
            func => "cli_show_network", },
+
+    'show network views' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_network_views", },
+    'show network views <name>' => { 
+           func => "cli_show_network_views", },
+
 
     'show network failover' => { 
            func => "cli_show_failover", },
@@ -9613,20 +10210,34 @@ my %COMMANDS = (
            func => "cli_set_path", },
 
     'configure admin' => { 
-           words => "add delete ", },
+           words => "add modify delete ", },
     'configure admin add' => { 
-           words => "permission=<value>|user=<name>|admin_group=<name>", },
+           words => "permission=<value>|role=<name>|user=<name>|admin_group=<name>", },
+    'configure admin modify' => { 
+           words => "user=<name>|admin_group=<name>", },
 
     'configure admin add permission <value>' => { 
-           words => "<cr>|lease=<value>|member=<name>|zone=<name>|network=<name>|range=<name>|filter=<name>|group=<name>",
+           words =>
+           "<cr>|type=<name>|role=<name>|lease=<value>|member=<name>|view=<name>|zone=<name>|network=<name>|range=<name>|filter=<name>|group=<name>",
            func => "cli_add_permission", },
 
     'configure admin add user <name>' => { 
            words => "disabled|password=<value>|group=<name>|comment=<comment>|email=<name>",
            func => "cli_add_user", },
 
+    'configure admin modify user <name>' => { 
+           words => "<cr>|disabled|password=<value>|group=<name>|comment=<comment>|email=<name>|superuser",
+           func => "cli_add_user", },
+
+    'configure admin add role <name>' => { 
+           func => "cli_add_admin_role", },
+
     'configure admin add admin_group <name>' => { 
-           words => "<cr>|superuser|comment=<comment>",
+           words => "<cr>|role=<name>|superuser|comment=<comment>",
+           func => "cli_add_admin_group", },
+
+    'configure admin modify admin_group <name>' => { 
+           words => "<cr>|role=<name>|superuser|comment=<comment>",
            func => "cli_add_admin_group", },
 
     'configure debug' => { 
@@ -9668,7 +10279,7 @@ my %COMMANDS = (
            words => "permission", },
 # - member DNS
     'configure member <name> dns' => { 
-           words => "set=<name=value>", 
+           words => "<cr>|set=<name=value>", 
            func => "cli_mod_member_dns", },
 # - member DHCP
     'configure member <name> dhcp' => { 
@@ -9700,7 +10311,12 @@ my %COMMANDS = (
            func => "cli_add_attribute", },
 # - grid -
     'configure grid <name>' => { 
-           words => "dns dhcp disable enable add delete modify", },
+           words => "dns dhcp disable enable set add delete modify", },
+
+    'configure grid <name> set' => { 
+           words => "<name=value>",},
+    'configure grid <name> set <name=value>' => { 
+           func => "cli_mod_grid", },
 
     'configure grid <name> disable' => { 
            words => "ntp|ntp_server",
@@ -9752,11 +10368,11 @@ my %COMMANDS = (
 
     'configure grid <name> dns add nsgroup <name>' => { 
            words =>
-           "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
+           "stealth_ext_secondary=<name,ip>|lead=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_nsgroup", },
     'configure zone add nsgroup <name>' => { 
            words =>
-           "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
+           "stealth_ext_secondary=<name,ip>|lead=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_nsgroup", },
 
     'configure zone delete nsgroup <name>' => { 
@@ -9785,7 +10401,7 @@ my %COMMANDS = (
            words => "ipaddress=<n.n.n.n/mm> disable enable", },
 
     'configure grid <name> modify member <name> ipaddress <n.n.n.n/mm>' => { 
-           words => "comment=<comment>|hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
+           words => "name=<name>|comment=<comment>|hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
            func => "cli_mod_member", },
 
     'configure grid <name> modify member <name> disable' => { 
@@ -9833,12 +10449,12 @@ my %COMMANDS = (
 
     'configure zone modify <zone>' => { 
            words => "<cr>
-           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|lead=<ip>|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone add <zone>' => { 
            words => "<cr>
-           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|lead=<ip>|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -10052,7 +10668,7 @@ my %COMMANDS = (
            words => "move=<n.n.n.n/mm> add modify delete <n.n.n.n/mm> filter=<name>", },
 
     'configure network delete' => { 
-           words => "<n.n.n.n/mm> fixed=<ip_or_name> macfilter=<name> shared=<name>", },
+           words => "range <n.n.n.n/mm> fixed=<ip_or_name> macfilter=<name> shared=<name>", },
     'configure network delete <n.n.n.n/mm>' => { 
            words => "netmask=<ip>",
            func => "cli_delete_network", },
@@ -10060,11 +10676,14 @@ my %COMMANDS = (
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "<n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
+           words => "view=<name> <n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
     'configure network modify' => { 
            words => "fixed <n.n.n.n/mm>", },
 
 # - optiondef -
+    'configure network add view <name>' => { 
+           func => "cli_add_network_view", },
+
     'configure network add space <name>' => { 
            func => "cli_add_option_space", },
 
@@ -10095,11 +10714,16 @@ my %COMMANDS = (
            func => "cli_del_macfilter", },
 
     'configure network filter <name>' => { 
-           words => "add delete", },
+           words => "add modify delete", },
 
     'configure network filter <name> add' => { 
            words => "macaddress=<mac>", },
     'configure network filter <name> add macaddress <mac>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_macfilteraddr", },
+    'configure network filter <name> modify' => { 
+           words => "macaddress=<mac>", },
+    'configure network filter <name> modify macaddress <mac>' => { 
            words => "<cr> comment=<comment>", 
            func => "cli_add_macfilteraddr", },
 
@@ -10113,12 +10737,12 @@ my %COMMANDS = (
            words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
     'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr> info=<name=value>|template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|addoption=<name=value>|option=<name=value>",  
+           words => "<cr> view=<name>|info=<name=value>|template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|addoption=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
 
 # - modify networks
     'configure network modify <n.n.n.n/mm>' => { 
-           words => "<cr> info=<name=value>|template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|addoption=<name=value>|option=<name=value>",  
+           words => "<cr> view=<name>|info=<name=value>|template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|addoption=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
 
 # - move networks
@@ -10163,6 +10787,10 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> delete range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> delete range <ip> <ip>' => { 
+           func => "cli_del_dhcp_range", },
+    'configure network delete range' => { 
+           words => "<ip>=<ip>",  },
+    'configure network delete range <ip> <ip>' => { 
            func => "cli_del_dhcp_range", },
 
     'configure network <n.n.n.n/mm> add network' => { 
@@ -10322,6 +10950,10 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.44  2009/09/24 19:56:23  horne
+#
+# lots of features
+#
 # Revision 3.43  2009/07/27 17:39:31  horne
 # You can modify views and fixed addreses
 # Provisional support for roaming hosts
