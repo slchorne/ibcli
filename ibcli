@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 1.18 2004/10/20 16:44:39 horne Exp $
+#   $Id: ibcli,v 2.0 2004/11/03 19:58:48 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 1.18 $
-$Date: 2004/10/20 16:44:39 $
+$Revision: 2.0 $
+$Date: 2004/11/03 19:58:48 $
 ';
 $REV =~ s/\$//g;
 
@@ -84,8 +84,9 @@ my $DEBUG = 0 ;
 my $CLI = 0 ;
 my $CONN_STRING = "!" ;
 
-my %SESSION ;
-my $SESS_CONN ;
+my %CONN_INFO ;
+my $PUB_SESS ;
+my $PRI_SESS ;
 
 my $CONNECTED ;
 my $CONFIG ;
@@ -163,7 +164,7 @@ my %commands = (
             'connect' => 'connect',
             'disconnect' => 'disconnect',
             'download' => 'download_commands',
-            'upload' => 'upload_commands',
+#             'upload' => 'upload_commands',
             'set' => 'set_commands' ,
             'configure' => 'set_commands' ,
             'show' => 'show_commands' ,
@@ -199,7 +200,7 @@ $PROMPT = "no server > " ;
 # success changes the prompt
 
 if ( $S_ID ) {
-   &add_server($S_ID,$S_PASS,$S_USER);
+   &add_server($S_ID,"user",$S_USER,"password",$S_PASS);
 }
 
 # if ( $S_ID ) { &add_server($S_ID) }
@@ -451,17 +452,17 @@ sub download_commands {
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
                 "database" => 'get_database',
-                "logs" => 'get_logs',
+#                 "logs" => 'get_logs',
         ) ;
    &shift_arg($arg,%commands);
 }
 
 # PARSER : upload xxx
 sub upload_commands {
-   &debug (4,"sub = download_commands");
+   &debug (4,"sub = upload_commands");
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
-                "database" => 'put_database',
+#                 "database" => 'put_database',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -474,7 +475,7 @@ sub set_commands {
    my %commands = ( 
                 'debug' => 'set_debug',
                 'server' => 'add_server',
-                'system' => 'system_comands',
+#                 'system' => 'system_commands',
                 'password' => 'add_pass',
                 'zone' => 'zone_commands',
                 'realm' => 'realm_commands',
@@ -486,11 +487,11 @@ sub set_commands {
 }
 
 # PARSER : set system xxx
-sub system_comands {
-   &debug (4,"sub = zone_commands");
+sub system_commands {
+   &debug (4,"sub = system_commands");
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
-                "default" => 'erase_data',
+#                 "default" => 'erase_data',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -529,7 +530,7 @@ sub network_commands {
                 "add" => 'add_network',
                 "delete" => 'remove_network',
                 "remove" => 'remove_network',
-                "global" => 'mod_global_dhcp',
+#                 "global" => 'mod_global_dhcp',
                 "" => 'set_network_commands',
         ) ;
    &shift_arg($arg,%commands);
@@ -556,8 +557,6 @@ sub add_to_network_commands {
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
-                "address" => 'add_network_ptr',
-                "ptr" => 'add_network_ptr',
                 "fixed" => 'add_fixed_address',
                 "network" => 'add_sub_network',
                 "range" => 'add_dhdprange',
@@ -572,7 +571,7 @@ sub delete_from_network_commands {
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
-                "address" => 'del_network_ptr',
+                "fixed" => 'del_fixed_address',
                 "range" => 'del_dhcprange',
                 "dhcprange" => 'del_dhcprange',
         ) ;
@@ -689,7 +688,8 @@ sub add_to_zone_commands {
    my %commands = ( 
                 "host" => 'add_host',
                 "cname" => 'add_cname',
-                "onewayhost" => 'add_one_host',
+                "a" => 'add_a_rec',
+                "ptr" => 'add_zone_ptr',
                 "bulkhost"   => 'add_bulkhost',
                 "nameserver" => 'NOT_READY',
         ) ;
@@ -705,6 +705,8 @@ sub remove_from_zone_commands {
                 "host" => 'remove_host',
                 "cname" => 'remove_cname',
                 "bulkhost" => 'remove_bulkhost',
+                "a" => 'remove_a_rec',
+                "ptr" => 'del_zone_ptr',
                 "nameserver" => 'NOT_READY',
         ) ;
    &shift_arg($arg,%commands);
@@ -733,21 +735,65 @@ sub NOT_READY {
 #
 ###########################################
 
+# 2 functions here (and more damn globals - hmm...)
+# do_pub_conn calls the public function
+# do_priv_conn calls the priv function
+
+# sub do_pub_conn {
+#     my ( $ib_call , @fargs ) = @_ ;
+#     &debug (1,"do_pub_conn ($ib_call) [@fargs]");
+# 
+#     # format the data for pretty printing
+#     my $fstring = &format_ib_func($ib_call,@fargs);
+# 
+#     if ( ! $MAKE ) { 
+#        my $result ;
+# 
+#        ($result, $SESS_CONN) = &$ib_call ( { @fargs } ) ;
+#     }
+# }
+
 #
 # call an infoblox function, ONLY if we're connected
 #
-sub do_ib_func {
-    my ( $ib_call , @fargs ) = @_ ;
-    &debug (1,"do_ib_func ($ib_call) [@fargs]");
+sub do_pub_func {
+
+    # assume we are passed a single hash
+    #
+    my ( $ib_call , %hash ) = @_ ;
+    &debug (1,"do_pub_func ($ib_call)");
 
     # format the data for pretty printing
-    my $formatted = &format_ib_func($ib_call,@fargs);
+    my $hash_ptr = \%hash ;
+    my $fstring = &format_ib_func($ib_call,$hash_ptr);
 
     if ( ! $MAKE ) {
        # actually try and run it
        if ( $CONNECTED ) {
           # type cast correctly and prepend the SESSION
-          &$ib_call ( $SESS_CONN , { @fargs } ) ;
+#           my $result = &$ib_call ( $PUB_SESS , { @fargs } ) ;
+          my $result = &$ib_call ( $PUB_SESS , $hash_ptr ) ;
+       }
+       else {
+          &err_print("CANNOT EXECUTE - no connection is in place");
+       }
+
+    }
+}
+
+sub do_priv_func {
+    # private functions need a different session handler
+    my ( $ib_call , $key_ptr , $mod_ptr ) = @_ ;
+    &debug (1,"do_priv_func ($ib_call)");
+
+    # format the data for pretty printing
+    my $fstring = &format_ib_func($ib_call,$key_ptr,$mod_ptr);
+
+    if ( ! $MAKE ) {
+       # actually try and run it
+       if ( $CONNECTED ) {
+          # type cast correctly and prepend the SESSION
+          my ( $res , $info ) = &$ib_call ( $PRI_SESS , $key_ptr , $mod_ptr ) ;
        }
        else {
           &err_print("CANNOT EXECUTE - no connection is in place");
@@ -761,29 +807,10 @@ sub do_nothing {
     &debug (1,"do_nothing ($ib_call) [@fargs]");
 
     # format the data for pretty printing
-    my $formatted = &format_ib_func($ib_call,@fargs);
+    my $fstring = &format_ib_func($ib_call,@fargs);
 
     if ( ! $MAKE ) {
           &err_print("CANNOT EXECUTE - NOT IMPLEMENTED");
-    }
-}
-
-sub do_unconn_func {
-    # do a function without checking the conection
-    my ( $ib_call , @fargs ) = @_ ;
-    &debug (1,"do_unconn_func ($ib_call) [@fargs]");
-
-    # format the data for pretty printing
-    my $formatted = &format_ib_func($ib_call,@fargs);
-
-    if ( ! $MAKE ) { 
-       if ( $DNS_VER == 3 ) {
-          my $result ;
-          ($result, $SESS_CONN) = &$ib_call ( { @fargs } ) ;
-       }
-       else {
-          &$ib_call ( @fargs )
-       }
     }
 }
 
@@ -791,14 +818,23 @@ sub format_ib_func {
 
     my ( $ib_call , @fargs ) = @_ ;
 
-    my $p_args ;
+#     my $p_args ;
     my $p_comm ;
 
-    # V2 code passes args as an array
-    # V3 code passes args as a hash
+#     my %arg_hash = @fargs ;
+#     my $syntax = &dump_hash( 0 , "HASH" , %arg_hash );
+#     my $syntax = &dump_hash( 0 , "ARRAY" , @fargs );
 
-    my %arg_hash = @fargs ;
-    my $syntax = &dump_hash( 0 , "HASH" , %arg_hash );
+    # V3 code passes args as a hash or many hashes
+
+    my $syntax ;
+    foreach my $ptr ( @fargs ) {
+       my %hash = %{ $ptr } ;
+
+       # format each hash
+       $syntax .= &dump_hash( 0 , "HASH" , %hash );
+    }
+
 #     print "my (\$result, \$message) = $ib_call ( \$SESSION ,\n $syntax";
     $p_comm = "my \$result = $ib_call ( \$SESSION ,\n $syntax    );\n\n";
 #     print "    );\n\n";
@@ -832,31 +868,31 @@ sub format_ib_func {
 
 ###########################################
 #
-# actual ib_ functions.
+# actual API functions.
 #
 ###########################################
 
-sub get_logs {
-    #
-    # download the logs to the current dir
-    #
-    my ( $dest ) = @_ ;
-#     chomp($dest = `pwd`);
-#     $dest="$dest/IB_files";
-    if ( ! $dest ) {
-       &missing_arg("<dir>")  ;
-       return ;
-    }
-
-    &err_print("DOWNLOADING ALL LOGS data to $dest ...");
-    if ( ! -d $dest ) { mkdir($dest,0755); }
-
-    my @function = ("ib_export_logs",$dest);
-    &do_nothing(@function);
-
-    &err_print("DONE ");
-
-}
+# sub get_logs {
+#     #
+#     # download the logs to the current dir
+#     #
+#     my ( $dest ) = @_ ;
+# #     chomp($dest = `pwd`);
+# #     $dest="$dest/IB_files";
+#     if ( ! $dest ) {
+#        &missing_arg("<dir>")  ;
+#        return ;
+#     }
+# 
+#     &err_print("DOWNLOADING ALL LOGS data to $dest ...");
+#     if ( ! -d $dest ) { mkdir($dest,0755); }
+# 
+#     my @function = ("ib_export_logs",$dest);
+#     &do_nothing(@function);
+# 
+#     &err_print("DONE ");
+# 
+# }
 
 sub get_database {
     #
@@ -874,7 +910,7 @@ sub get_database {
     if ( ! -d $dest ) { mkdir($dest,0755); }
 
     my %opthash ;
-    $opthash{'name'}=$dest;
+    $opthash{'path'}=$dest;
 
 #     # build the rest ad name value pairs
 #     while ( my $key = shift @type_opts ) {
@@ -882,50 +918,50 @@ sub get_database {
 #        $opthash{$key} = $value ;
 #     }
 
-    my @function = ("get_data",%opthash);
+    my @function = ("backup_system",%opthash);
 
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
     &err_print("DONE ");
 
 }
 
-sub put_database {
-    #
-    # upload the database from the spec'd dir
-    #
-    my ( $dest ) = @_ ;
-    if ( ! $dest ) {
-       &missing_arg("<dir>")  ;
-       return ;
-    }
+# sub put_database {
+#     #
+#     # upload the database from the spec'd dir
+#     #
+#     my ( $dest ) = @_ ;
+#     if ( ! $dest ) {
+#        &missing_arg("<dir>")  ;
+#        return ;
+#     }
+# 
+#     &err_print("UPLOADING ALL DATABASE data from $dest ...");
+#     if ( ! -d $dest ) { 
+#        &err_print("NO such location");
+#        return ;
+#     }
+# 
+#     my @function = ("ib_import_database" , $dest ) ;
+#     &do_nothing(@function);
+# 
+#     &err_print("DONE ");
+# 
+#     # do an implicit disconnect
+#     &disconnect ;
+# 
+# }
 
-    &err_print("UPLOADING ALL DATABASE data from $dest ...");
-    if ( ! -d $dest ) { 
-       &err_print("NO such location");
-       return ;
-    }
-
-    my @function = ("ib_import_database" , $dest ) ;
-    &do_nothing(@function);
-
-    &err_print("DONE ");
-
-    # do an implicit disconnect
-    &disconnect ;
-
-}
-
-sub erase_data {
-
-    &err_print("ERASING ALL DATABASE data ...");
-
-    # we may want an 'are you sure here...'
-    my @function = ("ib_erase_dns_data");
-    &do_nothing(@function);
-
-    &err_print("DONE ");
-}
+# sub erase_data {
+# 
+#     &err_print("ERASING ALL DATABASE data ...");
+# 
+#     # we may want an 'are you sure here...'
+#     my @function = ("ib_erase_dns_data");
+#     &do_nothing(@function);
+# 
+#     &err_print("DONE ");
+# }
 
 sub import_to_zone {
     my ( $zone , $ip , $opt ) = @_ ;
@@ -954,13 +990,14 @@ sub add_host {
     my %opthash ;
     $opthash{'zone'}=$zone;
     $opthash{'name'}=$host;
+    $opthash{'comment'}=$comment;
 
     # add the IP address
     push @{ $opthash{"address_list"} } , {( "address" , $ip )};
 
     my @function = ("add_host",%opthash);
 
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -970,39 +1007,72 @@ sub remove_host {
        &missing_arg("<host>")  ;
        return ;
     }
-    my $name="$host.$zone";
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
 
-    &debug (2,"addh n($name) ");
+    my @function = ("remove_host",%opthash);
+    &debug (2,"addh n($host) ");
 
-    my @function = ("ib_remove_host",$name);
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
-sub add_one_host {
+sub add_a_rec {
+    my ( $zone , $host , $ip , $comment ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<host> <ip>")  ;
+       return ;
+    }
+
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
+    $opthash{'address'}=$ip;
+    $opthash{'comment'}=$comment;
+
+    &debug (2,"add1h n($host) n($ip) ");
+
+    my @function = ("add_rr_a",%opthash);
+    &do_pub_func(@function);
+
+}
+
+sub remove_a_rec {
     my ( $zone , $host , $ip ) = @_ ;
     if ( (! $host ) or ( ! $ip ) ) {
        &missing_arg("<host> <ip>")  ;
        return ;
     }
-    my $name="$host.$zone";
 
-    &debug (2,"add1h n($name) n($ip) ");
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
+    $opthash{'address'}=$ip;
 
-    my @function = ("ib_insert_oneway_host",$name,$ip);
-    &do_ib_func(@function);
+    &debug (2,"add1h n($host) n($ip) ");
+
+    my @function = ("remove_rr_a",%opthash);
+    &do_pub_func(@function);
 
 }
 
 sub add_bulkhost {
-    my ( $zone , $prefix , $fip , $nip ) = @_ ;
+    my ( $zone , $prefix , $fip , $lip , $comment ) = @_ ;
 
-    if ( $zone and $prefix and $fip and $nip ) {
+    if ( $zone and $prefix and $fip and $lip ) {
 
-       &debug (2,"addbh n($zone) p($prefix) n($fip,$nip) ");
+       &debug (2,"addbh n($zone) p($prefix) n($fip,$lip) ");
 
-       my @function=("ib_insert_bulk_host",$zone,$prefix,$fip,$nip);
-       &do_ib_func(@function);
+       my %opthash ;
+       $opthash{'zone'}=$zone;
+       $opthash{'prefix'}=$prefix;
+       $opthash{'start_address'}=$fip;
+       $opthash{'end_address'}=$lip;
+       $opthash{'comment'}=$comment;
+
+       my @function=("add_bulk_host",%opthash);
+       &do_pub_func(@function);
     }
     else {
        &missing_arg("<prefix> <start_ip> <end_ip>")  ;
@@ -1012,14 +1082,20 @@ sub add_bulkhost {
 }
 
 sub remove_bulkhost {
-    my ( $zone , $prefix , $fip , $nip ) = @_ ;
+    my ( $zone , $prefix , $fip , $lip ) = @_ ;
 
-    if ( $zone and $prefix and $fip and $nip ) {
+    if ( $zone and $prefix and $fip and $lip ) {
 
-       &debug (2,"addbh n($zone) p($prefix) n($fip,$nip) ");
+       &debug (2,"addbh n($zone) p($prefix) n($fip,$lip) ");
 
-       my @function=("ib_remove_bulk_host",$zone,$prefix,$fip,$nip);
-       &do_ib_func(@function);
+       my %opthash ;
+       $opthash{'zone'}=$zone;
+       $opthash{'prefix'}=$prefix;
+       $opthash{'start_address'}=$fip;
+       $opthash{'end_address'}=$lip;
+
+       my @function=("remove_bulk_host",%opthash);
+       &do_pub_func(@function);
     }
     else {
        &missing_arg("<prefix> <start_ip> <end_ip>")  ;
@@ -1028,46 +1104,68 @@ sub remove_bulkhost {
 }
 
 sub add_cname {
-    my ( $zone , $cname , $host ) = @_ ;
-    if ( (! $host ) or ( ! $cname ) ) {
-       &missing_arg("<cname> <host>")  ;
+    my ( $zone , $alias , $cname , $comment ) = @_ ;
+    if ( (! $alias ) or ( ! $cname ) ) {
+       &missing_arg("<alias> <cname>")  ;
        return ;
     }
-    my $fcname="$cname.$zone";
 
-    &debug (2,"addh n($fcname) n($host) ");
+    &debug (2,"addh a($alias) cn($cname) ");
 
-    my @function = ("ib_insert_cname",$fcname,$host);
-    &do_ib_func(@function);
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'alias'}=$alias;
+    $opthash{'canonical_name'}=$cname;
+    $opthash{'comment'}=$comment;
+
+    my @function=("add_rr_cname",%opthash);
+    &do_pub_func(@function);
 
 }
 
 sub remove_cname {
-    my ( $zone , $host ) = @_ ;
-    if ( ! $host ) {
-       &missing_arg("<host>")  ;
+    my ( $zone , $alias ) = @_ ;
+    if ( ! $alias ) {
+       &missing_arg("<alias>")  ;
        return ;
     }
-    my $name="$host.$zone";
 
-    &debug (2,"addh n($name) ");
+    &debug (2,"addh n($alias) ");
 
-    my @function = ("ib_remove_cname",$name);
-    &do_ib_func(@function);
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'alias'}=$alias;
+
+    my @function=("remove_rr_cname",%opthash);
+    &do_pub_func(@function);
 
 }
 
 sub add_zone {
+
+    # [ ] need a post cli deeper arg parser
+    # essentially all options are passed as name value pairs
+    # after the required options
+    # so we pass this array to an abbrev validator that looks at each
+    # second word and abbrev/expands and validates
+    # 
+    # the validator has to be passed an array, and a list of keywords
+    # (ARRG!! - 2 arrays...)
+    # 
+    # for the moment we'll not bother to validate
+
     my ( $zone , $type , @type_opts) = @_ ;
 
     if ( ! $zone ) { &missing_arg("<zone>") ; return }
-    my $etype ;
 
     #
     # etype is the expanded version of whatever we typed for $type
+    # We'll only allow authorative zones for present
     #
+    my $etype ;
     if ( $type ) {
-       my @opts = ( "authoritative","nonauthoritative","delegated","secondary");
+#        my @opts = ( "authoritative","delegated","secondary");
+       my @opts = ( "Authoritative");
        my %optlist = abbrev ( @opts ) ;
        $etype = $optlist{ lc($type) } ;
 
@@ -1076,24 +1174,20 @@ sub add_zone {
           return ;
        }
     }
-    else { ( $etype = "authoritative" ) ; }
+    else { ( $etype = "Authoritative" ) ; }
 
     # format the type opts
-#     my $opt_str ;
-#     if ( @type_opts ) {
-#        foreach my $oo ( @type_opts ) {
-#                $opt_str .= ",\"$oo\"";
-#        }
-#     }
+    # ..... (code goes here) ...
 
     &debug (2,"addz n($zone) a($etype) oo(@type_opts)");
 
+    my %opthash ;
+    $opthash{'name'}=$zone;
+    $opthash{'type'}=$etype;
+    $opthash{'parent_zone'}=".";
 
-    my @function = ("ib_insert_zone",$zone,$etype,@type_opts);
-
-    my @args = ( $zone , $etype , @type_opts ) ;
-
-    &do_ib_func(@function);
+    my @function=("add_zone",%opthash);
+    &do_pub_func(@function);
 
 }
 
@@ -1102,129 +1196,235 @@ sub remove_zone {
     if ( ! $zone ) { &missing_arg("<zone>") ; return }
     &debug (2,"remz n($zone)");
 
-    my @function = ("ib_remove_zone",$zone);
-    &do_ib_func(@function);
+    my %opthash ;
+    $opthash{'name'}=$zone;
+    $opthash{'parent_zone'}=".";
+
+    my @function=("remove_zone",%opthash);
+    &do_pub_func(@function);
 
 }
 
-sub mod_global_dhcp {
-    my ( $opt , $val , @extra ) = @_ ;
-    if ( (! $val ) or ( ! $opt ) ) {
-       &missing_arg("<option> <value>")  ;
-       return ;
-    }
-    # clean up any custom option args
-    my $custom= join ( '","' , @extra );
-
-    # clean some options
-    $val=~s/["']*//g ;
-    $custom=~s/""/"/g ;
-
-    &debug (2,"modglob o($opt) v($val) c($custom)");
-
-    #
-    # GLOBAL custom props have to ALL be on one line, or stuff gets dropped
-    #
-    # ib_modify_global_dhcp_options
-    #         ("10.34.8.0","255.255.252.0","router","10.34.8.1");
-    # OR
-    # ib_modify_global_dhcp_options
-    #         ("10.54.0.0","255.255.252.0","custom_option",
-    #           "netbios-name-servers","","10.23.60.20");
-    my $comm="ib_modify_global_dhcp_options";
-    my @function=($comm,$opt,$val);
-
-    if ( $opt eq "custom_option" ) {
-       @function=($comm,"custom_option",$val,$custom);
-    }
-       
-
-    &do_ib_func(@function);
-
-}
+# sub mod_global_dhcp {
+#     my ( $opt , $val , @extra ) = @_ ;
+#     if ( (! $val ) or ( ! $opt ) ) {
+#        &missing_arg("<option> <value>")  ;
+#        return ;
+#     }
+#     # clean up any custom option args
+#     my $custom= join ( '","' , @extra );
+# 
+#     # clean some options
+#     $val=~s/["']*//g ;
+#     $custom=~s/""/"/g ;
+# 
+#     &debug (2,"modglob o($opt) v($val) c($custom)");
+# 
+#     #
+#     # GLOBAL custom props have to ALL be on one line, or stuff gets dropped
+#     #
+#     # ib_modify_global_dhcp_options
+#     #         ("10.34.8.0","255.255.252.0","router","10.34.8.1");
+#     # OR
+#     # ib_modify_global_dhcp_options
+#     #         ("10.54.0.0","255.255.252.0","custom_option",
+#     #           "netbios-name-servers","","10.23.60.20");
+#     my $comm="ib_modify_global_dhcp_options";
+#     my @function=($comm,$opt,$val);
+# 
+#     if ( $opt eq "custom_option" ) {
+#        @function=($comm,"custom_option",$val,$custom);
+#     }
+#        
+# 
+#     &do_pub_func(@function);
+# 
+# }
 
 sub modify_network {
-    my ( $parent , $opt , $val , @extra ) = @_ ;
-    if ( (! $val ) or ( ! $opt ) ) {
-       &missing_arg("<option> <value>")  ;
+
+    # THIS IS A PRIVATE FUNCTION...
+    #
+    my ( $parent , $opt , @opt_args ) = @_ ;
+
+    if ( (! $opt ) or ( ! @opt_args ) ) {
+       &missing_arg("<option> <arg> [arg]")  ;
        return ;
     }
+    # clean up the netmask
     my ($net,$cidr) = split(/\//,$parent) ;
     my $mask = &cidrfind($cidr) ;
 
-    # some custom options look like arrays..
-    my $custom = "@extra";
+    # so we are forced to use the same crappy arg parser that was
+    # in the 2.x code.. unless we can get clever, but different args
+    # require more or less options and the setting of flags
+    # [ ]
+    # first order pass we will only accept one option per command,
+    # but you can call this command many times
 
-    # clean some options
-    $val=~s/["']*//g ;
-    $custom=~s/["']*//g ;
+    my $eopt ;
+    if ( $opt ) {
+       my @opts = ( "name_servers","custom","routers","lease_time");
+       my %optlist = abbrev ( @opts ) ;
+       $eopt = $optlist{ lc($opt) } ;
 
-    &debug (2,"modnet n($net) m($mask) o($opt) v($val) c($custom)");
-
-    # ib_modify_network_dhcp_options
-    #         ("10.34.8.0","255.255.252.0","router","10.34.8.1");
-    # OR
-    # ib_modify_network_dhcp_options
-    #         ("10.54.0.0","255.255.252.0","custom_option",
-    #           "netbios-name-servers","","10.23.60.20");
-    my @comm=("ib_modify_network_dhcp_options",$net,$mask);
-
-    my @function=(@comm,$opt,$val);
-    if ( $opt eq "custom_option" ) {
-       @function=(@comm,"custom_option",$val,"",$custom);
+       if ( ! $eopt ) { 
+          &missing_arg(@opts);
+          return ;
+       }
     }
 
-    &do_ib_func(@function);
+#     # clean some options
+#     $val=~s/["']*//g ;
+#     $custom=~s/["']*//g ;
 
+    &debug (2,"modnet n($net) m($mask) o($eopt) a(@opt_args)");
+
+    # build the hash
+    my %keyhash ;
+    $keyhash{"address"} = $net;
+    $keyhash{"netmask"} = $mask;
+
+    my %opthash ;
+    $opthash{"address"} = $net;
+    $opthash{"netmask"} = $mask;
+
+    # dammit - i hate doing this... this gets fixed if it is not private
+    if ( $eopt eq "name_servers" ) {
+       $opthash{"override_domain_servers"} = "true";
+       my $pos = 0 ;
+       foreach my $lopt ( @opt_args ) {
+          push @{ $opthash{"domain_name_server_list"} } ,
+                  {( "position" , $pos, 
+                     "address" , $lopt )};
+          $pos++ ;
+      }
+
+    }
+    elsif ( $eopt eq "lease_time" ) {
+       $opthash{"lease_time"} = shift @opt_args;
+       $opthash{"override_lease_time"} = "true";
+    }
+    elsif ( $eopt eq "routers" ) {
+       $opthash{"override_routers"} = "true";
+       my $pos = 0 ;
+       foreach my $lopt ( @opt_args ) {
+          push @{ $opthash{"router_list"} } ,
+                  {( "position" , $pos, 
+                     "address" , $lopt )};
+          $pos++ ;
+      }
+    }
+    # custom options
+    elsif ( $eopt eq "custom" ) {
+       $opthash{"override_custom_options"} = "true";
+       my ( $option , $value ) = @opt_args ;
+       my $name = &rename_custom_option ( $option ) ;
+
+          push @{ $opthash{"network_custom_option_list"} } ,
+                  {( "name" , $name, 
+                     "value" , $value )};
+    }
+
+    # careful here - we need 2 hashes... key and mod
+    my $kptr = \%keyhash ;
+    my $optr = \%opthash;
+
+    my @function=("update_network",$kptr,$optr);
+     
+    &do_priv_func(@function);
 }
 
 sub add_fixed_address {
-    my ( $parent , $ip , $mac , $comment ) = @_ ;
+    my ( $network , $ip , $mac , $comment ) = @_ ;
     if ( (! $ip ) or ( ! $mac ) ) {
-       &missing_arg("<mac> <ip>")  ;
+       &missing_arg("<ip> <mac>")  ;
        return ;
     }
-    my ($net,$cidr) = split(/\//,$parent) ;
-    my $mask = &cidrfind($cidr) ;
+    &debug (2,"addfix n($network) ip($ip) mac($mac) c($comment)");
 
-    &debug (2,"addnp n($net) m($mask) ip($ip) mac($mac) c($comment)");
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'ip_address'}=$ip;
+    $opthash{'mac_address'}=$mac;
+    $opthash{'comment'}=$comment;
 
-    # ib_insert_fixed_address(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
-    my @function=("ib_insert_fixed_address",$net,$mask,$mac,$ip);
-
-    if ($comment) {
-       @function=(@function,"comment",$comment);
-    }
-
-    &do_ib_func(@function);
+    my @function=("add_fixed_address",%opthash);
+    &do_pub_func(@function);
 
 }
 
-sub add_network_ptr {
-    my ( $parent , $ip , $host , $comment ) = @_ ;
+sub del_fixed_address {
+    my ( $network , $ip ) = @_ ;
+    if ( ! $ip  ) {
+       &missing_arg("<ip>")  ;
+       return ;
+    }
+    &debug (2,"remfix ip($ip)");
+
+    # we don't actually eed the network value...
+
+    my %opthash ;
+    $opthash{'ip_address'}=$ip;
+
+    my @function=("remove_fixed_address",%opthash);
+    &do_pub_func(@function);
+
+}
+
+sub add_zone_ptr {
+    my ( $network , $ip , $host , $comment ) = @_ ;
     if ( (! $host ) or ( ! $ip ) ) {
        &missing_arg("<ip> <host>")  ;
        return ;
     }
-    my ($net,$cidr) = split(/\//,$parent) ;
-    my $mask = &cidrfind($cidr) ;
+#     my ($net,$cidr) = split(/\//,$parent) ;
+#     my $mask = &cidrfind($cidr) ;
 
-    &debug (2,"addnp n($net) m($mask) ip($ip) h($host)");
+    &debug (2,"addnp n($network) ip($ip) h($host)");
 
-    # ib_insert_oneway_ptr(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
-    my @function=("ib_insert_oneway_ptr",$net,$mask,$ip,$host,$comment);
-    &do_ib_func(@function);
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'name'}=$ip;
+    $opthash{'host'}=$host;
+    $opthash{'comment'}=$comment;
+
+    my @function=("add_rr_ptr",%opthash);
+    &do_pub_func(@function);
+
+}
+
+sub del_zone_ptr {
+    my ( $network , $ip , $host ) = @_ ;
+    if ( ( ! $ip ) or ( ! $host ) ) {
+       &missing_arg("<ip> <host>")  ;
+       return ;
+    }
+    &debug (2,"remnp n($network) ip($ip) ho($host)");
+
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'name'}=$ip;
+    $opthash{'host'}=$host;
+
+    my @function=("remove_rr_ptr",%opthash);
+    &do_pub_func(@function);
 
 }
 
 sub add_dhdprange {
-    my ( $parent , $fip , $lip , $type , @type_opts ) = @_ ;
+    my ( $network , $fip , $lip , $type , @type_opts ) = @_ ;
     if ( (! $fip ) or ( ! $lip ) ) {
        &missing_arg("<first_ip> <last_ip>")  ;
        return ;
     }
-    my ($net,$cidr) = split(/\//,$parent) ;
-    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"addrng n($network) s($fip) e($lip) t($type) oo(@type_opts)");
+
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'start_address'}=$fip;
+    $opthash{'end_address'}=$lip;
 
     # parse optional extra arguments
 
@@ -1238,124 +1438,92 @@ sub add_dhdprange {
           &missing_arg(@opts , "<name>" );
           return ;
        }
+
+       # set the hash
+       $opthash{$etype}="@type_opts";
+
     }
 
-#     # format the type opts
-#     my $o_str ;
-#        $o_str .= ",\"$etype\"";
-#     if ( @type_opts ) {
-#        foreach my $oo ( @type_opts ) {
-#                $o_str .= ",\"$oo\"";
-#        }
-#     }
+    my @function=("add_dhcp_range",%opthash);
+    &do_pub_func(@function);
 
-    &debug (2,"addrng n($net) m($mask) ip($fip) h($lip) oo(@type_opts)");
+}
 
-    # ib_insert_dhcp_range(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , 10.2.3.50 );
-    my @function=("ib_insert_dhcp_range",$net,$mask,$fip,$lip,$etype,@type_opts);
-    &do_ib_func(@function);
+sub del_dhcprange {
+    my ( $network , $fip , $lip ) = @_ ;
+    if ( ( ! $fip ) or ( ! $lip )  ) {
+       &missing_arg("<first_ip> <last_ip>")  ;
+       return ;
+    }
+
+    # we don't need the network..
+    &debug (2,"remrng n($network) s($fip) e($lip)");
+
+    my %opthash ;
+    $opthash{'start_address'}=$fip;
+    $opthash{'end_addresss'}=$lip;
+
+    my @function=("remove_dhcp_range",%opthash);
+    &do_pub_func(@function);
 
 }
 
 sub add_network {
-    my ( $netarg , $type , @type_opts) = @_ ;
-    if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
-    my $etype ;
-
-    #
-    # etype is the expanded version of whatever we typed for $type
-    # [ I've used this twice now, can i make it a sub ?? ]
-    #
-    if ( $type ) {
-       my @opts = ( "nonauthoritative","authoritative","delegated","secondary");
-       my %optlist = abbrev ( @opts ) ;
-       $etype = $optlist{ lc($type) } ;
-
-       if ( ! $etype ) { 
-          &missing_arg(@opts);
-          return ;
-       }
+    my ( $network , $comment ) = @_ ;
+    if ( ! $network ) { 
+            &missing_arg("<n.n.n.n/mm>") ; 
+            return 
     }
-    else { ( $etype = "authoritative" ) ; }
 
-#     # format the type opts
-#     my $opt_str ;
-#        $opt_str .= ",\"$etype\"";
-#     if ( @type_opts ) {
-#        foreach my $oo ( @type_opts ) {
-#                $opt_str .= ",\"$oo\"";
-#        }
-#     }
+    &debug (2,"addn n($network) c($comment)");
 
-    #
-    # use the /cidr to find the mask etc etc
-    #
-    my ($net,$cidr) = split(/\//,$netarg);
-    my $mask = &cidrfind($cidr) ;
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'comment'}=$comment;
 
-    &debug (2,"addn n($net) c($cidr) m($mask) oo(@type_opts)");
-
-    my $bn = "0.0.0.0" ;
-
-    # add net now requires a bogus parent
-    # not that this will add it at the root level. you need to
-    # use add subnet for anything else
-    my @function=("ib_insert_network",$net,$mask,$bn,$bn,$etype,@type_opts);
-    &do_ib_func(@function);
+    my @function=("add_network",%opthash);
+    &do_pub_func(@function);
 
 }
 
-sub add_sub_network {
-    my ( $parg , $netarg , $type ) = @_ ;
-    if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
-    my $etype ;
 
-    #
-    # etype is the expanded version of whatever we typed for $type
-    # [ I've used this thrice now, can i make it a sub ?? ]
-    #
-    if ( $type ) {
-       my @opts = ( "nonauthoritative","authoritative","delegated","secondary");
-       my %optlist = abbrev ( @opts ) ;
-       $etype = $optlist{ lc($type) } ;
+sub remove_network {
+    my ( $network ) = @_ ;
+    if ( ! $network ) { &missing_arg("<n.n.n.n/mm>") ; return }
 
-       if ( ! $etype ) { 
-          &missing_arg(@opts);
-          return ;
-       }
-    }
-    else { ( $etype = "authoritative" ) ; }
+    &debug (2,"remn n($network)");
 
-    #
-    # use the /cidr to find the mask etc etc
-    #
-    my ($net,$cidr) = split(/\//,$netarg);
-    my ($pnet,$pcidr) = split(/\//,$parg);
-    my $mask = &cidrfind($cidr) ;
-    my $pmask = &cidrfind($pcidr) ;
+    my %opthash ;
+    $opthash{'network'}=$network;
 
-    &debug (2,"addsn pn($pnet) pc($pmask) n($net) c($cidr) m($mask) ");
-
-    # add net now requires a bogus parent
-    # not that this will add it at the root level. you need to
-    # use add subnet for anything else
-    my @function=("ib_insert_network",$net,$mask,$pnet,$pmask,$etype);
-    &do_ib_func(@function);
+    my @function=("remove_network",%opthash);
+    &do_pub_func(@function);
 
 }
+
 sub split_network {
     #
-    # the second last arg of ib_split_network is a bitshift RELATIVE
+    # the split arg of split_network is a bitshift RELATIVE
     # to the original mask, so there is some math involved
+    #
+    # splitting either creates ALL networks or only the ones
+    # we have to have (which could be none)
 
-    my($parent,$ncidr,$type) = @_ ;
-    my($pnet,$pcidr)= split(/\//,$parent );
+    my($network,$ncidr,$type) = @_ ;
+
+    # the bitshift code will change, so we calc for now until it 
+    # becomes redundant
+    my($pnet,$pcidr)= split(/\//,$network );
        $ncidr =~ s/\/// ;
-    my $pmask = &cidrfind($pcidr);
     my $bitshift = $ncidr - $pcidr ;
+#     my $pmask = &cidrfind($pcidr);
 
     &debug (3,"split net [$pnet] [$pcidr] [$ncidr] ($bitshift)\n");
-    &debug (2,"splitting network [$pnet , $pmask] to add [$bitshift] bits");
+    &debug (2,"split net ($network) nb ($ncidr)");
+
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'subnet_bits'}=$bitshift;
 
     # check for optional args...
     my $etype ;
@@ -1369,62 +1537,35 @@ sub split_network {
           return ;
        }
     }
-    else { ( $etype = "0" ) ; }
-    if ( $etype eq "required" ) { $etype = "1" }
-    if ( $etype eq "all" ) { $etype = "2" }
+#     else { 
+#          # don't add networks
+#          $opthash{'add_all_sunetworks'} = "false" 
+#     }
 
-    # ib_split_network("10.0.0.0", "255.255.0.0", 8);
-    my @function=("ib_split_network",$pnet,$pmask,$bitshift,$etype);
-    &do_ib_func(@function);
-
-}
-
-sub remove_network {
-    my ( $netarg ) = @_ ;
-    if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
-
-    # use the /cidr to find the mask etc etc
-    #
-    my ($net,$cidr) = split(/\//,$netarg);
-    my $mask = &cidrfind($cidr) ;
-
-    &debug (2,"remn n($net) c($cidr) m($mask) ");
-
-    my @function=("ib_remove_network",$net,$mask);
-    &do_ib_func(@function);
-
-}
-
-sub del_network_ptr {
-    my ( $parent , $ip ) = @_ ;
-    if ( ! $ip  ) {
-       &missing_arg("<n.n.n.n/mm> <ip>")  ;
-       return ;
+    if ( $etype eq "required" ) { 
+            $opthash{'add_all_sunetworks'} = "false" 
     }
-    my ($net,$cidr) = split(/\//,$parent) ;
-    my $mask = &cidrfind($cidr) ;
+    if ( $etype eq "all" ) { 
+            $opthash{'add_all_sunetworks'} = "true" 
+    }
 
-    &debug (2,"remnp n($net) c($cidr) m($mask) ip($ip)");
-
-    my @function=("ib_remove_oneway_ptr",$net,$mask,$ip);
-    &do_ib_func(@function);
+    my @function=("split_network",%opthash);
+    &do_pub_func(@function);
 
 }
 
+sub add_sub_network {
+    my ( $network , $subnet ) = @_ ;
+    if ( ! $subnet ) { &missing_arg("<n.n.n.n/mm>") ; return }
 
-sub del_dhcprange {
-    my ( $parent , $fip , $lip ) = @_ ;
-    if ( ( ! $fip ) or ( ! $lip )  ) {
-       &missing_arg("<first_ip> <last_ip>")  ;
-       return ;
-    }
-    my ($net,$cidr) = split(/\//,$parent) ;
-    my $mask = &cidrfind($cidr) ;
+    &debug (2,"addsn pn($network) n($subnet)");
 
-    &debug (2,"remrng n($net) m($mask) ip($fip) ip($lip)");
+    my %opthash ;
+    $opthash{'network'}=$subnet;
+    $opthash{'network_container'}=$network;
 
-    my @function=("ib_remove_dhcp_range",$net,$mask,$fip,$lip);
-    &do_ib_func(@function);
+    my @function=("add_subnetwork",%opthash);
+    &do_pub_func(@function);
 
 }
 
@@ -1459,7 +1600,7 @@ sub add_realm {
 
     my @function = ("RADIUSOne::realm_insert",%opthash);
 
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1476,7 +1617,7 @@ sub remove_realm {
 
     my @function = ("RADIUSOne::realm_delete",%opthash);
 
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1511,7 +1652,7 @@ sub add_attrib_to_realm {
     $opthash{'value'}=$value;
 
     my @function = ("RADIUSOne::realm_av_pair_insert",%opthash);
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1546,7 +1687,7 @@ sub remove_attrib_from_realm {
     $opthash{'value'}=$value;
 
     my @function = ("RADIUSOne::realm_av_pair_delete",%opthash);
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1594,7 +1735,7 @@ sub add_user_to_realm {
     }
 
     my @function = ("RADIUSOne::radius_user_insert",%opthash);
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1625,7 +1766,7 @@ sub remove_user_from_realm {
     }
 
     my @function = ("RADIUSOne::radius_user_delete",%opthash);
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1669,7 +1810,7 @@ sub modify_realm_user_add_att {
 
 
     my @function = ("RADIUSOne::user_av_pair_insert",%opthash);
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1713,7 +1854,7 @@ sub modify_realm_user_del_att {
 
 
     my @function = ("RADIUSOne::user_av_pair_delete",%opthash);
-    &do_ib_func(@function);
+    &do_pub_func(@function);
 
 }
 
@@ -1820,11 +1961,17 @@ sub add_server {
     # password can be passed on this line, if not specified, assume
     # no password
 
+    # [ ] there seems to be too much code here, sone time in the future
+    # i will work out what i can remove
+
+    &debug (2,"adding server args[@args]");
+
     # if the server arg is NOT an ip address it is a type
     my $IPRE = '\d+\.\d+\.\d+\.\d+';
 
-    my ( $server , $pass , $user ) ;
+    my ( $server , $pass , $user , $junk ) ;
 
+    # were we given an IP address or something else ?
     if ( $type !~ /^$IPRE$/) {
 
        # must be a server type, check the syntax
@@ -1839,38 +1986,41 @@ sub add_server {
        }
        
        # otherwise, we're good
-       ( $server , $pass , $user ) = @args ;
-       $SESSION{'cli_type'}=$etype ;
+       ( $server , $junk , $user , $junk , $pass ) = @args ;
+
+       $CONN_INFO{'cli_type'}=$etype ;
 
     }
     else {
-       ( $server , $pass , $user ) = ($type, @args ) ;
+       ( $server , $junk , $user , $junk , $pass ) = ($type, @args ) ;
     }
     &debug (2,"adding server t[$type] s($server) p($pass) u($user)");
+
+    # ok - now eat the rest of the data
     
     if ($server) {
        # if we're already connected, sput an error
        if ( ! $CONNECTED ) {
           &debug (2,"adding server [$server]");
-          $SESSION{'HostIp'} = $server ;
+          $CONN_INFO{'Host'} = $server ;
 
-          $PROMPT = "$SESSION{'HostIp'} > " ;
+          $PROMPT = "$CONN_INFO{'UserNAme'}\@$CONN_INFO{'Host'} > " ;
 
           # when you specify a new server, you need to re-set the
           # password
           if ( $pass ) {
-             $SESSION{'UserPassword'} = $pass ;
+             $CONN_INFO{'UserPassword'} = $pass ;
           }
           else {
              # this is a NON DNSone, DIG only
              # unset the password
-             $SESSION{'UserPassword'} = "" ;
+             $CONN_INFO{'UserPassword'} = "" ;
           }
           &debug (2,"adding passwd [$pass]");
 
           if ( $user ) {
              # this is a v3 system
-             $SESSION{'UserName'} = $user ;
+             $CONN_INFO{'UserName'} = $user ;
           }
           &debug (2,"adding user [$user]");
 
@@ -1891,7 +2041,7 @@ sub add_pass {
     if ($passwd) {
        # save the server password and see if we have enough info to connect
        &debug (2,"adding passwd [$passwd]");
-       $SESSION{'UserPassword'} = $passwd ;
+       $CONN_INFO{'UserPassword'} = $passwd ;
 
        # attepmt to connect
        &connect ;
@@ -1903,45 +2053,69 @@ sub add_pass {
 
 }
 
-########
-### GDH
 #
-# reformat this for the 2 versions of code ??
+# [ ] really need 2 routines here, one for batch mode and one for calls
+# to 'connect' from the cli
 #
-# OR just do it later after the rest of the sytax perser is fixed ??
 #
 sub connect {
     # make a connection
     # unless we have both server and password,  die
 
-      if ( $SESSION{'HostIp'} && $SESSION{'UserPassword'} ) {
+      if ( $CONN_INFO{'Host'} 
+           && $CONN_INFO{'UserName'}
+           && $CONN_INFO{'UserPassword'} ) {
+
          if ( $CONNECTED ) {
             &err_print("SERVER :: already connected");
             return ;
          }
 
-         &debug (1,"conn ->[$SESSION{'HostIp'}] [$SESSION{'UserPassword'}]");
+         # now set up the correct hashes for connection
+         my %priv_hash;
+         $priv_hash{'HostIP'} = $CONN_INFO{'Host'};
+         $priv_hash{'UserName'} = $CONN_INFO{'UserName'};
+         $priv_hash{'UserPassword'} = $CONN_INFO{'UserPassword'};
+         $priv_hash{'HostPort'} = "443";
+         $priv_hash{'Secure'} = "true";
+
+         &debug (1,"conn ->[$CONN_INFO{'Host'}] [$CONN_INFO{'UserName'}]");
 
          &err_print("SERVER :: connecting");
 
-         # call a new subroutine of the pretty printing and then call
-         # a non checking version of do_ib_func
+         # set the global PUB_SESS or PRIV_SESS
+         # which we will call later
 
-         if ( $SESSION{'cli_type'} eq 'radius' ) {
-            $DNS_VER = 3 ;
-            &do_unconn_func("RADIUSOne::server_session_create",%SESSION);
+         if ( $CONN_INFO{'cli_type'} eq 'radius' ) {
+            if ( $MAKE ) {
+               # pretty print the hash 
+               my $fst = &format_ib_func("RADIUSOne::server_session_create"
+                                          ,%CONN_INFO);
+            }
+            else {
+               my $res ;
+               ($res,$PUB_SESS)=RADIUSOne::server_session_create(%CONN_INFO);
+            }
          }
          else {
-            $DNS_VER = 2 ;
-            &do_unconn_func("ib_open_connection",
-                     $SESSION{'HostIp'},$SESSION{'UserPassword'});
+            # pretty print the hash 
+
+            if ( $MAKE ) {
+               # format the data for pretty printing
+               my $fst=&format_ib_func("Infoblox::Session->new",%CONN_INFO);
+               my
+               $fst=&format_ib_func("Infoblox::InfobloxSession->new",%priv_hash);
+            }
+            else {
+               $PUB_SESS = Infoblox::Session->new( %CONN_INFO );
+               $PRI_SESS = Infoblox::InfobloxSession->new( %CONN_INFO );
+            }
          }
 
-         $PROMPT = "$SESSION{'HostIp'} > " ;
+         $PROMPT = "$CONN_INFO{'Host'} > " ;
          $CONN_STRING = "*" ;
    
          $CONNECTED = 1 ;
-
 
       }
       else {
@@ -1952,24 +2126,27 @@ sub connect {
 }
 
 sub disconnect {
+
+    &err_print ( "Disconnect :: depricated");
+
     if ( $CONNECTED ) {
 #        &commit ;
-       &err_print ( "SERVER :: disconnecting");
-       ib_close_connection();
+#        ib_close_connection();
+#    [ ] restart service ??
        $CONNECTED = 0 ;
 
        $PROMPT = "no server > " ;
     }
-    else {
-       &err_print ( "CANNOT DISCONNECT - no connection is in place");
-    }
+#     else {
+#        &err_print ( "CANNOT DISCONNECT - no connection is in place");
+#     }
 
 }
 
 sub commit {
 
     #
-    # ib_update_server doesn;t really commit
+    # call 'publish changes' ??
     #
 #     &err_print ( "COMMIT -  NOT WORKING");
 
@@ -1978,7 +2155,7 @@ sub commit {
 
        ib_close_connection();
        sleep 3 ;
-       ib_open_connection($SESSION{'HostIp'},$SESSION{'UserPassword'}) ;
+       ib_open_connection($CONN_INFO{'Host'},$CONN_INFO{'UserPassword'}) ;
 
 #        ib_update_server();
 
@@ -2007,7 +2184,7 @@ sub show_host {
 
     &debug (2,"showing zone [@_]");
 
-    &do_dig($SESSION{'HostIp'},$query,$verbose);
+    &do_dig($CONN_INFO{'Host'},$query,$verbose);
 
 
 }
@@ -2027,7 +2204,7 @@ sub show_zone {
 
     if ( ! $type ) { $type = "SOA" }
 
-    &do_dig($SESSION{'HostIp'},$query,$type,$verbose);
+    &do_dig($CONN_INFO{'Host'},$query,$type,$verbose);
 }
 
 sub show_network {
@@ -2047,7 +2224,7 @@ sub show_network {
 
     # force a revrse lookup
     $verbose = "reverse" ;
-    &do_dig($SESSION{'HostIp'},$query,$type,$verbose);
+    &do_dig($CONN_INFO{'Host'},$query,$type,$verbose);
 }
 
 sub do_dig {
@@ -2114,7 +2291,6 @@ print "\n";
 sub script_footer {
 
     print "
-ib_close_connection();
 
 exit ; \n";
 
@@ -2126,6 +2302,278 @@ sub show_version {
 
 
 ############################################3
+
+
+sub rename_custom_option {
+  # remap some variables
+    my $option = shift;
+    my %lookup = (
+        "1" => "Option  1: subnet-mask",
+        "2" => "Option  2: time-offset",
+        "3" => "Option  3: router",
+        "4" => "Option  4: time-servers",
+        "5" => "Option  5: ien116-name-servers",
+        "6" => "Option  6: dns_server",
+        "7" => "Option  7: log-servers",
+        "8" => "Option  8: cookie-servers",
+        "9" => "Option  9: lpr-servers",
+        "10" => "Option  10: impress-servers",
+        "11" => "Option  11: resource-location-servers",
+        "12" => "Option  12: host-name",
+        "13" => "Option  13: boot-size",
+        "14" => "Option  14: merit-dump",
+        "15" => "Option  15: default_domain",
+        "16" => "Option  16: swap-server",
+        "17" => "Option  17: root-path",
+        "18" => "Option  18: extensions-path",
+        "19" => "Option  19: ip-forwarding",
+        "20" => "Option  20: non-local-source-routing",
+        "21" => "Option  21: policy-filter",
+        "22" => "Option  22: max-dgram-reassembly",
+        "23" => "Option  23: default-ip-ttl",
+        "24" => "Option  24: path-mtu-aging-timeout",
+        "25" => "Option  25: path-mtu-plateau-table",
+        "26" => "Option  26: interface-mtu",
+        "27" => "Option  27: all-subnets-local",
+        "28" => "Option  28: broadcast_address",
+        "29" => "Option  29: perform-mask-discovery",
+        "30" => "Option  30: mask-supplier",
+        "31" => "Option  31: router-discovery",
+        "32" => "Option  32: router-solicitation-address",
+        "33" => "Option  33: static-routes",
+        "34" => "Option  34: trailer-encapsulation",
+        "35" => "Option  35: arp-cache-timeout",
+        "36" => "Option  36: ieee802-3-encapsulation",
+        "37" => "Option  37: default-tcp-ttl",
+        "38" => "Option  38: tcp-keepalive-interval",
+        "39" => "Option  39: tcp-keepalive-garbage",
+        "40" => "Option  40: nis-domain",
+        "41" => "Option  41: nis-servers",
+        "42" => "Option  42: ntp-servers",
+        "43" => "Option  43: vendor-encapsulated-options",
+        "44" => "Option  44: netbios-name-servers",
+        "45" => "Option  45: netbios-dd-server",
+        "46" => "Option  46: netbios-node-type",
+        "47" => "Option  47: netbios-scope",
+        "48" => "Option  48: font-servers",
+        "49" => "Option  49: x-display-manager",
+        "50" => "Option  50: dhcp-requested-address",
+        "51" => "Option  51: lease_time",
+        "52" => "Option  52: dhcp-option-overload",
+        "53" => "Option  53: dhcp-message-type",
+        "54" => "Option  54: dhcp-server-identifier",
+        "55" => "Option  55: dhcp-parameter-request-list",
+        "56" => "Option  56: dhcp-message",
+        "57" => "Option  57: dhcp-max-message-size",
+        "58" => "Option  58: dhcp-renewal-time",
+        "59" => "Option  59: dhcp-rebinding-time",
+        "60" => "Option  60: vendor-class-identifier",
+        "61" => "Option  61: dhcp-client-identifier",
+        "62" => "Option  62: nwip-domain",
+        "63" => "Option  63: nwip-suboptions",
+        "64" => "Option  64: nisplus-domain",
+        "65" => "Option  65: nisplus-servers",
+        "66" => "Option  66: tftp-server-name",
+        "67" => "Option  67: boot_file",
+        "68" => "Option  68: mobile-ip-home-agent",
+        "69" => "Option  69: smtp-server",
+        "70" => "Option  70: pop-server",
+        "71" => "Option  71: nntp-server",
+        "72" => "Option  72: www-server",
+        "73" => "Option  73: finger-server",
+        "74" => "Option  74: irc-server",
+        "75" => "Option  75: streettalk-server",
+        "76" => "Option  76: streettalk-directory-assistance-server",
+        "77" => "Option  77: user-class",
+        "78" => "Option  78: slp-directory-agent",
+        "79" => "Option  79: slp-service-scope",
+        "80" => "Option  80: option-80",
+        "81" => "Option  81: fqdn",
+        "82" => "Option  82: relay-agent-information",
+        "83" => "Option  83: option-83",
+        "84" => "Option  84: option-84",
+        "85" => "Option  85: nds-servers",
+        "86" => "Option  86: nds-tree-name",
+        "87" => "Option  87: nds-context",
+        "88" => "Option  88: option-88",
+        "89" => "Option  89: option-89",
+        "90" => "Option  90: option-90",
+        "91" => "Option  91: option-91",
+        "92" => "Option  92: option-92",
+        "93" => "Option  93: option-93",
+        "94" => "Option  94: option-94",
+        "95" => "Option  95: option-95",
+        "96" => "Option  96: option-96",
+        "97" => "Option  97: option-97",
+        "98" => "Option  98: uap-servers",
+        "99" => "Option  99: option-99",
+        "100" => "Option  100: option-100",
+        "101" => "Option  101: option-101",
+        "102" => "Option  102: option-102",
+        "103" => "Option  103: option-103",
+        "104" => "Option  104: option-104",
+        "105" => "Option  105: option-105",
+        "106" => "Option  106: option-106",
+        "107" => "Option  107: option-107",
+        "108" => "Option  108: option-108",
+        "109" => "Option  109: option-109",
+        "110" => "Option  110: option-110",
+        "111" => "Option  111: option-111",
+        "112" => "Option  112: option-112",
+        "113" => "Option  113: option-113",
+        "114" => "Option  114: option-114",
+        "115" => "Option  115: option-115",
+        "116" => "Option  116: option-116",
+        "117" => "Option  117: option-117",
+        "118" => "Option  118: subnet-selection",
+        "119" => "Option  119: option-119",
+        "120" => "Option  120: option-120",
+        "121" => "Option  121: option-121",
+        "122" => "Option  122: option-122",
+        "123" => "Option  123: option-123",
+        "124" => "Option  124: option-124",
+        "125" => "Option  125: option-125",
+        "126" => "Option  126: option-126",
+        "127" => "Option  127: option-127",
+        "128" => "Option  128: option-128",
+        "129" => "Option  129: option-129",
+        "130" => "Option  130: option-130",
+        "131" => "Option  131: option-131",
+        "132" => "Option  132: option-132",
+        "133" => "Option  133: option-133",
+        "134" => "Option  134: option-134",
+        "135" => "Option  135: option-135",
+        "136" => "Option  136: option-136",
+        "137" => "Option  137: option-137",
+        "138" => "Option  138: option-138",
+        "139" => "Option  139: option-139",
+        "140" => "Option  140: option-140",
+        "141" => "Option  141: option-141",
+        "142" => "Option  142: option-142",
+        "143" => "Option  143: option-143",
+        "144" => "Option  144: option-144",
+        "145" => "Option  145: option-145",
+        "146" => "Option  146: option-146",
+        "147" => "Option  147: option-147",
+        "148" => "Option  148: option-148",
+        "149" => "Option  149: option-149",
+        "150" => "Option  150: option-150",
+        "151" => "Option  151: option-151",
+        "152" => "Option  152: option-152",
+        "153" => "Option  153: option-153",
+        "154" => "Option  154: option-154",
+        "155" => "Option  155: option-155",
+        "156" => "Option  156: option-156",
+        "157" => "Option  157: option-157",
+        "158" => "Option  158: option-158",
+        "159" => "Option  159: option-159",
+        "160" => "Option  160: option-160",
+        "161" => "Option  161: option-161",
+        "162" => "Option  162: option-162",
+        "163" => "Option  163: option-163",
+        "164" => "Option  164: option-164",
+        "165" => "Option  165: option-165",
+        "166" => "Option  166: option-166",
+        "167" => "Option  167: option-167",
+        "168" => "Option  168: option-168",
+        "169" => "Option  169: option-169",
+        "170" => "Option  170: option-170",
+        "171" => "Option  171: option-171",
+        "172" => "Option  172: option-172",
+        "173" => "Option  173: option-173",
+        "174" => "Option  174: option-174",
+        "175" => "Option  175: option-175",
+        "176" => "Option  176: option-176",
+        "177" => "Option  177: option-177",
+        "178" => "Option  178: option-178",
+        "179" => "Option  179: option-179",
+        "180" => "Option  180: option-180",
+        "181" => "Option  181: option-181",
+        "182" => "Option  182: option-182",
+        "183" => "Option  183: option-183",
+        "184" => "Option  184: option-184",
+        "185" => "Option  185: option-185",
+        "186" => "Option  186: option-186",
+        "187" => "Option  187: option-187",
+        "188" => "Option  188: option-188",
+        "189" => "Option  189: option-189",
+        "190" => "Option  190: option-190",
+        "191" => "Option  191: option-191",
+        "192" => "Option  192: option-192",
+        "193" => "Option  193: option-193",
+        "194" => "Option  194: option-194",
+        "195" => "Option  195: option-195",
+        "196" => "Option  196: option-196",
+        "197" => "Option  197: option-197",
+        "198" => "Option  198: option-198",
+        "199" => "Option  199: option-199",
+        "200" => "Option  200: option-200",
+        "201" => "Option  201: option-201",
+        "202" => "Option  202: option-202",
+        "203" => "Option  203: option-203",
+        "204" => "Option  204: option-204",
+        "205" => "Option  205: option-205",
+        "206" => "Option  206: option-206",
+        "207" => "Option  207: option-207",
+        "208" => "Option  208: option-208",
+        "209" => "Option  209: option-209",
+        "210" => "Option  210: authenticate",
+        "211" => "Option  211: option-211",
+        "212" => "Option  212: option-212",
+        "213" => "Option  213: option-213",
+        "214" => "Option  214: option-214",
+        "215" => "Option  215: option-215",
+        "216" => "Option  216: option-216",
+        "217" => "Option  217: option-217",
+        "218" => "Option  218: option-218",
+        "219" => "Option  219: option-219",
+        "220" => "Option  220: option-220",
+        "221" => "Option  221: option-221",
+        "222" => "Option  222: option-222",
+        "223" => "Option  223: option-223",
+        "224" => "Option  224: option-224",
+        "225" => "Option  225: option-225",
+        "226" => "Option  226: option-226",
+        "227" => "Option  227: option-227",
+        "228" => "Option  228: option-228",
+        "229" => "Option  229: option-229",
+        "230" => "Option  230: option-230",
+        "231" => "Option  231: option-231",
+        "232" => "Option  232: option-232",
+        "233" => "Option  233: option-233",
+        "234" => "Option  234: option-234",
+        "235" => "Option  235: option-235",
+        "236" => "Option  236: option-236",
+        "237" => "Option  237: option-237",
+        "238" => "Option  238: option-238",
+        "239" => "Option  239: option-239",
+        "240" => "Option  240: option-240",
+        "241" => "Option  241: option-241",
+        "242" => "Option  242: option-242",
+        "243" => "Option  243: option-243",
+        "244" => "Option  244: option-244",
+        "245" => "Option  245: option-245",
+        "246" => "Option  246: option-246",
+        "247" => "Option  247: option-247",
+        "248" => "Option  248: option-248",
+        "249" => "Option  249: option-249",
+        "250" => "Option  250: option-250",
+        "251" => "Option  251: option-251",
+        "252" => "Option  252: option-252",
+        "253" => "Option  253: option-253",
+        "254" => "Option  254: option-254",
+    );
+
+    # fix it ?
+    if ( $lookup{$option} ) {
+       return ( $lookup{$option} );
+    }
+    else {
+       return ( $option );
+    }
+
+}
+
 
 sub cidrfind {
     # match up netmasks to cidr syntax
@@ -2237,6 +2685,10 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.0  2004/11/03 19:58:48  horne
+# new code suporting the infoblox V3 API
+# major rewrite
+#
 # Revision 1.18  2004/10/20 16:44:39  horne
 # broken checkin - ignore
 #
@@ -2245,7 +2697,7 @@ sub debug {
 #
 # Revision 1.16  2004/08/13 03:57:45  horne
 # Major changes to the arg parsers, args are now sent as arrays and the
-#   do_ib_finc does the formatting/prettyprinting
+#   do_ib_func does the formatting/prettyprinting
 # Added conection syntax to hanvle V3 connections
 # Added a whole bag of RADIUS commands
 #
