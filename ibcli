@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.39 2008/12/11 22:16:49 horne Exp $ ;
-my $REV = q$Revision: 3.39 $;
-# $Date: 2008/12/11 22:16:49 $
+my $ID  = q$Id: ibcli,v 3.40 2009/01/19 19:50:01 horne Exp $ ;
+my $REV = q$Revision: 3.40 $;
+# $Date: 2009/01/19 19:50:01 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -402,7 +402,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.39 $.
+$Revision: 3.40 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -593,10 +593,14 @@ is the same as
 
     conf zone add foo.com
 
-=head2 TAB completion
+=head2 TAB completion and other commands
 
 The cli uses a full line editor with history and the usual bells and
-whistles. command completion can be achieved by pressing <tab>
+whistles. Command completion can be achieved by pressing <tab>
+
+To clear the line press '<ctrl>-u' or '\'
+
+To exit the cli, press '<ctrl>-D' (not <ctrl>-c)
 
 =head2 BATCH processing
 
@@ -614,23 +618,34 @@ adding it to the command line thus :
 sub cli_history {
     # [ ] History
 
-#     my $hsize = ${ $el->history_get_size } ;
+    my $hsize = ${ $el->history_get_size } ;
 #     my $hobj = $el->history_get_curr ;
 
+    my $he = ${ $el->history_get_last } ;
+    print Dumper ( $he ) ;
+
+    print "$hsize entries\n";
     print "--HISTORY not supported--\n";
 }
 
 sub print_help { 
     # [ ] contextual help
+    cmpctl();
+
     if ( $USE_EL ) {
         my ( $context ) = $el->line ;
         chomp $context;
+        $context =~ s/\s*$//;
 
-        print "\nhelp for [$context] TBD
- press :
+        # only print help if we are at the beginning of the line
+        if ( $context eq 'help' or ! $context ) {
+
+#         print "\nhelp for [$context] TBD
+        print "  press :
     <tab> for options and word completion
     '\\' to clear the line
     'q' to quit\n\n";
+        }
 
         return CC_REDISPLAY ;
     }
@@ -772,7 +787,7 @@ sub expand_line {
 
        # hide special chars (stops us exiting)
        # [ ] GDH redundant with url encoding ??
-       $thisarg =~ s/\[|\]|\(|\)/!/g;
+#        $thisarg =~ s/\[|\]|\(|\)/!/g;
 
        # we now have the short word, 
        # we have to look at the matchline to get some context
@@ -1432,7 +1447,7 @@ Add a shared record group to a zone
    conf zone modify foo.com shared_record_group mygroup
    conf zone add foo.com shared_record_group mygroup
 
-Add a forwarding zone
+Add a forwarding zone (and assign it to members)
 
    configure zone add fwd.foo.com forward_to 2.2.2.2 forward_to 3.3.3.3
 
@@ -1440,6 +1455,10 @@ Add a delegated zone
 
    configure zone add deleg.foo.com delegate_to ns1.s.foo.com,1.2.3.4
 
+Add a stub zone (and assign it to members)
+
+   conf zone add foo.com stub_from ns0.foo.com,1.2.3.4 mem 2.2.2.2
+    
 =head2 Import a zone
 
 Zones can be imported as either forward or reverse. You just add an extra
@@ -1813,6 +1832,7 @@ sub cli_add_zone {
     }
     if ( $mname ) {
        $obj->soa_mname ( $mname ) ;
+       $obj->override_soa_mname ( "TRUE" ) ;
     }
 
     # now add the damn thing
@@ -2362,6 +2382,10 @@ sub cli_del_host {
 =head2 Add an A record to a zone
 
    conf zone foo.com add a_record test 1.2.3.4
+
+Add it to a view :
+
+   conf zone foo.com add a_record test 1.2.3.4 view my_view
 
 To add the record to a shared record group (zone must be blank)
 
@@ -3047,6 +3071,11 @@ Add a network with members
 
    conf network add 1.1.1.0/24 member 10.1.1.20 member 10.1.1.40
 
+If no members are specified, the network will be added to the Grid
+master.  If you don't want to assign any members use '0.0.0.0'
+
+   conf network add 1.1.1.0/24 member 0.0.0.0
+
 Add a network using a template
 
    conf network add 1.1.1.0/24 template MyTemplate
@@ -3143,12 +3172,14 @@ sub cli_add_network {
         # create the object
         $net = Infoblox::DHCP::Network->new (
                    "network" => $network ,
-                   "comment" => $comment ,
 #                    "network_container" => $parent ,
                    "auto_create_reversezone" => "FALSE"
                 );
     }
 
+    if ( $comment ) {
+        $net->comment( $comment );
+    }
     # parenting ?
     # fixed in 4.1r3
     if ( $parent ) {
@@ -3186,8 +3217,8 @@ sub cli_add_network {
         # and add them to the object
         $net->members ( \@memsvrs ) ;
     }
-    elsif ( $MASTER_IP ) {
-       # just add the grid master
+    elsif ( $MASTER_IP and $type eq "add" ) {
+       # just add the grid master by default to NEW networks
        &debug_cli(2,"addnet mem($MASTER_IP)");
        my $DHMASTER = Infoblox::DHCP::Member->new ('ipv4addr' => $MASTER_IP);
 #        my @memsvrs = ( $DHMASTER ) ;
@@ -3196,6 +3227,7 @@ sub cli_add_network {
     }
 
     # options
+    # my @options  = $line =~/ option (\S+)/g ;
     if ( @options ) {
 
        my @opt_list ;
@@ -3220,6 +3252,7 @@ sub cli_add_network {
     }
 
     # settings - these are additional fields that the API supports
+#     my @settings  = $line =~/ set (\S+)/g ;
     if ( @settings ) {
 
        my @set_list ;
@@ -3270,7 +3303,162 @@ sub cli_delete_network {
 
 }
 
-#    [ ] change syntax
+=head2 Move Networks
+
+Move a network to a different member, or move a network onto members to
+match a failover association. The ranges inside the network will also be
+moved.
+
+Moving a network to a single member :
+
+   configure network move 45.0.0.0/24 member 2.2.2.2
+
+Moving a network to a multiple members :
+
+   configure network move 45.0.0.0/24 member 2.2.2.2 member 3.3.3.3
+
+
+Moving a network to use DHCP failover :
+
+   configure network move 45.0.0.0/24 failover box1-boxb
+
+=cut
+
+
+sub cli_move_network {
+    # move a network from 1 member to another
+    # or move a network to support failover associations
+    #
+    # also move the ranges inside the network
+    
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $network ) = $line =~/ network move (\S+)/ ;
+    my ( $failover ) = $line =~/ failover (\S+)/ ;
+    my @members  = $line =~/ member (\S+)/g ;
+
+    &debug_cli(1,"movnet n($network) f($failover) m(@members)");
+
+    unless ( $failover or @members ) {
+        print "  Error : member or failover is required\n";
+        return ;
+    }
+
+    # get the current network
+    my %opthash = (
+        "object" => "Infoblox::DHCP::Network", 
+        "network" => $network
+    );
+
+    my @nets = &do_func("get", %opthash );
+    my $nobj ;
+
+    # check errors
+    # get the current network :
+    if ( $#nets > 0 ) {
+        # we found too many
+        my $list = &dump_summ ( "network" , @nets );
+        print "  Error : $network : More than 1 network found : $list\n";
+        # exit here
+        return
+    }
+    elsif ( ! @nets ) {
+        print "  network $network not found\n";
+        return ;
+    }
+    else {
+        $nobj = shift @nets ;
+    }
+
+    # get the failover members
+    my @fmembers ;
+    if ( $failover ) {
+        my ( $fobj ) =  &do_func("get", (
+            "object" => "Infoblox::DHCP::FailOver",
+            "name" => $failover,
+           )
+        );
+        if ( $fobj ) {
+            push @fmembers , $fobj->primary->ipv4addr();
+            push @fmembers , $fobj->secondary->ipv4addr();
+        }
+        else {
+            print "  Error : failover assoc $failover not found\n";
+            exit ;
+        }
+        &debug_cli(2,"movnet f/o m(@fmembers)");
+    }
+
+    # [ ] get all the ranges, unset their membership
+    my @ranges = &do_func("search", (
+                "object" => "Infoblox::DHCP::Range",
+                "network" => $network,
+                "start_addr" => ".*",
+                )
+            ) ;
+    foreach my $robj ( @ranges ) {
+        my $fip = $robj->start_addr();
+        print "   clear range $fip membership\n";
+        # remove failover and/or membership
+        $robj->member ( undef );
+        $robj->failover_assoc ( undef );
+        my ( $res ) = &do_func("modify", $robj);
+    }
+
+    # set the member for the ranges
+    my $rmem = $members[0] ;
+    my $rmemobj = Infoblox::DHCP::Member->new("ipv4addr"=>$rmem);
+    
+    # if we are using failover, we set the membershiplist
+    # to the failover list
+    if ( $failover ) {
+        @members = @fmembers ;
+        $rmem = $failover ;
+    }
+
+    # [ ] move the network to the new members
+    if ( @members ) {
+        my @memsvrs ;
+        foreach my $memval ( @members ) {
+            # special hack for NO members
+            next if ($memval =~ /0.0.0.0/);
+
+            # split on ',' get all the IPs
+            &debug_cli(2,"addnet mem($memval)");
+            push @memsvrs, Infoblox::DHCP::Member->new("ipv4addr"=>$memval);
+        }
+
+        $nobj->members ( \@memsvrs ) ;
+
+        # and add them to the object
+        print "   set network $network membership @members\n";
+        my ( $res ) = &do_func("modify", $nobj);
+
+        # set the ranges to the new members
+        unless ( $rmem =~ /0.0.0.0/ ) {
+            # walk each range
+            foreach my $robj ( @ranges ) {
+                my $fip = $robj->start_addr();
+                print "   set range $fip membership $rmem\n";
+
+                if ( $failover ) {
+                    $robj->failover_assoc ( $rmem );
+                }
+                else {
+                    $robj->member ( $rmemobj );
+                }
+
+                # and save it
+                my ( $res ) = &do_func("modify", $robj);
+            }
+        }
+
+    }
+
+}
+
+
 =head2 Join Networks
 
    ** This feature will soon change, use with caution **
@@ -3413,11 +3601,11 @@ sub cli_join_network {
 
    conf network add shared my_shared child_network 1.1.1.0/24 child 1.1.2.0/24
 
-Add a network with options
+Add a shared network with options
 
    conf network add shared foo option 82="some data"
 
-Add a network with comments 
+Add a shared network with comments 
 
    conf network add shared my_shared ... comment "comment string"
 
@@ -3821,6 +4009,11 @@ As are adding the member
 
    conf net 10.1.1.1/24 add range 10... member 1.1.1.2
 
+If no members are specified, the range will be added to the Grid
+master.  If you don't want to assign any members use '0.0.0.0'
+
+   conf net 10.1.1.1/24 add range 10... member 0.0.0.0
+
 You can also add exclusions
 
    conf net 10.1.1.1/24 add range 10... exclude 1.1.1.2,1.1.2.5
@@ -3908,6 +4101,9 @@ sub cli_add_dhcp_range {
 
     # add the optional extras
     if ( $comment ) { $obj->comment ( $comment ) }
+    # disabled
+    my ( $disable ) = $line =~/\b(disabled)\b/ ;
+    if ( $disable ) { $obj->disable ( "TRUE" ) }
 
     # you can't assign failover and members, you have to choose one.
     if ( $failover ) { 
@@ -3916,10 +4112,12 @@ sub cli_add_dhcp_range {
     else {
        # find a member to put this range on
        if ( $member ) {
-          # not the grid master
-          &debug_cli(2,"addrng mem($member)");
-          my $memobj = Infoblox::DHCP::Member->new("ipv4addr"=>$member);
-          $obj->member ( $memobj ) ;
+            if ( $member !~ /0.0.0.0/ ) {
+                # not the grid master
+                &debug_cli(2,"addrng mem($member)");
+                my $memobj = Infoblox::DHCP::Member->new("ipv4addr"=>$member);
+                $obj->member ( $memobj ) ;
+            }
        }
        elsif ( $MASTER_IP ) {
           &debug_cli(2,"addrng mem($MASTER_IP)");
@@ -4916,7 +5114,7 @@ sub cli_mod_grid {
             my @ntp_list ;
             foreach my $ntp ( @ntp_servers ) {
                 # normaal members
-                push @ntp_list , Infoblox::Cluster::NTPServer->new(
+                push @ntp_list , Infoblox::Grid::NTPServer->new(
                                 "address" => $ntp ,
                                 authentication => "FALSE",
                                 );
@@ -4953,7 +5151,6 @@ Make this an HA pair
 
 =cut
 
-
 sub cli_mod_member {
 
     my ( $line ) = @_ ;
@@ -4980,7 +5177,7 @@ sub cli_mod_member {
 
     # first get the member
     my %opthash = (
-          "object" => "Infoblox::Cluster::Member",
+          "object" => "Infoblox::Grid::Member",
           "name" => $member ,
     );
     my ( $memobj ) = &do_func("get", %opthash );
@@ -5010,6 +5207,165 @@ sub cli_mod_member {
             $memobj->router_ID ( $harid ) ;
         }
 
+        # push the changes, if we were ok
+        &do_func("modify",$memobj);
+    }
+
+}
+
+=head2 Configure Member DNS settings
+
+Set a value
+    
+   conf member ns1.lab.com dns set ...
+
+   conf member ns1.lab.com dns set forwarders="[1.1.1.1,4.2.2.2]"
+
+=cut
+
+sub cli_mod_member_dns {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $member)  = $line =~/configure member (\S+)/ ;
+    my @settings  = $line =~/ set (\S+)/g ;
+
+    &debug_cli (2,"medns ip($member) s(@settings)");
+
+    # first get the member
+    my %opthash = (
+          "object" => "Infoblox::Grid::Member::DNS",
+          "name" => $member ,
+    );
+    my ( $memobj ) = &do_func("get", %opthash );
+
+    # make some changes, if we have a member
+    if ( $memobj ) {
+
+        # settings - these are additional fields that the API supports
+        if ( @settings ) {
+
+            foreach my $setval ( @settings ) {
+
+                # split on the ','
+                my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+                $val = &decode_comment ( $val ) ;
+
+                &debug_cli(2,"addset s($set) v($val)");
+
+                # if the value is an array, we need to cast it accordingly
+                if ( $val =~ /^\[/ ) {
+                    $val =~ s/\[\s*//;
+                    $val =~ s/\s*\]//;
+                    my @avals = split ( /\s*,\s*/ , $val );
+
+                    &debug_cli(2,"addsar s($set) va(@avals)");
+
+                    # set this object
+                    $memobj->$set ( \@avals ) ;
+                }
+                else {
+                    # and set this on the object
+                    $memobj->$set ( $val ) ;
+                }
+
+            }
+        } # if settings
+        
+        # push the changes, if we were ok
+        &do_func("modify",$memobj);
+    }
+
+}
+
+=head2 Configure Member DHCP settings
+
+Set an option
+
+   conf member ns1.lab.com dhcp option 82="some data"
+
+Set a value
+    
+   conf member ns1.lab.com dhcp set ...
+
+   conf member ns1.lab.com dhcp set forwarders="[1.1.1.1,4.2.2.2]"
+
+=cut
+
+sub cli_mod_member_dhcp {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $member)  = $line =~/configure member (\S+)/ ;
+    my @options  = $line =~/ option (\S+)/g ;
+    my @settings  = $line =~/ set (\S+)/g ;
+
+    &debug_cli (2,"medhcp ip($member) s(@settings)");
+
+    # first get the member
+    my %opthash = (
+          "object" => "Infoblox::Grid::Member::DHCP",
+          "name" => $member ,
+    );
+    my ( $memobj ) = &do_func("get", %opthash );
+
+    # make some changes, if we have a member
+    if ( $memobj ) {
+
+        # options
+        if ( @options ) {
+
+            my @opt_list ;
+            foreach my $optval ( @options ) {
+                # set some custom options;
+                # split on the '='
+                my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
+        
+                &debug_cli(2,"addnet o($opt) v($val)");
+        
+                my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
+        
+                # only add options we recognise
+                if ( $opt_obj ) {
+                    push @opt_list , $opt_obj ;
+                }
+            }
+
+            # and set it
+            $memobj->options ( \@opt_list ) ;
+
+        }
+
+        # settings - these are additional fields that the API supports
+        if ( @settings ) {
+
+            foreach my $setval ( @settings ) {
+
+                # split on the ','
+                my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+                $val = &decode_comment ( $val ) ;
+
+                &debug_cli(2,"addset s($set) v($val)");
+
+                # if the value is an array, we need to cast it accordingly
+                if ( $val =~ /^\[/ ) {
+                    $val =~ s/\[\s*//;
+                    $val =~ s/\s*\]//;
+                    my @avals = split ( /\s*,\s*/ , $val );
+
+                    &debug_cli(2,"addsar s($set) va(@avals)");
+
+                    # set this object
+                    $memobj->$set ( \@avals ) ;
+                }
+                else {
+                    # and set this on the object
+                    $memobj->$set ( $val ) ;
+                }
+
+            }
+        } # if settings
+        
         # push the changes, if we were ok
         &do_func("modify",$memobj);
     }
@@ -5074,7 +5430,6 @@ sub cli_add_member {
 
     # create the object
     my $memobj = Infoblox::Grid::Member->new(
-#     my $memobj = Infoblox::Cluster::Member->new(
           "cluster" => $grid ,
           "name" => $member ,
           "gateway" => $gateway ,
@@ -5159,7 +5514,7 @@ sub cli_del_member {
     &debug_cli (2,"delme n($member) ip($ip) m($mask) gw($gateway)");
 
     # create the object
-    my $memobj = Infoblox::Cluster::Member->new(
+    my $memobj = Infoblox::Grid::Member->new(
           "cluster" => $grid ,
           "name" => $member ,
           "gateway" => $gateway ,
@@ -5383,7 +5738,7 @@ sub cli_add_grid_option {
 
     # else get the grid
     my %opthash = (
-          "object" => "Infoblox::Cluster::DHCP",
+          "object" => "Infoblox::Grid::DHCP",
 #           "cluster" => $gridname ,
           "name" => $gridname ,
     );
@@ -5449,7 +5804,7 @@ sub cli_show_grid_dhcp {
 
     # get the grid
     my %opthash = (
-          "object" => "Infoblox::Cluster::DHCP",
+          "object" => "Infoblox::Grid::DHCP",
           "cluster" => $gridname ,
     );
     my ( $grid ) = &do_func("get", %opthash );
@@ -5534,23 +5889,36 @@ sub cli_show_zone {
         my @zones = &do_func("search", %opthash );
     
         # we can't sort on oid, we have to sort on name
+        # and we don't want the view name to get in the way, so we will
+        # store this in a hash...
         my @forzones ;
         my @revzones ;
+        my %fzones ;
+
         foreach my $zone (@zones) {
           my $name = $zone->name();
+          my $view = $zone->{views}[0]->{name};
           if ( $name =~ /\/\d+$/ ) {
-             push @revzones , "  $name\n";
+             push @revzones , "  $name view $view\n";
           }
           else {
-             push @forzones , "  $name\n";
+             $fzones{$name} = $view ;
+#              push @forzones , "  $name view $view\n";
           }
         }
 
+        # now sort the forward zones
+        foreach my $fz ( sort by_dom keys %fzones ) {
+             push @forzones , "  $fz view $fzones{$fz}\n";
+        }
+            
+
+
         # now print them (sorted)
-        if ( $type eq "forward" ) { print sort @forzones ; }
+        if ( $type eq "forward" ) { print @forzones ; }
         elsif ( $type eq "reverse" ) { print sort by_ip @revzones ; }
         else { 
-           print sort @forzones ; 
+           print @forzones ; 
            print sort by_ip @revzones ; 
         }
     
@@ -5561,7 +5929,7 @@ sub cli_show_zone {
         if ( $name ) { $search = $name }
 
         my %opthash = (
-               "object" => "Infoblox::Cluster::DNS::Nsgroup", 
+               "object" => "Infoblox::Grid::DNS::Nsgroup", 
                "name" => $search, 
         );
 
@@ -6158,9 +6526,11 @@ sub cli_show_range {
         my @rangelist ;
         foreach my $nobj (@ranges) {
             my $net = $nobj->network();
+            my $mem = $nobj->member();
+            my $fail = $nobj->failover_assoc();
             my $fip = $nobj->start_addr();
             my $lip = $nobj->end_addr();
-            push @rangelist , "  $net : $fip - $lip\n";
+            push @rangelist , "  $net : $fip - $lip : $mem $fail\n";
         }
 
         # now print them (sorted)
@@ -6414,7 +6784,7 @@ sub cli_show_member {
 
     # get all grid members
     my %opthash = (
-          "object" => "Infoblox::Cluster::Member",
+          "object" => "Infoblox::Grid::Member",
           "name" => $gridname ,
 #           "cluster" => $gridname ,
     );
@@ -8156,6 +8526,29 @@ sub mask_to_cidr {
     return ( $clook{$mask} ) ;
 }
 
+sub by_dom {
+    # sort a zone name by it's domain
+    # this means we reverse the components, /then/ sort it
+    # this works the same way as by_ip but we use 'cmp' instead of '<=>'
+    # -1 means lower in the list
+    # +1 means higher in the list
+
+    my(@a) = reverse split(/[\.\/]/, $a);
+    my(@b) = reverse split(/[\.\/]/, $b);
+
+    # the arrays can be of different lengths
+    while (@a or @b) {
+
+#         if ( $a[0] ne $b[0] ) { print "   mism\n"; }
+#         else { print "   matt\n"; }
+
+        return $a[0] cmp $b[0] if ($a[0] ne $b[0]);
+        shift @a;
+        shift @b;
+    }
+    return 0;
+}
+
 sub by_ip {
     # used for sorting (by_ip)
 #     &abs_ip($a) <=> &abs_ip($b) ;
@@ -8374,6 +8767,7 @@ sub init_editline {
 
     # "\" clear the line ( can't use CRTL-C ?? )
     $el->parse('bind','\\\\','ed-start-over');
+    $el->parse('bind','^U','ed-start-over');
     
     # inline help
     $el->parse('bind','?','help');
@@ -8387,6 +8781,7 @@ sub init_editline {
     ########################################
     
     # load the history
+    $el->history_set_size ( 100 ) ;
     # $el->history_load(".clihistory");
 
     ########################################
@@ -8808,13 +9203,21 @@ my %COMMANDS = (
     'configure member' => { 
            words => "<name>", },
     'configure member <name>' => { 
-           words => "add delete modify", },
+           words => "dns dhcp add delete modify", },
     'configure member <name> add' => { 
            words => "permission", },
     'configure member <name> delete' => { 
            words => "permission", },
     'configure member <name> modify' => { 
            words => "permission", },
+# - member DNS
+    'configure member <name> dns' => { 
+           words => "set=<name=value>", 
+           func => "cli_mod_member_dns", },
+# - member DHCP
+    'configure member <name> dhcp' => { 
+           words => "option=<name=value>|set=<name=value>", 
+           func => "cli_mod_member_dhcp", },
 
 # - grid -
 
@@ -8954,10 +9357,10 @@ my %COMMANDS = (
 
 # - views -
     'configure zone add view <name>' => { 
-           words => "<cr> disabled",
+           words => "<cr> disabled|comment=<comment>",
            func => "cli_add_view", },
-    'configure zone add view <name> disabled' => { 
-           func => "cli_add_view", },
+#     'configure zone add view <name> disabled' => { 
+#            func => "cli_add_view", },
 
     'configure zone delete view <name>' => { 
            func => "cli_del_view", },
@@ -9086,6 +9489,7 @@ my %COMMANDS = (
     'configure zone <zone> delete txt' => { 
            words => "<name>=<value>", },
     'configure zone <zone> delete txt <name> <value>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_txt", },
 
     'configure zone <zone> delete mx' => { 
@@ -9180,7 +9584,7 @@ my %COMMANDS = (
            func => "cli_add_ptr", },
 
     'configure network' => { 
-           words => "add modify delete <n.n.n.n/mm> filter=<name>", },
+           words => "move=<n.n.n.n/mm> add modify delete <n.n.n.n/mm> filter=<name>", },
 
     'configure network delete' => { 
            words => "<n.n.n.n/mm> fixed=<ip> macfilter=<name> shared=<name>", },
@@ -9246,9 +9650,16 @@ my %COMMANDS = (
     'configure network add <n.n.n.n/mm>' => { 
            words => "<cr> template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
+
+# - modify networks
     'configure network modify <n.n.n.n/mm>' => { 
            words => "<cr> template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
+
+# - move networks
+    'configure network move <n.n.n.n/mm>' => { 
+           words => "member=<name>|failover=<value>",
+           func => "cli_move_network", },
 
     'configure network <n.n.n.n/mm>' => { 
            words => "split add delete modify join=</cidr>", },
@@ -9315,12 +9726,12 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
-           words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
+           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
     'configure network <n.n.n.n/mm> modify range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> modify range <ip> <ip>' => { 
-           words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
+           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
     # radius comm
@@ -9436,6 +9847,16 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.40  2009/01/19 19:50:01  horne
+# Changed 'Cluster' to 'Grid'
+# TAB completion and other commands
+# Extended attributes
+# Support for more zone types (stub)
+# Networks can now be added WITHOUT a default member
+# Move Networks
+# configure Member DNS settings
+# configure Member DHCP settings
+#
 # Revision 3.39  2008/12/11 22:16:49  horne
 # BugId: 8205
 # Reviewer(s): Geoff
