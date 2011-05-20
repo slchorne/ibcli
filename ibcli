@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.20 2007/02/08 04:55:01 horne Exp $ ;
-my $REV = q$Revision: 3.20 $;
-# $Date: 2007/02/08 04:55:01 $
+my $ID  = q$Id: ibcli,v 3.21 2007/03/28 19:47:28 horne Exp $ ;
+my $REV = q$Revision: 3.21 $;
+# $Date: 2007/03/28 19:47:28 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -96,7 +96,10 @@ my $REmac  = '[\w:]+';
 my $REvsix = $REmac ;
            # incomplete form of an IP address
            # match 'N' then praps '.N' then praps '.' or '.N'
-my $REpartip = '\d{1,3}(\.\d{1,3}){0,2}(\.|\.\d{1,3})?';
+           # with optional wildcards
+           # wow - that took a while to work out
+# my $REpartip = '\d{1,3}(\.\d{1,3}){0,2}(\*|\.|\.\d{1,3})+';
+my $REpartip = '(\d{1,3})(\.[\d*]{1,3}){0,2}(\.[\d*]{1,3})';
 
 # this is a hash of regexes to use for special keywords
 my %SPECOPS = (
@@ -112,6 +115,7 @@ my %SPECOPS = (
      '<comment>' => "^$REcomm\$",
      '<name,ip>' => "^$REzone,*($REpartip)*\$",
      '<ip,ip>'   => "$REpartip|,",
+#      '<ip,ip>'   => "^($REpartip)\$|($REpartip,)+($REpartip)\$",
      '<ip>'      => "^$REpartip\$",
                      # incomple n.n.n.n/mm
      '<n.n.n.n/mm>' => "^($REpartip|$REip\\\/|$REcidr)\$",
@@ -129,7 +133,7 @@ my %ALTERNATES = (
 
 ### ---  end ------------------ ###
 
-# [ ] connected
+# [-] connected
 my $ONLINE ;
 my $SESSION ;
 my $MASTER_IP ;
@@ -138,12 +142,24 @@ my $DEBUG = 0 ;
 my $LIST_COMM = 0 ;
 my $LIST_USAGE = 0 ;
 
+# $SDB is the hash of a local databasde backup
+my %SDB ;
+my $SDBCOUNT ;
+my $SDB_FILE ;
+
+# we have a schema that is set when we load a file
+my %SCHEMA ;
+my @PATH ;
+my $CWD ;
+my $COT ; # current object type
+
 my ( $S_ID , $S_PASS , $S_USER ) ;
 
 GetOptions (
     "s=s" => \$S_ID , 
     "p=s" => \$S_PASS ,
     "u=s" => \$S_USER ,
+    "b|f=s" => \$SDB_FILE ,
     "h|help" => \$LIST_USAGE ,
     "t+"  => \$LIST_COMM ,
     "V|version+"    => sub { print "\n$ID\n$REV\n\n"; exit ; },
@@ -156,6 +172,7 @@ Usage $NAME [-s <dns one IP> -u <user> -p <passwd>] [file.cf]
    -s <xxx>   # The name of the DNS One you are poking at
    -u <xxx>   # The username
    -p <xxx>   # That user's password
+   -b         # load a backup file
    -d N       # The debug level
    -V         # show the version #
    -t         # show the command table
@@ -172,6 +189,7 @@ Usage $NAME [-s <dns one IP> -u <user> -p <passwd>] [file.cf]
 my $PROMPT = 'server ? > ';
 
 # initialise the CLI table ( have to do this first or we can't dump them )
+my %ALIASES ;
 my %COMMANDS = &init_commands ;
 
 # initialise editline ( or not ) and return a handler
@@ -200,6 +218,13 @@ if ( $LIST_COMM ) {
       print "$comm\n";
    }
    exit ;
+}
+
+##########################################################
+
+# preload a backup file
+if ( $SDB_FILE ) {
+    &cli_load_db ( "configure file load $SDB_FILE" );
 }
 
 ##########################################################
@@ -321,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.20 $.
+$Revision: 3.21 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -528,6 +553,16 @@ sub process_line {
     # [ ] protect special chars
     $line =~ s/\*/\\\*/g;
 
+    # [ ] replace the line with any aliases
+    foreach my $amatch ( keys %ALIASES ) {
+        if ( $line =~ /^$amatch/ ) {
+            # replace the alias with the real string
+            my $arep = $ALIASES{$amatch} ;
+            $line =~ s/^$amatch/$arep/;
+        }
+    }
+
+
     &debug_cli (1,"");
     my ( $expanded , $error , $matchline ) = &expand_line ( $line ) ;
     &debug_cli (2,"linec m[$matchline]");
@@ -585,6 +620,11 @@ sub expand_line {
     # we do this by returning $expline and $matchline
 
     my ( $line ) = @_ ;
+
+    # remove protection of special chars
+    # that was inserted by the shell
+    $line =~ s/\\\*/\*/;
+
     &debug_cli (3,"linex input [$line]");
 
     # protect stuff in quotes by inserting '%20s'
@@ -1024,15 +1064,22 @@ sub expand_word {
              # and it has the right regex, ...
 
              # we lookup the regex to use based on the keyword
-             my $regex = $SPECOPS{$smatch};
-             &debug_cli (5,"wordx spe regex ($smatch) ( $regex ) ");
+             my $matchre = $SPECOPS{$smatch};
+#              &debug_cli (5,"wordx spe matchre ($smatch) ( $matchre ) ");
 
-             if ( grep ( /$smatch/ , @words ) and $inword =~ /$regex/ ) {
-                # delete nothing
-                &debug_cli (4,"wordx is spe ($smatch) [$inword]");
-                $expword = $inword ;
-                $havespecial ++ ;
-                $spectype = $smatch ;
+             # then we find a matching regex rule
+             # and if the matchre matches
+
+             if ( grep ( /$smatch/ , @words ) ) {
+                &debug_cli (5,"wordx re ($inword) =~ #$matchre# ($smatch) ");
+
+                if ( $inword =~ /$matchre/ ) {
+                    # delete nothing
+                    &debug_cli (4,"wordx is spe ($smatch) [$inword]");
+                    $expword = $inword ;
+                    $havespecial ++ ;
+                    $spectype = $smatch ;
+                }
              }
           }
 
@@ -1079,9 +1126,9 @@ sub do_func {
     my ( $method , @data ) = @_ ;
 #     &debug_cli(1,"do_func ($method)");
 
-    # [ ] format the data for pretty printing
+    # format the data for pretty printing
     if ( $DEBUG >= 2 ) {
-        &debug_cli (3,"obj in -----------");
+        &debug_cli (3,"obj in ----------- ($method)");
         print Dumper ( \@data ) ;
     }
 
@@ -1238,10 +1285,6 @@ Import a reverse zone
 
 sub cli_add_zone {
 
-    # [ ] modify zone
-    # [ ] add nameserver
-    # [ ] remove nameserver
-
     # essentially all options are passed as name value pairs
     # 
     my ( $line ) = @_ ;
@@ -1300,7 +1343,7 @@ sub cli_add_zone {
        }
 
        $obj->forward_to( \@fwd_svrs ) ;
-       # [ ] and add the right members...
+       # [x] and add the right members...
 
         # find secondaries
         my @memlist ;
@@ -1522,6 +1565,15 @@ Don't know the zones ? Then just leave it NULL
 
    conf zone "" add host test.foo.com 1.2.3.4
 
+Add hosts with multiple ip addresses. seperate the values with a ','
+
+   conf zone foo.com add host test 1.2.3.4,1.2.3.5
+
+Add hosts with multiple ip addresses and mac addresses, append the
+mac address with ':<mac>' to the ipaddress
+
+   conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03,1.2.3.5
+
 Adding hosts with IPAM information ( quotes may be required )
 You add multiple fields with additional 'info <name=value>' pairs
 
@@ -1534,10 +1586,13 @@ sub cli_add_host {
     my ( $line ) = @_ ;
 
     # get the args from the line
+#     my ( $host , $ip ) = $line =~/add host (\S+) (\S+)/ ;
+    my ( $type , $host ) = $line =~/(add|modify) host (\S+)/ ;
+    my ( $j , $ip ) = $line =~/(add|modify) host \S+ ($REip\S*)/ ;
+
     my ( $zone )     = $line =~/zone (\S+)/ ;
     my ( $vname )     = $line =~/view (\S+)/ ;
     my ( $mac )     = $line =~/mac (\S+)/ ;
-    my ( $host , $ip ) = $line =~/add host (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     my ( $disable ) = $line =~/add host \S+.* \b(disabled)\b/ ;
     my ( $ttl )     = $line =~/ttl (\d+)/ ;
@@ -1549,23 +1604,77 @@ sub cli_add_host {
 #     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
 
+    # [ ] should be a function
     $host =~ s/"//g;
     $zone =~ s/"//g;
-
     my $name ;
-#     my $name = join ( "." , ( $host , $zone ) ) ;
-# 
     if ( $host and $zone ) { $name = "$host.$zone"; }
     elsif ( $host and ! $zone ) { $name = "$host"; }
     else { $name = $zone }
 
-    my @ips = split(',', $ip) ;
+    &debug_cli(1,"addh t($type) n($name) ip($ip) d($disable) c($comment) v($vname)");
 
+    my $obj ;
     # create the object
-    my $obj = Infoblox::DNS::Host->new (
+    if ( $type eq "modify" ) {
+        # this might become a subroutine
+        # get the host 
+        my %opthash = (
+            "object" => "Infoblox::DNS::Host", 
+            "name" => $name
+        );
+        my @hosts = &do_func("get", %opthash );
+
+        if ( $#hosts > 0 ) {
+            # we found too many
+            my $list = &dump_summ ( "name" , @hosts );
+            print "  More than 1 host found : $list\n";
+            # exit here
+            return
+        }
+        else {
+            $obj = shift @hosts ;
+        }
+
+    }
+    else {
+        # new host object
+        $obj = Infoblox::DNS::Host->new (
                   "name" => $name,
-                  "ipv4addrs" => \@ips,
-    );
+        );
+
+        # force the type
+        $type = "add" ;
+    }
+
+    # add the ip addresses
+    my @ips = split(',', $ip) ;
+    
+    # look for fixed addresses in the iplist
+    my @iplist ;
+    foreach my $ipv ( @ips ) {
+        if ( $ipv =~ /:/ ) {
+            # we need to make a fixed addr
+            my ( $fip , $mac )  = $ipv =~ /($REip):(\S+)/ ;
+            my $fobj = Infoblox::DHCP::FixedAddr->new (
+                        "ipv4addr" => $fip ,
+                        "mac" => $mac ,
+                        );
+            # add the ip to the list
+            push @iplist , $fobj ;
+        }
+        else {
+            # add the ip to the list
+            push @iplist , $ipv ;
+        }
+
+
+    }
+
+    # everything here is conditional zos we may
+    # be in modify mode
+
+    if ( @ips ) { $obj->ipv4addrs ( \@iplist ); }
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
@@ -1580,7 +1689,7 @@ sub cli_add_host {
         $obj->views ( [ $view ] ) ;
     }
 
-    &debug_cli(1,"addh n($name) n($ip) d($disable) c($comment) v($vname)");
+    # [ ] make this a function for modify
 
     # now add IPAM info
     foreach my $info ( @ipam ) {
@@ -1600,8 +1709,8 @@ sub cli_add_host {
         $obj->$name ( $cvalue );
     }
 
-    # addit
-    &do_func("add",$obj);
+    # addit ( the method is defined in $type );
+    &do_func($type,$obj);
 
 }
 
@@ -1618,13 +1727,19 @@ sub cli_del_host {
     my ( $zone )     = $line =~/zone (\S+)/ ;
     my ( $host ) = $line =~/host (\S+)/ ;
 
-    my $name="$host.$zone";
+    $host =~ s/"//g;
+    $zone =~ s/"//g;
+    my $name ;
+    if ( $host and $zone ) { $name = "$host.$zone"; }
+    elsif ( $host and ! $zone ) { $name = "$host"; }
+    else { $name = $zone }
 
-    &debug_cli(1,"delh n($host.$zone) ");
+
+    &debug_cli(1,"delh n($name) ");
 
     # create the object
     my $obj = Infoblox::DNS::Host->new (
-                  "name" => "$host.$zone",
+                  "name" => "$name",
     );
 
     # addit
@@ -2041,6 +2156,12 @@ Add a network with comments (comments must come last)
 
    conf network add 1.1.1.0/24 comment "comment string"
 
+Add a network and set any additional parameters. (the setting
+must match a method in the API)
+
+   conf network add 1.1.1.0/24 set <method=value>
+   conf network add 1.1.1.0/24 set enable_ddns=FALSE
+
 =cut
 
 # direct options :
@@ -2058,8 +2179,10 @@ sub cli_add_network {
     my ( $parent )  = $line =~/ parent (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my ( $addrev ) = $line =~/ (addreverse)/ ;
+    my ( $disable ) = $line =~/\b(disabled)\b/ ;
 
     my @options  = $line =~/ option (\S+)/g ;
+    my @settings  = $line =~/ set (\S+)/g ;
     my @members  = $line =~/ member (\S+)/g ;
 
     # de-urlencode the comment string
@@ -2080,6 +2203,8 @@ sub cli_add_network {
     if ( $addrev ) {
         $net->auto_create_reversezone ( "TRUE" );
     }
+    # disabled
+    if ( $disable ) { $net->disable ( "TRUE" ) }
 
     # members :
     if ( @members ) {
@@ -2107,7 +2232,7 @@ sub cli_add_network {
        my @opt_list ;
        foreach my $optval ( @options ) {
           # set some custom options;
-          # split on the ','
+          # split on the '='
           my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
    
           &debug_cli(2,"addnet o($opt) v($val)");
@@ -2122,6 +2247,23 @@ sub cli_add_network {
        }
 
        $net->options ( \@opt_list ) ;
+
+    }
+
+    # settings - these are additional fields that the API supports
+    if ( @settings ) {
+
+       my @set_list ;
+       foreach my $setval ( @settings ) {
+          # set some custom options;
+          # split on the ','
+          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addnet s($set) v($val)");
+   
+          # and set this on the object
+          $net->$set ( $val ) ;
+       }
 
     }
 
@@ -2602,6 +2744,10 @@ You can also add exclusions
 
    conf net 10.1.1.1/24 add range 10... exclude 1.1.1.2,1.1.2.5
 
+You can also add filters to a range (multiples are allowed)
+
+   conf net 10.1.1.1/24 add range 10... macfilter <name>=<permission>
+
 =cut
 
 sub cli_add_dhcp_range {
@@ -2619,9 +2765,10 @@ sub cli_add_dhcp_range {
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
 
-    # exclusions
+    # arrays
     my @exclude  = $line =~/ exclude (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
+    my @macfilters  = $line =~/ macfilter (\S+)/g ;
 
     &debug_cli (1,"addrng n($network) s($fip) e($lip) o(@options)");
     &debug_cli (1,"addrng n($network) m($member) c($comment) f($failover)");
@@ -2683,14 +2830,36 @@ sub cli_add_dhcp_range {
     }
 
 
+    # filters
+    if ( @macfilters ) {
+
+       my @filters ;
+       foreach my $filter ( @macfilters ) {
+          # split on the '='
+          my ( $fname , $perm ) = $filter =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addfil f($fname) p($perm)");
+   
+          my $fil_obj = Infoblox::DHCP::FilterRule::MAC->new(
+                            filter_name => $fname,
+                            permission => $perm,
+                            );
+
+          push @filters , $fil_obj ;
+       }
+
+       $obj->filters ( \@filters ) ;
+
+    }
+
     # options
     if ( @options ) {
 
        my @opt_list ;
        foreach my $optval ( @options ) {
           # set some custom options;
-          # split on the ','
-          my ( $opt , $val ) = $optval =~  /^(.*?),(.*)/ ;
+          # split on the '='
+          my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
    
           &debug_cli(2,"addrng o($opt) v($val)");
    
@@ -2925,6 +3094,49 @@ sub cli_add_user {
 
 }
 
+# showing users
+
+=head2 Showing users and groups
+
+   show admin user <name>
+
+   show admin admin_group <name>
+
+=cut
+
+sub cli_show_admin {
+
+    my ( $line ) = @_ ;
+
+    my ( $type , $name ) = $line =~/^show admin (\S+) (\S+)/ ;
+
+    my %opthash ;
+
+    # do we get all values
+    my $search = ".*";
+    # or just one value
+    if ( $name ) { $search = $name ; }
+
+    if ( $type eq "user" ) {
+            %opthash = (
+                "object" => "Infoblox::Grid::Admin::User",
+                "name" => $search ,
+            );
+    }
+    else {
+            %opthash = (
+                "object" => "Infoblox::Grid::Admin::Group",
+                "name" => $search ,
+            );
+    }
+
+    my ( @results ) = &do_func("get", %opthash );
+
+    # walk the results
+    &dump_object ( @results ) ;
+
+}
+
 
 # global grid settings
 
@@ -3080,7 +3292,10 @@ sub cli_show_member {
     # get the args from the line
     ( my $gridname)  = $line =~/show grid (\S+)/ ;
 
-    my ( $show_mems , $member ) = $line =~/(member) (\S+)/ ;
+    my ( $show_mems ) = $line =~/\b(member)\b/ ;
+    my ( $member ) = $line =~/member (\S+)/ ;
+
+    &debug_cli (2,"sgm g($gridname) sm($show_mems) m($member)");
 
     # get all grid members
     my %opthash = (
@@ -3089,16 +3304,40 @@ sub cli_show_member {
 #           "cluster" => $gridname ,
     );
 
+    # get all members
+    if ( $show_mems ) {
+        $opthash{'name'} = '.*'
+    }
+
+    # or get a member
     if ( $member ) {
         # then be specific
         $opthash{'name'} = $member ;
     }
 
-    my ( $grid ) = &do_func("get", %opthash );
+#     my ( $grid ) = &do_func("get", %opthash );
+    my @mems = &do_func("search", %opthash );
 
-    if ( $grid ) {
-        &dump_object ( $grid ) ;
-    }
+    # for some reason search seems to be broken,
+    # so we will just filter after the search{}.
+
+#     if ( $grid ) {
+    &dump_object ( @mems ) ;
+
+#     if ( @mems ) {
+#         foreach my $mobj ( @mems ) {
+#             my $mname = $mobj->name();
+# 
+#             # just 1 member
+#             if ( $member ) {
+#                 next unless $member eq $mname ;
+#             }
+# 
+#             print "---\nMember : $mname\n";
+#             &dump_object ( $mobj ) ;
+# 
+#         }
+#     }
 
 }
 
@@ -3368,6 +3607,12 @@ Show just 1 zone
 
     show zone foo.com
 
+Show NameServer Groups
+
+    show zone nsgroup
+
+    show zone nsgroup <name>
+
 =cut
 
 
@@ -3379,9 +3624,10 @@ sub cli_show_zone {
 
     # get the args from the line
     my ( $type ) = $line =~/ zone (\S+)/ ;
+    my ( $name ) = $line =~/ zone \S+ (\S+)/ ;
     my ( $view ) = $line =~/ view (\S+)/ ;
 
-    &debug_cli(2,"showz t($type)");
+    &debug_cli(1,"showz t($type)");
 
     # we can get either all forward, rev or just a zone
     if ( !$type or $type eq "forward" 
@@ -3422,6 +3668,21 @@ sub cli_show_zone {
            print sort by_ip @revzones ; 
         }
     
+    }
+    elsif ( $type eq "nsgroup" ) {
+        # get nsgroup info
+        my $search = ".*" ;
+        if ( $name ) { $search = $name }
+
+        my %opthash = (
+               "object" => "Infoblox::Cluster::DNS::Nsgroup", 
+               "name" => $search, 
+        );
+
+        my @groups = &do_func("search", %opthash );
+
+        &dump_object ( @groups ) ;
+
     }
     else {
         # specific zone
@@ -3520,10 +3781,8 @@ sub cli_show_host {
            "name" => $fqdn
     );
     
-    my ( $host ) = &do_func("get", %opthash );
-    
-    &dump_object ( $host ) ;
-
+    my @hosts = &do_func("search", %opthash );
+    &dump_object ( @hosts ) ;
 }
 
 =head2 Showing leases
@@ -3546,8 +3805,8 @@ sub cli_show_lease {
 
     # is it IP or mac...
     my $stype ;
-    if ( $item =~ /$REip/ ) { $stype = "ipv4addr" }
-    else { $stype = "mac" }
+    if ( $item =~ /:/ ) { $stype = "mac" }
+    else { $stype = "ipv4addr" }
 
     &debug_cli(2,"showl l($item) t($stype)");
 
@@ -3557,33 +3816,26 @@ sub cli_show_lease {
            $stype => $item,
     );
 
-    my @leases = &do_func("get", %opthash );
+    my @leases = &do_func("search", %opthash );
 
-    foreach my $lease ( @leases ) {
-       # format and pretty print
-       foreach my $k ( qw( client_hostname mac ipv4addr
-                           starts ends 
-                           cltt tsfp tstp 
-                           binding_state next_binding_state ) ) {
+    &dump_object ( @leases ) ;
 
-         my $val = $lease->$k ;
-         # clenasing
-         $val =~ s/&quot;/"/g;
-         print "  $k = \t$val\n";
-
-       }
-
-    }
-
-#     my @netlist ;
-#     foreach my $net (@nets) {
-#       my $name = $net->name();
-#       push @netlist , "  $name\n";
+#     foreach my $lease ( @leases ) {
+#        # format and pretty print
+#        foreach my $k ( qw( client_hostname mac ipv4addr
+#                            starts ends 
+#                            cltt tsfp tstp 
+#                            binding_state next_binding_state ) ) {
+# 
+#          my $val = $lease->$k ;
+#          # clenasing
+#          $val =~ s/&quot;/"/g;
+#          print "  $k = \t$val\n";
+# 
+#        }
+# 
 #     }
 
-    # now print them (sorted)
-#     print sort @netlist ; 
-    
 }
 
 =head2 Showing networks
@@ -3607,7 +3859,8 @@ sub cli_show_network {
 
     # do we get all nets
     my $search = ".*";
-    # or just one net
+
+    # or a specific list
     if ( $net ) { $search = $net ; }
 
     # get all the networks
@@ -3620,19 +3873,104 @@ sub cli_show_network {
 
     # dump the network or all the list
     if ( $net ) {
-        &dump_object ( shift @nets ) ;
+#         &dump_object ( shift @nets ) ;
+        &dump_object ( @nets ) ;
     }
     else {
+        # sput a sumary list
 
         my @netlist ;
         foreach my $nobj (@nets) {
             my $name = $nobj->network();
+
+
+            # get the membership as well
+            foreach my $sobj ( @{ $nobj->{'members'} } ) {
+                my $sname = $sobj->{'name'};
+                my $ip = $sobj->{'ipv4addr'};
+                my $mname = sprintf ( "%s(%s)", $sname,$ip ) ;
+                $name .= ", $mname";
+            }
+
             push @netlist , "  $name\n";
+
         }
 
         # now print them (sorted)
         print sort @netlist ; 
     }
+    
+}
+
+=head2 Showing network failover
+
+   show network failover
+
+=cut
+
+sub cli_show_failover {
+    #
+    # try and show a failover
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $net ) = $line =~/ network (\S+) failover/ ;
+
+    &debug_cli(2,"netfail n($net)");
+
+    # do we get all nets
+    my $search = ".*";
+    # or just one net
+    if ( $net ) { $search = $net ; }
+
+    # get all the networks
+    my %opthash = (
+           "object" => "Infoblox::DHCP::FailOver", 
+           "name" => $search,
+    );
+
+    my @results = &do_func("search", %opthash );
+
+    # dump the network or all the list
+    &dump_object ( @results ) ;
+    
+}
+
+=head2 Showing network statistics
+
+   show network statistics
+
+   show network 161.245.254.128/25 statistics
+
+=cut
+
+sub cli_show_netstats {
+    #
+    # try and shopw a network
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $net ) = $line =~/ network (\S+)/ ;
+
+    &debug_cli(2,"netstat n($net)");
+
+    # do we get all nets
+    my $search = ".*";
+    # or just one net
+    if ( $net ) { $search = $net ; }
+
+    # get all the networks
+    my %opthash = (
+           "object" => "Infoblox::DHCP::Statistics", 
+           "network" => $search,
+    );
+
+    my @nets = &do_func("get", %opthash );
+
+    # dump the first stat in the list (they are all the same)
+    &dump_object ( shift @nets ) ;
     
 }
 
@@ -3964,7 +4302,7 @@ sub cli_download_dhcp {
     # get the args from the line
     ( my $dest)  = $line =~/dhcp_conf (\S+)/ ;
     ( my $member)  = $line =~/member (\S+)/ ;
-    ( my $type)  = $line =~/(expert_file)/ ;
+    ( my $type)  = $line =~/(export_dhcp_conf)/ ;
 
 
     # set the defaults ;
@@ -3974,14 +4312,16 @@ sub cli_download_dhcp {
 
     # pick the member
     if ( $member ) {
-        $opthash{'member'} = $member ;
+#         $opthash{'member'} = $member ;
+        $opthash{'virtual_ip'} = $member ;
     }
     else {
-        $opthash{'member'} = $MASTER_IP ;
+#         $opthash{'member'} = $MASTER_IP ;
+        $opthash{'virtual_ip'} = $MASTER_IP ;
     }
 
     # pick the file type
-    if ( $type eq "expert_file" ) {
+    if ( $type eq "export_dhcp_conf" ) {
         $opthash{"type"} = "dhcp_expert_mode_config",
     }
     else {
@@ -3996,7 +4336,7 @@ sub cli_download_dhcp {
     print "DONE\n";
 }
 
-=head2 upload the DHCP configuration
+=head2 Upload the DHCP expert mode configuration
 
     upload dhcp_conf <file>
 
@@ -4012,14 +4352,15 @@ sub cli_upload_dhcp {
     my %opthash = (
           "path" => $dest ,
           "type" => "dhcp_expert_mode_config",
-#           "member" => $member,
     );
 
     # pick the member
     if ( $member ) {
-        $opthash{'member'} = $member ;
+#         $opthash{'member'} = $member ;
+        $opthash{'virtual_ip'} = $member ;
     }
     else {
+#         $opthash{'virtual_ip'} = $MASTER_IP ;
         $opthash{'member'} = $MASTER_IP ;
     }
 
@@ -4029,6 +4370,393 @@ sub cli_upload_dhcp {
     &do_func(@function);
 
     print "DONE\n";
+}
+
+=head2 Browse and load a datbase backup
+
+    configure file load <file>
+
+=cut
+
+sub cli_load_db {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $file)  = $line =~/load (\S+)/ ;
+
+    open ( DB , $file ) or print "Cannot load file '$file'\n";
+
+    # reset the count
+    $SDBCOUNT = 0 ;
+
+    # now read the onedb.xml and store it in a hash
+    while (<DB>) {
+
+        next if /^<DATABASE NAME/ ;
+
+        my ( $type ) = $_ =~ /NAME="__type" VALUE="([^"]+)"/;
+
+        my %rec = $_ =~ /NAME="([^"]+)" VALUE="([^"]+)"/g;
+
+        # delete file records
+        # for the sake of sanity, remove some fields
+        delete $rec{'oid'} ;
+
+        # save this in the hash
+        push @{ $SDB{$type} } , \%rec ;
+
+        $SDBCOUNT ++ ;
+
+        debug_cli(5,"sdb node ($type) ");
+
+    }
+
+    # also define a schema for moving around
+    # this is kinda funky because in some cases it is a node
+    # and in some cases we want to list actual DB objects
+    # sc list
+    %SCHEMA = (
+        grid => { 
+            '.com.infoblox.one.virtual_node' => {
+            },
+        },
+        dns => {
+            zones => {
+                '.com.infoblox.dns.zone' => {
+                    hosts => "",
+                    records =>"",
+                },
+            },
+            '.com.infoblox.dns.cluster_dns_properties' => {
+                '.com.infoblox.dns.member_dns_properties' => {
+                }
+            },
+        },
+        network => {
+            subnets => {
+                '.com.infoblox.dns.network' => {
+                    ranges => "",
+                    fixed_addr =>"",
+                },
+            },
+            shared_networks => {},
+            filters => {},
+        },
+        dhcp => { },
+        aaa => { },
+        admins => { },
+    );
+
+    # and set the pointer ;
+    $CWD = \%SCHEMA ;
+    
+    return ;
+
+}
+
+=head2 show the contents of a file
+
+To get the database summary
+
+    show file summary
+
+to lost all the nodes in a path
+
+    show file path <path>
+
+To show the details of a path
+
+    show file properties
+    show file properties <path>
+
+=cut
+
+# debug state
+sub debug_file {
+    # dump all types in the sdb
+    foreach my $type ( sort keys %SDB ) {
+        my $count = @{ $SDB{$type} };
+        print "$count\t$type\n";
+    }
+}
+sub debug_pwd {
+    print "otype($COT) path [@PATH]\n";
+    print Dumper ( $CWD ) ;
+}
+
+
+sub cli_show_file {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $type )  = $line =~/^show file (\S+)/ ;
+    ( my $value )  = $line =~/^show file \S+ (\S+)/ ;
+
+    # no do some simple things
+    if ( $type eq "summary" ) {
+        # dump a summary
+        print "    Total records in database: $SDBCOUNT\n";
+
+        # now walk all the vnodes
+        foreach my $obj ( @{ $SDB{'.com.infoblox.one.virtual_node'} } ) {
+            my $name = $obj->{'host_name'} ;
+            my $ip = $obj->{'virtual_ip'} ;
+            print "    Member : $name \t$ip\n";
+        }
+
+    }
+
+    # [ ] show file properties ( == cat )
+    if ( $type eq "properties" ) {
+        # show something
+        # show the CWD, 
+        # [ ] later accept an additional path
+        #     ( this requires object recognition, errk)
+#         if ( $value ) {
+#         }
+
+        # we use the current object type to get what we want
+        my $name = $PATH[-1];
+
+        # and call dumpsdb
+        &dump_sdb ( $name , $COT ) ;
+
+    }
+
+    # [ ] show file nodes ( == ls )
+    if ( $type eq "nodes" ) {
+
+        # do an ls of the current schema position
+        # from the CDW pointer
+        foreach my $node ( keys %{ $CWD } ) {
+            if ( $node =~ /com.infoblox/ ) {
+                # we either dump a set of DB objects
+                foreach my $obj ( sort @{ $SDB{$node} } ) {
+                    &list_sdb ( $node , $obj ) ;
+                }
+                # [ ] need to sort these
+            }
+            else {
+                # or we dump a list of nodes.
+                print "    $node\n";
+            }
+        }
+
+        # [ ] and somehow we push the stack if it is a node
+
+    }
+
+    # [ ] show file path ( == pwd )
+    if ( $type eq "path" ) {
+        my $pwd = join ( "/" , @PATH ) ;
+        print "    /$pwd\n";
+    }
+
+
+}
+
+sub list_sdb {
+    # print a name of an object
+    # (ls file) (ls list)
+    my ( $type , $obj ) = @_ ;
+
+    my $name ;
+    # and do some fudging
+    if ( $type eq ".com.infoblox.dns.zone" ) {
+
+        # we have to join parent and child
+        my $zone = join ( "." , reverse ( split ( /\./, $obj->{'zone'})));
+        $name = join ( "." , reverse ( split ( /\./, $obj->{'name'})));
+
+        $name = "$name.$zone";
+#         $name =  $obj->{'name'};
+    }
+
+    elsif ( $type eq ".com.infoblox.dns.cluster_dns_properties" ) {
+        # get the gridname ;
+        $name = $SDB{'.com.infoblox.one.cluster'}[$obj->{cluster}]->{name};
+    }
+
+    elsif ( $type eq ".com.infoblox.dns.member_dns_properties" ) {
+        # find this vnode
+        my ( $mem ) = &find_sdb ( $obj->{'virtual_node'} , 'virtual_oid' , 
+              @{ $SDB{'.com.infoblox.one.virtual_node'} } );
+        $name = $mem->{'host_name'};
+
+        # and hack this object to have a name
+    }
+
+    elsif ( $type eq ".com.infoblox.one.virtual_node" ) {
+        $name =  $obj->{'host_name'};
+    }
+    else {
+        $name =  $obj->{'name'};
+    }
+    print "    $name\n";
+}
+
+sub dump_sdb {
+    # dump a particular node in the database
+    my ( $search , $type ) = @_ ;
+
+    print "Properties for $search : ($COT)\n";
+
+    my @olist ;
+    # this gets really messy for different object types
+    if ( $type eq ".com.infoblox.dns.zone" ) {
+
+        # unravel the name back to the sdb version
+        my $name = join ( "." , reverse ( split ( /\./, $search )));
+
+        # go find it,
+        push @olist , &find_sdb ( $name , 'name' , @{ $SDB{$type} } );
+#         my ( $zone ) = &find_sdb ( $name , 'name' , @{ $SDB{$type} } );
+
+        # now find any nameservers
+        
+        push @olist , &find_sdb ( $name , 'zone' , 
+              @{ $SDB{'.com.infoblox.dns.bind_ns'} } );
+        push @olist , &find_sdb ( $name , 'zone' , 
+              @{ $SDB{'.com.infoblox.dns.bind_soa'} } );
+
+        push @olist , &find_sdb ( $name , 'zone' , 
+              @{ $SDB{'.com.infoblox.dns.zone_ext_primary'} } );
+
+        push @olist , &find_sdb ( $name , 'zone' , 
+              @{ $SDB{'.com.infoblox.dns.zone_cluster_secondary_server'} } );
+        push @olist , &find_sdb ( $name , 'zone' , 
+              @{ $SDB{'.com.infoblox.dns.zone_ext_secondary_server'} } );
+
+    }
+    elsif ( $type eq ".com.infoblox.dns.cluster_dns_properties" ) {
+        # we have to back-track the search string
+        # by getting the oid of the gridname
+        # which we ALWAYS assume is '0'
+        push @olist , &find_sdb ( '0' , 'cluster' , 
+              @{ $SDB{'.com.infoblox.dns.cluster_dns_properties'} } );
+
+        # and get the ACLS
+        push @olist , &find_sdb ( '0' , 'cluster_dns_properties' , 
+              @{ $SDB{'.com.infoblox.dns.cluster_rqacl_item'} } );
+
+
+    }
+    elsif ( $type eq ".com.infoblox.dns.member_dns_properties" ) {
+        push @olist , &find_sdb ( $search , 'virtual_node' , @{ $SDB{$type} } );
+    }
+    elsif ( $type eq ".com.infoblox.one.virtual_node" ) {
+        push @olist , &find_sdb ( $search , 'host_name' , @{ $SDB{$type} } );
+    }
+    else {
+        # generic object
+        push @olist , &find_sdb ( $search , 'name' , @{ $SDB{$type} } );
+    }
+
+    # print all the stuff to a single pager
+    open ( LESS , "| less" ) ;
+    foreach my $pobj ( @olist ) {
+        # print it out
+        print LESS Dumper ( $pobj ) ;
+    }
+    close LESS ;
+
+
+}
+
+sub find_sdb {
+    # this will search an array of objects and return any matches
+    my ( $search , $field , @olist ) = @_ ;
+
+    debug_cli(2,"find sdb ( $search , $field , @olist )");
+
+    my @results ;
+    foreach my $obj ( @olist ) {
+        # is the regex matches the named field
+#         if ( $obj->{$field} =~ /^$search$/ ) {
+        if ( $obj->{$field} =~ /$search$/ ) {
+            push @results , $obj ;
+        }
+    }
+
+    return @results ;
+
+}
+
+=head2 Change the path of the current node
+
+    conf file path /path/to/node
+
+=cut
+
+sub cli_set_path {
+
+    # conf file path xxx ( == cd )
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $newpath )  = $line =~/file path (\S+)/ ;
+
+    # then support '/' and absolute
+    if ( $newpath =~ /^\// ) {
+        # we just reset the CWD to the top
+        $CWD = \%SCHEMA ;
+        undef @PATH ;
+
+        # clean the input
+        $newpath =~ s/^\///;
+    }
+
+    # now break the path into args
+    foreach my $dir ( split /\// , $newpath ) {
+
+        debug_cli(2,"chdir ($dir) [$newpath]");
+
+        # support '..'
+        # we go up
+        if ( $dir eq ".." ) {
+            # go up
+            pop @PATH ;
+    
+            # and since we didn't maintain state,
+            # just walk back down to get the right node
+            $CWD = \%SCHEMA;
+            foreach my $n ( @PATH ) {
+                $CWD = $CWD->{$n};
+            }
+    
+        }
+        # relative 'foo'
+        # we go down ,
+        elsif ( $CWD->{$dir} ) {
+            $CWD = $CWD->{$dir};
+            # and push the stack
+            push @PATH , $dir;
+        }
+        elsif ( grep ( /com.infoblox/ , keys %{ $CWD } ) ) {
+            # this node contains DB objects, do the push
+            # by popping to the first dbobject in the stack
+            # [ ] we wil have the fix this later
+
+            my @dbtypes = keys %{ $CWD } ;
+
+            # find out where we should push down to
+                        # find out where we should push down to
+            my $ndir = shift @dbtypes ;
+            $CWD = $CWD->{$ndir};
+            # but we make the path look correct
+            push @PATH , $dir;
+
+            # and save the current object type
+            $COT = $ndir ;
+
+        }
+        else {
+            print "no such node : $dir\n";
+        }
+
+    };
+
+
 }
 
 
@@ -4041,11 +4769,36 @@ sub cli_upload_dhcp {
 sub decode_comment {
     # urldecode a comment string
     my ( $string ) = @_ ;
-    $string =~ s/%(..)/chr ( hex($1) )/ge;
+      $string =~ s/%(..)/chr ( hex($1) )/ge;
+    debug_cli(1,"dec comment ($string) ");
     return ( $string ) ;
 }
 
+sub dump_summ {
+    # return a summary by the named field
+    my ( $field , @olist ) = @_ ;
+
+    my @results ;
+    foreach my $obj ( @olist ) {
+        push @results , $obj->$field();
+    }
+#     print "   @results\n";
+    return ( "@results" );
+
+}
+
 sub dump_object {
+    # wrapper to hold arrays
+    foreach my $obj ( @_ ) {
+        if ( $#_ > 0 ) {
+            print "--- ---\n";
+        }
+        &dump_data ( $obj ) ;
+    }
+
+}
+
+sub dump_data {
     # pretty print an object
     my ( $obj ) = @_ ;
 
@@ -4062,19 +4815,31 @@ sub dump_object {
         # look for sub objects
         if ( $key eq "primary" 
              or $key eq "member"
+             or $key eq "secondary"
            ) {
             # get the name
             my $sobj = $obj->{$key} ;
             $data = $sobj->{'name'};
         }
+
+        # special handling for joining 2 objects
+        elsif ( $key eq "end_addr" 
+           ) {
+            # get the 2 values
+            $data = $obj->{'start_addr'} . " - " . $obj->{'end_addr'} ;
+            $key = "range";
+            delete $obj->{'start_addr'};
+        }
+
         # arrays by just a value
         elsif ( $key eq "ntp_access_list" 
              or $key eq "match_clients" 
              or $key eq "match_client_keys" 
              or $key eq "ntp_authentication_key" 
+             or $key eq "permission_list" 
              or $key eq "trap_receiver"
              or $key eq "nat_group_list"
-             or $key eq "ipv4addrs"
+#              or $key eq "ipv4addrs"
              or $key eq "aliases"
              ) {
 
@@ -4085,6 +4850,24 @@ sub dump_object {
 #             $data = join " " , @values ;
               
         }
+        # host ipaddress can have nested fixed addresses, arrg
+        elsif ( $key eq "ipv4addrs" ) {
+            my @values;
+            foreach my $ip ( @{ $obj->{$key} } ) {
+                if ( $ip =~ /HASH/ ) {
+                    my $fip = $ip->{'ipv4addr'};
+                    my $mac = $ip->{'mac'};
+                    push @values , "$fip,$mac";
+                }
+                else {
+                    push @values , $ip ;
+                }
+            }
+
+            # remember it
+            $data = "@values";
+        }
+
         # hash arrays by key 'ipv4addr'
         elsif ( $key eq "syslog_server"
              or $key eq "forward_to"
@@ -4115,7 +4898,7 @@ sub dump_object {
             $data = join " " , @values ;
               
         }
-        # hash arrays (ranges) by key 'start_address'
+        # hash arrays by key 'filters'
         elsif ( $key eq "filters" ) {
             my @values ;
             # find all the names only
@@ -4129,7 +4912,7 @@ sub dump_object {
             $data = join " " , @values ;
               
         }
-        # hash arrays (ranges) by key 'start_address'
+        # hash arrays (exclude_ranges) by key 'start_address'
         elsif ( $key eq "exclude" ) {
             my @values ;
             # find all the names only
@@ -4185,7 +4968,9 @@ sub dump_object {
                 if (! $val) {$val = $sobj->{'ipv4addr'} };
                 if (! $val) {$val = join ( "," , @{ $sobj->{'ipv4addrs'} } ) };
 
-                printf ( "%35s : %s = %s\n", $key , $name,$val ) ;
+                if ( $val ) {
+                    printf ( "%35s : %s = %s\n", $key , $name,$val ) ;
+                }
             }
         }
         else {
@@ -4194,6 +4979,9 @@ sub dump_object {
 
         # print it
         if ( $data ) {
+            # cleansed
+            $data =~ s/&quot;/"/g;
+
             printf ( "%30s : %s\n", $key , $data ) ;
         }
         
@@ -4334,6 +5122,7 @@ sub get_custom_options {
          "dhcp-requested-address" => "Option  50: dhcp-requested-address",
          "lease" => "Option  51: lease-time",
          "lease-time" => "Option  51: lease-time",
+         "lease_time" => "Option  51: lease-time",
          "default-lease-time" => "Option  51: lease-time",
          "max-lease-time" => "Option  51: lease-time",
          "dhcp-option-overload" => "Option  52: dhcp-option-overload",
@@ -4825,6 +5614,14 @@ sub init_commands {
 
 # comm list
 
+# aliases
+%ALIASES = (
+    pwd => "show file path",
+    cd => "configure file path",
+    ls => "show file nodes",
+    prop => "show file properties",
+    info => "show file properties",
+);
 
 my %COMMANDS = (
 
@@ -4844,7 +5641,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "server grid=<name> views lease zone host network range debug",  },
+           words => "file server grid=<name> admin views lease zone host network range debug",  },
 
     'help' => { 
            words => "all",
@@ -4852,8 +5649,21 @@ my %COMMANDS = (
     'help all' => { 
            func => "print_perldoc", },
 
+    'show file' => { 
+           words => "<cr> summary|nodes|path|properties",
+           func => "cli_show_file", },
+#     'show file properties' => { 
+#            words => "<cr> <name>",
+#            func => "cli_show_file", },
+#     'show file properties <name>' => { 
+#            func => "cli_show_file", },
+
     'show debug' => { 
-           words => "session commands",  },
+           words => "session commands file pwd",  },
+    'show debug pwd' => { 
+           func => "debug_pwd", },
+    'show debug file' => { 
+           func => "debug_file", },
     'show debug session' => { 
            func => "debug_commands", },
     'show debug commands' => { 
@@ -4862,33 +5672,43 @@ my %COMMANDS = (
     'show debug commands detailed' => { 
            func => "debug_commands", },
 
-# -gdhshow-
+# -gdhtodo-
 # [ ] port for readline
+
 # [ ] exit , bye , quit 
+
+# [ ] modify host
+# [ ] modify zone
+# [ ] add nameserver
+# [ ] remove nameserver
+
+# [ ] join network
+
 # [ ] show license
 # [ ] join member ( drop session, reconnect )
 # [ ] show failover
 # [ ] show filter xxx
-# [x] show grid xxx
-# [ ] show grid xxx dns nsgroup
 # [ ] show grid xxx dhcp
-# [ ] show grid xxx member
-# [ ] show grid xxx member yyyy
+# [x] show grid xxx
+# [x] show zone nsgroup
+# [x] show grid xxx member
+# [x] show grid xxx member yyyy
 # [x] show views
 # [x] show range nnn
 # [x] show network
 # [x] show network xxx
 #     list options and ranges
-# [ ] show network xxx stats
+# [x] show network xxx stats
 #     Infoblox::DHCP::Statistics
-# [ ] show network xxx range yyy
+# [x] show network xxx range yyy
 #     Infoblox::DHCP::Range
-#     [ ] Infoblox::DHCP::ExclusionRange
+#     [x] Infoblox::DHCP::ExclusionRange
 #     [ ] Infoblox::DHCP::FilterRule
 # [x] show network xxx fixed
 # [x] show network xxx fixed yyy
 # [x] show zone (fqdn)
 # [x] show host (fqdn)
+# [x] show admins and groups
 
     'show grid <name>' => { 
            words => "<cr> member",  
@@ -4902,6 +5722,21 @@ my %COMMANDS = (
 #            words => "<name>",  
            func => "cli_show_member", },
 
+# show admins
+    'show admin' => { 
+           words => "user admin_group",  },
+    'show admin user' => { 
+           words => "<cr>|<name>",  
+           func => "cli_show_admin", },
+    'show admin admin_group' => { 
+           words => "<cr>|<name>",  
+           func => "cli_show_admin", },
+
+#     'show views <name>' => { 
+#            words => "<cr>",  
+#            func => "cli_show_view", },
+
+# show views
     'show views' => { 
            words => "<cr> <name>",  
            func => "cli_show_view", },
@@ -4916,15 +5751,28 @@ my %COMMANDS = (
            func => "cli_show_host", },
 
     'show zone' => { 
-           words => "<cr> <zone>|forward|reverse|view=<name>",  
+           words => "<cr> <zone>|forward|reverse|nsgroup|view=<name>",  
+           func => "cli_show_zone", },
+    'show zone nsgroup' => { 
+           words => "<name>",
+           func => "cli_show_zone", },
+    'show zone nsgroup <name>' => { 
            func => "cli_show_zone", },
 
+# show networks
     'show network' => { 
-           words => "<cr> <n.n.n.n/mm>",  
+           words => "<cr> <n.n.n.n/mm> failover",  
            func => "cli_show_network", },
+
+    'show network failover' => { 
+           func => "cli_show_failover", },
+
     'show network <n.n.n.n/mm>' => { 
-           words => "<cr> range fixed",  
+           words => "<cr> range fixed statistics",  
            func => "cli_show_network", },
+
+    'show network <n.n.n.n/mm> statistics' => { 
+           func => "cli_show_netstats", },
 
     'show network <n.n.n.n/mm> fixed' => { 
            words => "<cr> <ip> <mac>",  
@@ -4958,28 +5806,32 @@ my %COMMANDS = (
 
 # uploads
     'upload' => { 
-           words => "dhcp_conf",  },
+           words => "export_dhcp_conf=<file>",  },
 
-    'upload dhcp_conf' => { 
-           words => "<file>",  },
-    'upload dhcp_conf <file>' => { 
+    'upload export_dhcp_conf <file>' => { 
            words => "member=<ip>",
            func => "cli_upload_dhcp", },
-    'upload dhcp_conf <file> member <ip>' => { 
+    'upload export_dhcp_conf <file> member <ip>' => { 
            func => "cli_upload_dhcp", },
 
 # downloads
     'download' => { 
-           words => "dhcp_conf database",  },
+           words => "export_dhcp_conf=<file> dhcp_conf=<file> database",  },
+
     'download database' => { 
            words => "<file>",  },
     'download database <file>' => { 
            func => "cli_download_database", },
 
-    'download dhcp_conf' => { 
-           words => "<file>",  },
+#     'download dhcp_conf' => { 
+#            words => "<file>",  },
+
     'download dhcp_conf <file>' => { 
-           words => "member=<ip>|expert_file",
+           words => "member=<ip>|<cr>",
+           func => "cli_download_dhcp", },
+
+    'download export_dhcp_conf <file>' => { 
+           words => "member=<ip>|<cr>",
            func => "cli_download_dhcp", },
 
     'restart' => { 
@@ -4992,7 +5844,16 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "admin debug server zone network grid member" , },
+           words => "admin debug file server zone network grid member" , },
+
+    'configure file' => { 
+           words => "load=<file> path=<name>", },
+
+    'configure file load <file>' => { 
+           func => "cli_load_db", },
+
+    'configure file path <name>' => { 
+           func => "cli_set_path", },
 
     'configure admin' => { 
            words => "add delete ", },
@@ -5137,12 +5998,14 @@ my %COMMANDS = (
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
-           words => "add delete", },
+           words => "add delete modify", },
 
     'configure zone <zone> add' => { 
            words => "host a_record aaaa bulkhost cname ptr_record mx", },
     'configure zone <zone> delete' => { 
            words => "host a_record aaaa bulkhost cname ptr_record mx", },
+    'configure zone <zone> modify' => { 
+           words => "host=<name> a_record aaaa bulkhost cname ptr_record mx", },
 
     'configure zone <zone> delete host' => { 
            words => "<name>", },
@@ -5192,13 +6055,15 @@ my %COMMANDS = (
     'configure zone <zone> add mx <name> <priority> <name> comment <comment>' => { 
            func => "cli_add_mx", },
 
+    'configure zone <zone> modify host <name>' => { 
+           words => "<cr> <ip,ip>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
+           func => "cli_add_host", },
+
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
            words => "<cr> view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
-#     'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
-#            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
@@ -5285,7 +6150,7 @@ my %COMMANDS = (
            words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
     'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr> addreverse|comment=<comment>|member=<ip>|option=<name=value>",  
+           words => "<cr> addreverse|disabled|comment=<comment>|member=<ip>|set=<name>|option=<name=value>",  
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
@@ -5339,7 +6204,7 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
-           words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>",  
+           words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
    );
@@ -5414,6 +6279,12 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.21  2007/03/28 19:47:28  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: whole lot of features for walking a db file - work is still
+# incomplete
+#
 # Revision 3.20  2007/02/08 04:55:01  horne
 # BugId: 8205
 # Reviewer(s): Geoff (as usual)
