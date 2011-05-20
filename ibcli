@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.3 2004/12/18 12:53:46 horne Exp $
+#   $Id: ibcli,v 2.4 2004/12/20 15:57:03 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.3 $
-$Date: 2004/12/18 12:53:46 $
+$Revision: 2.4 $
+$Date: 2004/12/20 15:57:03 $
 ';
 $REV =~ s/\$//g;
 
@@ -213,13 +213,12 @@ The INFOBLOX CLI, a users guide
 
 *A guide for Infoblox SEs and other commandline junkies*
 
-=head1 Preamble
+=head1 Description
 
 This is 
-version 1.6 of the code, 
-there were previous versions that were
-even worse, this one is pretty bad, it really is beta code. But it is a
-start.
+$Revision: 2.4 $
+there were previous versions that were even worse, this one is pretty bad,
+it really is beta code.  But it is a start.
 
 So why do this, what is this CLI for ? Well there were a few primary
 reasons:
@@ -288,8 +287,6 @@ A complex example, multiple connections
    SERVER :: connecting
    [0] * 10.0.1.200 > set zone add biz.foo.com
    [0] * 10.0.1.200 > disconnect
-
-=head1 Description
 
 =head1 Installation
 
@@ -485,13 +482,13 @@ The CLI will produce the following perl script
    #
    
    ib_close_connection();
-   
+
    exit ;
- 
+
 =cut
 
-#####################################################################
-
+##########################################
+   
 # read the lines
 # the datastructure is kinda nested, but the command set is still small
 # enough to avoid some sort of lexical overhead subroutine
@@ -1061,7 +1058,12 @@ sub do_pub_func {
           my $ib_result = &$ib_call ( $PUB_SESS , $hash_ptr ) ;
           my $result = $ib_result->get_status_code();
           my $response = $ib_result->get_error_details();
-          &debug (1,"result [$result] ($response)");
+
+          if ( $result > 0 ) {
+             # We got error...
+#              &debug (1,"result [$result] ($response)");
+             print "failed [$result] $response";
+          }
 
        }
        else {
@@ -1746,8 +1748,7 @@ sub cli_add_network {
     &debug (2,"addn n($network) c($comment)");
 
     my %opthash ;
-#     $opthash{'network'}=$network;
-    $opthash{'address'}=$network;
+    $opthash{'network'}=$network;
     if ( $comment ) { $opthash{'comment'}=$comment; }
 
     # add to the default member
@@ -1771,8 +1772,7 @@ sub cli_remove_network {
     &debug (2,"remn n($network)");
 
     my %opthash ;
-#     $opthash{'network'}=$network;
-    $opthash{'address'}=$network;
+    $opthash{'network'}=$network;
 
     my @function=("remove_network",%opthash);
     &do_pub_func(@function);
@@ -2251,7 +2251,7 @@ sub remove_attrib_from_realm {
 
 }
 
-=head1 Adding a user to a realm
+=head2 Adding a user to a realm
 
    conf realm foo.com add user brian password xxxx
 
@@ -3282,7 +3282,7 @@ sub print_data {
     # format the hash
     my $p_hash = Dumper($hash);
     
-    my $fstring = "my \$result = $func ( \$SESSION ,\n$p_hash   );";
+    my $fstring = "  my \$result = $func ( \$SESSION ,\n$p_hash   );";
 
     if ( $MAKE ) {
        print "$pre_print\n";
@@ -3364,6 +3364,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.4  2004/12/20 15:57:03  horne
+# *** empty log message ***
+#
 # Revision 2.3  2004/12/18 12:53:46  horne
 # Ripped out all the recursive hash print stuff and replaced it with
 # Data::Dumper instead (much cleaner)
