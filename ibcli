@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.8 2006/06/18 04:44:50 horne Exp $ ;
-my $REV = q$Revision: 3.8 $;
-# $Date: 2006/06/18 04:44:50 $
+my $ID  = q$Id: ibcli,v 3.9 2006/07/14 23:25:43 horne Exp $ ;
+my $REV = q$Revision: 3.9 $;
+# $Date: 2006/07/14 23:25:43 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.8 $
+$Revision: 3.9 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -589,7 +589,10 @@ sub expand_line {
 
     my @cargs = $line =~ /"([^"]*)"?/g;
     foreach my $ori_comment ( @cargs ) {
-        (my $new_comment = $ori_comment) =~ s/\[|\]|\(|\)/!/g;
+#         (my $new_comment = $ori_comment) =~ s/\[|\]|\(|\)/!/g;
+        (my $new_comment = $ori_comment) =~ s/\[|\(/!/g;
+        $new_comment =~ s/\]|\)/!!/g;
+
         ( my $pcomment = $new_comment ) =~ s/\s/%20s/g;
         $ori_comment =~ s/\(/\\(/g;
         $ori_comment =~ s/\)/\\)/g;
@@ -959,19 +962,19 @@ sub expand_word {
     # was legal. this lets us to the expansion.
     # THEN, if we do expand the word, we undo it later.
 
-    my $altreal ;
-    my $altword ;
-    foreach my $realword ( keys %ALTERNATES ) {
-        my $alt = $ALTERNATES{$realword};
-	# if the real word is there, add an alternate
-        if ( grep ( /$realword$/ , @words ) ) {
-            push @words , $alt ;
-	    # save these
-	    $altreal = $realword ;
-	    $altword = $alt ;
-        }
-    }
-    &debug_cli (4,"wordx words [@words]");
+#     my $altreal ;
+#     my $altword ;
+#     foreach my $realword ( keys %ALTERNATES ) {
+#         my $alt = $ALTERNATES{$realword};
+# 	# if the real word is there, add an alternate
+#         if ( grep ( /$realword$/ , @words ) ) {
+#             push @words , $alt ;
+# 	    # save these
+# 	    $altreal = $realword ;
+# 	    $altword = $alt ;
+#         }
+#     }
+#     &debug_cli (4,"wordx words [@words]");
     # --WGDH--
 
     # generate abbreviations
@@ -1039,12 +1042,14 @@ sub expand_word {
     # WGDH--
     # now we UNDO the alternate words by substuting it back
     # and we have to match on the expansion
-    if ( $expword =~ /^$altword/ ) {
-	# do these in the right order...
-	$expword =~ s/$altword/$altreal/;
 
-        &debug_cli (4,"wordx alt ($inword)->[$expword]");
-    }
+#     if ( $expword =~ /^$altword/ ) {
+#         # do these in the right order...
+#         $expword =~ s/$altword/$altreal/;
+# 
+#         &debug_cli (4,"wordx alt ($inword)->[$expword]");
+#     }
+
     # --WGDH
 
     # return the results
@@ -1066,7 +1071,8 @@ sub do_func {
 
     # [ ] format the data for pretty printing
     if ( $DEBUG >= 2 ) {
-       print Dumper ( \@data ) ;
+        &debug_cli (3,"obj in -----------");
+        print Dumper ( \@data ) ;
     }
 
     my @ret_objects ;
@@ -1076,6 +1082,8 @@ sub do_func {
 
           # call by indirection
           @ret_objects = $SESSION->$method ( @data ) ;
+
+          print Dumper ( \@ret_objects ) if $DEBUG >= 2 ;
 
           # get errors
           my $result = $SESSION->status_code();
@@ -1715,7 +1723,7 @@ Add a network witwith a reverse zone
 
 Add a network with members
 
-   conf network add 1.1.1.0/24 member 1.1.1.2,1.1.1.4
+   conf network add 1.1.1.0/24 member 10.1.1.20,10.1.1.40
 
 Add a network with options
 
@@ -1745,6 +1753,10 @@ sub cli_add_network {
 
     my @options  = $line =~/ option (\S+)/g ;
     my @members  = $line =~/ member (\S+)/g ;
+
+    # rewrite the comment
+    $comment =~ s/\!\!/\)/g;
+    $comment =~ s/\!/\(/g;
 
     &debug_cli (1,"addnet n($network) p($parent) m(@members) o(@options) c($comment)");
 
@@ -2123,6 +2135,10 @@ As are adding the member
 
    conf net 10.1.1.1/24 add range 10... member 1.1.1.2
 
+You can also add exclusions
+
+   conf net 10.1.1.1/24 add range 10... exclude 1.1.1.2,1.1.2.5
+
 =cut
 
 sub cli_add_dhcp_range {
@@ -2137,10 +2153,13 @@ sub cli_add_dhcp_range {
     my ( $member )  = $line =~/ member (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
 
+    # [ ] exclusions
+    my @exclude  = $line =~/ exclude (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
 
     &debug_cli (1,"addrng n($network) s($fip) e($lip) o(@options)");
     &debug_cli (1,"addrng n($network) m($member) c($comment) f($failover)");
+    &debug_cli (1,"addrng n($network) e(@exclude)");
 
     # create the object
     my $obj = Infoblox::DHCP::Range->new (
@@ -2174,6 +2193,29 @@ sub cli_add_dhcp_range {
        }
     }
 
+    # exclusions
+    if ( @exclude ) {
+
+       my @exc_list ;
+       foreach my $excval ( @exclude ) {
+          # set some custom options;
+          # split on the ','
+          my ( $efip , $elip ) = $excval =~  /^(.*?),(.*)/ ;
+   
+          &debug_cli(2,"addrng e($efip) v($elip)");
+   
+          my $exc_obj = Infoblox::DHCP::ExclusionRange->new(
+                            start_address => $efip,
+                            end_address => $elip,
+                            );
+
+          push @exc_list , $exc_obj ;
+       }
+
+       $obj->exclude ( \@exc_list ) ;
+
+    }
+
 
     # options
     if ( @options ) {
@@ -2184,13 +2226,13 @@ sub cli_add_dhcp_range {
           # split on the ','
           my ( $opt , $val ) = $optval =~  /^(.*?),(.*)/ ;
    
-          &debug_cli(2,"addnet o($opt) v($val)");
+          &debug_cli(2,"addrng o($opt) v($val)");
    
           my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
           push @opt_list , $opt_obj ;
        }
 
-#        $net->options ( \@opt_list ) ;
+       $obj->options ( \@opt_list ) ;
 
     }
 
@@ -2331,6 +2373,154 @@ sub cli_del_macfilteraddr {
 
 }
 
+# global grid settings
+
+=head2 configure global Grid settings
+
+Add or remove access methods
+
+   conf grid <name> add remote_console_access
+   conf grid <name> delete  remote_console_access
+   conf grid <name> add support_access
+   conf grid <name> add lcd_input
+
+Modify some basic grid values
+
+   configure grid Infoblox modify grid_name My_Grid
+
+   configure grid Infoblox modify vpn_port 1194
+   configure grid Infoblox modify shared_secret test
+   configure grid Infoblox modify session_timeout 14400
+
+Add ntp servers ( and enable NTP at the same time )
+
+   configure grid Infoblox add ntp_server 1.1.1.1 ntp_server 2.2.2.2
+
+Disable the NTP service
+
+   configure grid Infoblox disable ntp
+
+=cut
+
+
+sub cli_mod_grid {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/configure grid (\S+)/ ;
+
+    ( my $timeout)  = $line =~/session_timeout (\S+)/ ;
+    ( my $vpn_port)  = $line =~/vpn_port (\S+)/ ;
+    ( my $secret)  = $line =~/shared_secret (\S+)/ ;
+    ( my $newname)  = $line =~/grid_name (\S+)/ ;
+
+    my (@ntp_servers) = $line =~/ ntp_server (\S+)/g ;
+
+    # find some booleans
+    my $rem_access ;
+    my $supp_access ;
+    my $lcd_input ;
+    my $use_ntp ;
+    $line =~/add remote_console_access/ and $rem_access = "TRUE" ;
+    $line =~/add support_access/ and $supp_access = "TRUE" ;
+    $line =~/add lcd_input/ and $lcd_input = "TRUE" ;
+    $line =~/delete remote_console_access/ and $rem_access = "FALSE" ;
+    $line =~/delete support_access/ and $supp_access = "FALSE" ;
+    $line =~/delete lcd_input/ and $lcd_input = "FALSE" ;
+
+    $line =~/enable ntp$/ and $use_ntp = "TRUE" ;
+    $line =~/disable ntp$/ and $use_ntp = "FALSE" ;
+
+    # first get the grid
+    my %opthash = (
+          "object" => "Infoblox::Cluster",
+          "name" => $gridname ,
+    );
+    my ( $grid ) = &do_func("get", %opthash );
+
+    &debug_cli (2,"modgr st($timeout) rc($rem_access) sa($supp_access)");
+    &debug_cli (2,"modgr lc($lcd_input) vpn($vpn_port) ss($secret)");
+
+    # make some changes, if we have a grid
+    if ( $grid ) {
+
+        if ( $timeout ) { $grid->session_timeout ( $timeout ) }
+        if ( $secret ) { $grid->secret ( $secret ) }
+        if ( $vpn_port ) { $grid->vpn_port ( $vpn_port ) }
+        if ( $newname ) { $grid->name ( $newname ) }
+
+        if ( $rem_access ) { $grid->remote_console_access ( $rem_access ) }
+        if ( $supp_access ) { $grid->support_access ( $supp_access ) }
+        if ( $lcd_input ) { $grid->lcd_input ( $lcd_input ) }
+        if ( $use_ntp ) { $grid->enable_ntp ( $use_ntp ) }
+
+        # Add NTP servers
+        if ( @ntp_servers ) {
+            my @ntp_list ;
+            foreach my $ntp ( @ntp_servers ) {
+                # normaal members
+                push @ntp_list , Infoblox::Cluster::NTPServer->new(
+                                "address" => $ntp ,
+                                authentication => "FALSE",
+                                );
+
+                &debug_cli (2,"modgr ntp($ntp)");
+
+                print "AAAA-----\n";
+                print Dumper ( \@ntp_list ) ;
+            }
+            $grid->ntp_server ( \@ntp_list ) ;
+            $grid->enable_ntp( "TRUE" );
+        }
+
+        # push the changes, if we were ok
+        &do_func("modify",$grid);
+    }
+
+}
+
+# global member settings
+
+=head2 configure Member settings
+
+Enable or Disable the NTP service
+
+   configure member 1.2.3.20 enable ntp
+   configure member 1.2.3.20 disable ntp
+
+=cut
+
+
+sub cli_mod_member {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $member)  = $line =~/configure member (\S+)/ ;
+
+    # find some booleans
+    my $use_ntp ;
+    $line =~/enable ntp$/ and $use_ntp = "TRUE" ;
+    $line =~/disable ntp$/ and $use_ntp = "FALSE" ;
+
+    # first get the member
+    my %opthash = (
+          "object" => "Infoblox::Cluster::Member",
+          "name" => $member ,
+    );
+    my ( $memobj ) = &do_func("get", %opthash );
+
+    &debug_cli (2,"modme ntp($use_ntp)");
+
+    # make some changes, if we have a grid
+    if ( $memobj ) {
+
+        if ( $use_ntp ) { $memobj->enable_ntp ( $use_ntp ) }
+
+        # push the changes, if we were ok
+        &do_func("modify",$memobj);
+    }
+
+}
 
 # [ ] dns settings
 
@@ -3612,7 +3802,7 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "debug server zone network grid dhcpfilter" , },
+           words => "debug server zone network grid member dhcpfilter" , },
 
     'configure debug' => { 
            words => "<num>", },
@@ -3628,13 +3818,56 @@ my %COMMANDS = (
            words => "password=<value>", 
            func => "cli_add_server", },
 
+    'configure member' => { 
+           words => "<name>", },
+
     'configure grid' => { 
            words => "<name>", },
 
+# GDH conf
+# [x] conf grid Infoblox modify session_timeout 6000
+# [x] conf grid Infoblox add remote_console_access
+# [x] conf grid Infoblox add support_access
+# [x] conf grid Infoblox add ntp_server <IP>
+# [-] conf grid Infoblox enable ntp
+#      ( grid props has some issues here )
+# [ ] conf member <name> enable ntp
+
+# - member -
+    'configure member <name>' => { 
+           words => "disable enable", },
+
+    'configure member <name> disable' => { 
+           words => "ntp|dns|dhcp",
+           func => "cli_mod_member", },
+
+    'configure member <name> enable' => { 
+           words => "ntp|dns|dhcp",
+           func => "cli_mod_member", },
+
+# - grid -
     'configure grid <name>' => { 
-           words => "add delete", },
+           words => "disable enable add delete modify", },
+
+    'configure grid <name> disable' => { 
+           words => "ntp|ntp_server",
+           func => "cli_mod_grid", },
+
+    'configure grid <name> enable' => { 
+           words => "ntp|ntp_server",
+           func => "cli_mod_grid", },
+
+    'configure grid <name> modify' => { 
+           words => "grid_name=<name>|session_timeout=<value>|vpn_port=<value>|shared_secret=<value>",
+           func => "cli_mod_grid", },
+
+    'configure grid <name> delete' => { 
+           words => "lcd_input|remote_console_access|support_access",
+           func => "cli_mod_grid", },
+
     'configure grid <name> add' => { 
-           words => "dns dhcp", },
+           words => "dns dhcp ntp_server=<ip>|lcd_input|remote_console_access|support_access",
+           func => "cli_mod_grid", },
     'configure grid <name> add dns' => { 
            words => "nsgroup=<name> acl", },
 
@@ -3850,7 +4083,7 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
-           words => "<cr> comment=<comment>|failover=<value>|member=<ip>|option=<name=value>",  
+           words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>",  
            func => "cli_add_dhcp_range", },
 
    );
@@ -3925,6 +4158,12 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.9  2006/07/14 23:25:43  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: added support for exclude ranges
+# Add lots of grid level features
+#
 # Revision 3.8  2006/06/18 04:44:50  horne
 # BugId: 8205
 # Reviewer(s): Geoff
