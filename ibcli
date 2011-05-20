@@ -47,9 +47,9 @@
 ###############################################################################
 
 
-# $Id: ibcli,v 1.6 2003/09/21 23:04:29 horne Exp $
-# $Revision: 1.6 $
-# $Date: 2003/09/21 23:04:29 $
+# $Id: ibcli,v 1.7 2003/09/22 19:24:30 horne Exp $
+# $Revision: 1.7 $
+# $Date: 2003/09/22 19:24:30 $
 #
 
 # Perl CGI common chunks
@@ -129,11 +129,17 @@ GetOptions(
       "d=s" => \$DEBUG ,
    );
 
+   #
+
+# check if we need to do any initial conections
 if ( $SERVER_ID ) { &add_server($SERVER_ID) }
 else              { $PROMPT = "no server > " ; }
 
 if ( $SERVER_PASS ) { &add_pass($SERVER_PASS) }
 
+#
+# are we interactive or in batch mode ?
+#
 if ( ! $CONFIG ) {
    print "CLI version\n";
    $CLI = 1 ;
@@ -161,7 +167,6 @@ while (<>) {
 
    $GOOD_COMMAND = 1 ;
    $SAVE_HIST = "" ;
-#    $NO_COMMAND   = 1;
 
    chomp ;
 
@@ -252,6 +257,17 @@ sub do_exit {
 # shift arg, once we've set up a new %commands hash
 # we just want to call shift_arg to do the rest of the processing
 #
+# THIS is the guts of the command line parser, for each ARG in a line
+# shift_arg looks at this word, does an apprev match, and if it is ok
+# then calles the hashed subroutine.
+#
+# The nice thing about this is that the subroutines can either be end
+# points (do this feature) or subroutines that set possibilities for the
+# next arg value. This has more power then putting ALL the commands in a
+# treed hash since we can jump around tween subs as much as we like
+#
+# [ you just have to keep track of the parser subroutines :-) ]
+#
 sub shift_arg {
 
    my ( $arg , %commands ) = @_ ;
@@ -288,6 +304,7 @@ sub shift_arg {
    }
 }
 
+# PARSER : show xxx
 sub show_commands {
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
@@ -298,11 +315,13 @@ sub show_commands {
    &shift_arg($arg,%commands);
 }
 
+# PARSER : set xxx
 sub set_commands {
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
                 'debug' => 'set_debug',
                 'server' => 'add_server',
+                'system' => 'system_comands',
                 'password' => 'add_pass',
                 'zone' => 'zone_commands',
                 'network' => 'network_commands',
@@ -311,6 +330,17 @@ sub set_commands {
 
 }
 
+# PARSER : set system xxx
+sub system_comands {
+   &debug (4,"sub = zone_commands");
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                "default" => 'erase_data',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : set zone xxx
 sub zone_commands {
    &debug (4,"sub = zone_commands");
    my ( $arg ) = shift @WORDS ;
@@ -323,6 +353,7 @@ sub zone_commands {
    &shift_arg($arg,%commands);
 }
 
+# PARSER : set network xxx
 sub network_commands {
    &debug (4,"sub = network_commands");
    my ( $arg ) = shift @WORDS ;
@@ -335,6 +366,33 @@ sub network_commands {
    &shift_arg($arg,%commands);
 }
 
+# PARSER : set network <n.n.n.n/mm> xxx
+sub mod_network {
+   &debug (4,"sub = mod_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+
+   my $arg  = shift @WORDS ;
+   my %commands = ( 
+                "split" => 'split_network',
+                "add" => 'add_to_network',
+                "remove" => 'remove_network',
+                "delete" => 'remove_network',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : set network <n.n.n.n/mm> add xxx
+sub add_to_network {
+   &debug (4,"sub = mod_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+
+   my $arg  = shift @WORDS ;
+   my %commands = ( 
+                "address" => 'add_network_ptr',
+                "network" => 'add_sub_network',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : set zone <zone> xxx
 sub mod_zone {
    &debug (4,"sub = mod_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
@@ -348,6 +406,7 @@ sub mod_zone {
 
 }
 
+# PARSER : set zone <zone> add xxx
 sub add_to_zone {
    &debug (4,"sub = add_to_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
@@ -362,6 +421,7 @@ sub add_to_zone {
    &shift_arg($arg,%commands);
 }
 
+# PARSER : set zone <zone> remove xxx
 sub remove_from_zone {
    &debug (4,"sub = remove_from_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
@@ -375,6 +435,7 @@ sub remove_from_zone {
    &shift_arg($arg,%commands);
 }
 
+# PARSER : default
 sub NOT_READY {
     print "***-  NOT IMPLEMENTED\n";
 }
@@ -406,6 +467,17 @@ sub do_ib_func {
 # actual ib_ functions.
 #
 ###########################################
+
+sub erase_data {
+
+    &err_print("ERASING ALL DATABASE data ...");
+
+    # we may want an 'are you sure here...'
+    my $function = "ib_erase_dns_data()";
+    &do_ib_func($function);
+
+    &err_print("DONE ");
+}
 
 sub add_host {
     my ( $zone , $host , $ip ) = @_ ;
@@ -553,6 +625,23 @@ sub remove_zone {
 
 }
 
+sub add_network_ptr {
+    my ( $parent , $ip , $host ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<n.n.n.n/mm> <host> <ip>")  ;
+       return ;
+    }
+    my ($net,$cidr) = split(/\//,$parent) ;
+    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"addnp n($net) m($mask) ip($ip) h($host)");
+
+    # ib_insert_oneway_ptr(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
+    my $func="ib_insert_oneway_ptr(\"$net\",\"$mask\",\"$ip\",\"$host\")";
+    &do_ib_func($func);
+
+}
+
 sub add_network {
     my ( $netarg , $type ) = @_ ;
     if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
@@ -590,6 +679,81 @@ sub add_network {
 
 }
 
+sub add_sub_network {
+    my ( $parg , $netarg , $type ) = @_ ;
+    if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
+    my $etype ;
+
+    #
+    # etype is the expanded version of whatever we typed for $type
+    # [ I've used this thrice now, can i make it a sub ?? ]
+    #
+    if ( $type ) {
+       my @opts = ( "authoritative",,"delegated","secondary");
+       my %optlist = abbrev ( @opts ) ;
+       $etype = $optlist{ lc($type) } ;
+
+       if ( ! $etype ) { 
+          &missing_arg(@opts);
+          return ;
+       }
+    }
+    else { ( $etype = "authoritative" ) ; }
+
+    #
+    # use the /cidr to find the mask etc etc
+    #
+    my ($net,$cidr) = split(/\//,$netarg);
+    my ($pnet,$pcidr) = split(/\//,$parg);
+    my $mask = &cidrfind($cidr) ;
+    my $pmask = &cidrfind($pcidr) ;
+
+    &debug (2,"addsn pn($pnet) pc($pmask) n($net) c($cidr) m($mask) ");
+
+    # add net now requires a bogus parent
+    # not that this will add it at the root level. you need to
+    # use add subnet for anything else
+    my $func="ib_insert_network(\"$net\",\"$mask\",\"$pnet\",\"$pmask\")";
+    &do_ib_func($func);
+
+}
+sub split_network {
+    #
+    # the second last arg of ib_split_network is a bitshift RELATIVE
+    # to the original mask, so there is some math involved
+
+    my($parent,$ncidr,$type) = @_ ;
+    my($pnet,$pcidr)= split(/\//,$parent );
+       $ncidr =~ s/\/// ;
+    my $pmask = &cidrfind($pcidr);
+    my $bitshift = $ncidr - $pcidr ;
+
+    &debug (2,"split net [$pnet] [$pcidr] [$ncidr] ($bitshift)\n");
+    &debug (1,"splitting network [$pnet , $pmask] to add [$bitshift] bits");
+
+    # check for optional args...
+    my $etype ;
+    if ( $type ) {
+       my @opts = ( "all","required");
+       my %optlist = abbrev ( @opts ) ;
+       $etype = $optlist{ lc($type) } ;
+
+       if ( ! $etype ) { 
+          &missing_arg(@opts);
+          return ;
+       }
+    }
+    else { ( $etype = "0" ) ; }
+    if ( $etype eq "required" ) { $etype = "1" }
+    if ( $etype eq "all" ) { $etype = "2" }
+
+    # ib_split_network("10.0.0.0", "255.255.0.0", 8);
+    my $func ;
+    $func="ib_split_network(\"$pnet\", \"$pmask\", \"$bitshift\",\"$etype\")";
+    &do_ib_func($func);
+
+}
+
 sub remove_network {
     my ( $netarg ) = @_ ;
     if ( ! $netarg ) { &missing_arg("<n.n.n.n/mm>") ; return }
@@ -604,10 +768,6 @@ sub remove_network {
     my $func="ib_remove_network(\"$net\",\"$mask\")";
     &do_ib_func($func);
 
-}
-
-sub mod_network {
-    print "MODIFY NET -  NOT IMPLEMENTED\n";
 }
 
 
@@ -960,6 +1120,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.7  2003/09/22 19:24:30  horne
+# *** empty log message ***
+#
 # Revision 1.6  2003/09/21 23:04:29  horne
 # added ambiguous commands
 # prints now wrapped for cli or batch
