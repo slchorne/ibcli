@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.29 2008/01/15 01:08:18 horne Exp $ ;
-my $REV = q$Revision: 3.29 $;
-# $Date: 2008/01/15 01:08:18 $
+my $ID  = q$Id: ibcli,v 3.30 2008/01/28 02:49:23 horne Exp $ ;
+my $REV = q$Revision: 3.30 $;
+# $Date: 2008/01/28 02:49:23 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -154,14 +154,18 @@ my $CWD ;
 my $COT ; # current object type
 
 my ( $S_ID , $S_PASS , $S_USER ) ;
+my $EXEC ;
+my $CGI ;
 
 GetOptions (
     "s=s" => \$S_ID , 
     "p=s" => \$S_PASS ,
     "u=s" => \$S_USER ,
+    "e=s" => \$EXEC ,
+    "w" => \$CGI ,
     "b|f=s" => \$SDB_FILE ,
     "h|help" => \$LIST_USAGE ,
-    "t+"  => \$LIST_COMM ,
+    "l+"  => \$LIST_COMM ,
     "V|version+"    => sub { print "\n$ID\n$REV\n\n"; exit ; },
     "d=s"     => \$DEBUG,
 );
@@ -173,6 +177,7 @@ Usage $NAME [-s <dns one IP> -u <user> -p <passwd>] [file.cf]
    -u <xxx>   # The username
    -p <xxx>   # That user's password
    -b         # load a backup file
+   -e         # run a sincle command
    -d N       # The debug level
    -V         # show the version #
    -t         # show the command table
@@ -227,10 +232,6 @@ if ( $SDB_FILE ) {
     &cli_load_db ( "configure file load $SDB_FILE" );
 }
 
-# GET/store the API version
-my $host = Infoblox::DNS::Host->new ("name" => "name",);
-my $CLIENT_REV = $host->{__version} ;
-
 ##########################################################
 
 # otherwise - we initialise and get going
@@ -239,7 +240,39 @@ if ( $S_ID and $S_PASS and $S_USER ) {
    &cli_add_server ( "configure server $S_ID user $S_USER password $S_PASS" ) ;
 }
 
+# GET/store the API version, after we've re-load the right perl modules
+my $host = Infoblox::DNS::Host->new ("name" => "name",);
+my $CLIENT_REV = $host->{__version} ;
+
 # main loop
+
+# CGI mode, drop a cgi header
+# [ ] do we want any authorisation ?
+if ( $CGI ) {
+    print "Content-Type: text/plain; charset=ISO-8859-1\n\n";
+}
+
+# load an initial config file
+# this is just batch mode sans the echo
+my $conf = ".$NAME.cf";
+if ( -f $conf ) {
+    open ( CF , $conf ) ;
+    while (<CF>) {
+
+        # skip comments, blanks
+        next if /^\s*#/;
+        next if /^$/;
+    
+        &process_line ( $_ ) ;
+    }
+}
+
+# [ ] exec mode
+# run a single command and exit
+if ( $EXEC ) {
+    &process_line ( $EXEC ) ;
+    exit ;
+}
 
 if ( @ARGV ) {
     # we are in batch mode
@@ -248,16 +281,18 @@ if ( @ARGV ) {
     $PROMPT = "" ;
     
     # read the file
-    while (<> ) {
+    while (<>) {
 
-        $PROMPT = "read line $.:" ;
-        # 
+
         # skip comments, blanks
         next if /^\s*#/;
         next if /^$/;
     
-        print "$PROMPT $_";
+#         $PROMPT = "read line $.:" ;
+#         print "$PROMPT $_";
     
+        print "read line $.: $_";
+
         &process_line ( $_ ) ;
 
     }
@@ -350,7 +385,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.29 $.
+$Revision: 3.30 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -479,6 +514,44 @@ Or you can also do this from the initial invocation:
 
     % ./ibcli -d 3
 
+=head1 Command line options
+
+=over
+
+=item -s <server>
+
+Connect to this server
+
+=item -u <username>
+
+Connect as this user
+
+=item -p <password>
+
+Connect with this password
+
+=item '-w'
+
+Print a CGI header instead of the normal header
+
+=item -e <command>
+
+Run a single command and exit. The command must be quoted (for obvious reasons). 
+For example
+
+  % ./ibcli -e 'show zone'
+
+=item -b|f <file>
+
+load a database backup file for browsing
+
+=back
+
+=head2 config file
+
+If ibcli finds a file in the current working dircetory called '.ibcli.cf' it will
+silently load and run the commands in that file. This is useful for doing things
+like auto connection to a server (in CGI mode).
 
 =head1 Other Gritty Details
 
@@ -1245,6 +1318,7 @@ sub cli_del_view {
 #
 # shared record groups
 #
+
 =head2 Add a shared record group
 
    conf zone add shared_record_group my_group
@@ -1356,6 +1430,16 @@ Import a reverse zone
 
    conf zone add 10.0.1.0/24 import 45.0.1.220
 
+Set a random API method on a zone
+
+   conf zone add foo set <method>=<value>
+   conf zone add foo set disable_forwarding=FALSE
+
+When setting arrays you need special syntax "[ ]" and seperate your
+values by a ',' (This mostly seems to work)
+
+   ... set allow_update="[10.0.0.0/8,168.147.0.0/24,192.168.114.0/24]"
+
 =cut
 
 sub cli_add_zone {
@@ -1387,6 +1471,8 @@ sub cli_add_zone {
     my (@views) = $line =~/ view (\S+)/g ;
     my (@shared_groups)  = $line =~/ shared_record_group (\S+)/g ;
 
+    my @settings  = $line =~/ set (\S+)/g ;
+
     # de-urlencode the name string
 #     if ( $comment ) { $obj->comment ( $comment ) }
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
@@ -1397,7 +1483,8 @@ sub cli_add_zone {
         $zone = arpa_to_net ( $zone ) ;
     }
 
-    &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
+    &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec)
+    es(@ext_sec) se(@settings)");
 
     # create the zone...
     my $obj;
@@ -1435,6 +1522,37 @@ sub cli_add_zone {
 
     if ( $comment ) { $obj->comment ( $comment ) }
     if ( $prefix ) { $obj->prefix ( $prefix ) }
+
+    if ( @settings ) {
+
+        foreach my $setval ( @settings ) {
+            # set some custom options;
+            # split on the ','
+            my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+            $val = &decode_comment ( $val ) ;
+
+            &debug_cli(2,"addzset s($set) v($val)");
+
+            # if the value is an array, we need to cast it accordingly
+            my @avals ;
+            if ( $val =~ /^\[/ ) {
+                $val =~ s/\[\s*//;
+                $val =~ s/\s*\]//;
+                @avals = split ( /\s*,\s*/ , $val );
+
+                &debug_cli(2,"addzsar s($set) va(@avals)");
+
+                # set this object
+                $obj->$set ( \@avals ) ;
+
+            }
+            else {
+                # and set this on the object
+                $obj->$set ( $val ) ;
+            }
+
+        }
+    }
 
     # find a member to be the primary (external or otherwise)
     # or is it a forward zone...
@@ -3571,8 +3689,8 @@ sub cli_mod_grid {
     # make some changes, if we have a grid
     if ( $grid ) {
 
-        if ( $timeout ) { $grid->prefer_resolver ( $resolver ) }
-        if ( $resolver ) { $grid->session_timeout ( $timeout ) }
+        if ( $resolver ) { $grid->prefer_resolver ( $resolver ) }
+        if ( $timeout ) { $grid->session_timeout ( $timeout ) }
         if ( $secret ) { $grid->secret ( $secret ) }
         if ( $vpn_port ) { $grid->vpn_port ( $vpn_port ) }
         if ( $newname ) { $grid->name ( $newname ) }
@@ -3762,14 +3880,91 @@ sub cli_add_member {
 
 =head2 add global DNS settings
 
-   conf grid <name> add dns nsgroup <name>
+   conf grid <name> dns add default_ttl <num>
+   conf grid <name> dns add recursion
+
+   conf grid <name> dns add nsgroup <name>
 
 DNS ACLs
 
-   conf grid <name> add dns acl zone-transfer x.x.x.x/nn
+   conf grid <name> dns add acl allow transfer x.x.x.x/nn
+   conf grid <name> dns add acl deny update x.x.x.x/nn
 
 =cut
 
+sub cli_mod_dns {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/configure grid (\S+)/ ;
+
+    # field based values
+    ( my $ttl)  = $line =~/ default_ttl (\S+)/ ;
+
+    # find some booleans
+    my $recursion ;
+    $line =~/add recursion/ and $recursion = "TRUE" ;
+
+    &debug_cli (1,"modgd g($gridname) rc($recursion) tt($ttl)");
+
+    # get the grid
+    my %opthash = (
+          "object" => "Infoblox::Grid::DNS",
+          "name" => $gridname ,
+    );
+    my ( $grid ) = &do_func("get", %opthash );
+
+    # make some changes, if we have a grid
+    if ( $grid ) {
+
+        if ( $recursion ) { $grid->allow_recursive_query ( $recursion ) }
+        if ( $ttl ) { $grid->default_ttl ( $ttl ) }
+
+        # push the changes, if we were ok
+        &do_func("modify",$grid);
+    }
+
+}
+
+sub cli_add_grid_dns_acl {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/configure grid (\S+)/ ;
+
+    my ( $perm , $type , $ip) = $line =~/ (allow|deny) (\S+) (\S+)/g ;
+
+    # build the ACL lust
+    my $acl = "allow_$type" ;
+    # allow for deny rules
+    if ( $perm eq "deny" ) {
+        $ip = "!$ip";
+    }
+
+    &debug_cli(1,"addgx p($perm) a($acl) i($ip)");
+
+    # get the grid
+    my %opthash = (
+          "object" => "Infoblox::Grid::DNS",
+          "name" => $gridname ,
+    );
+    my ( $grid ) = &do_func("get", %opthash );
+
+    if ( $grid ) {
+
+        # get the grid ACL
+        my @list = @{ $grid->$acl() };
+        &debug_cli(2,"addgx l(@list)");
+
+        # add this address to the ACL list
+        $grid->$acl([ @list , $ip]);
+
+        # push it back
+        &do_func("modify",$grid);
+
+    }
+
+}
 
 =head2 add global DHCP settings
 
@@ -3838,7 +4033,32 @@ sub cli_add_grid_dhcp {
 sub cli_del_global_dhcp {
 }
 
-=head2 Show global custom options
+=head2 Show global DNS options
+
+   show grid <name> dns
+
+=cut
+
+sub cli_show_grid_dns {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/show grid (\S+)/ ;
+
+    # get the grid
+    my %opthash = (
+          "object" => "Infoblox::Grid::DNS",
+          "name" => $gridname ,
+    );
+    my ( $grid ) = &do_func("get", %opthash );
+
+    if ( $grid ) {
+        &dump_object ( $grid ) ;
+    }
+
+}
+
+=head2 Show global DHCP options
 
    show grid <name> dhcp
 
@@ -4829,7 +5049,8 @@ sub cli_restart {
 #     $opthash{'when'}=0;
     my %opthash = (
           "service" => $service ,
-          "when" => "0",
+#           "when" => "0",
+          "when" => "now",
     );
 
     if ( $member ) {
@@ -4842,6 +5063,7 @@ sub cli_restart {
 
     if ( $delay ) {
        $opthash{'delay'}=$delay;
+       $opthash{'delay_between_members'}=$delay;
     }
 
     my @function=("restart",%opthash);
@@ -5425,6 +5647,10 @@ sub require_api {
     #     return unless requires_api ( 4.1r2-0 );
     #     requires_api ( 4.1r2-0 ) or return ;
 
+    # GET/store the API version
+    # my $host = Infoblox::DNS::Host->new ("name" => "name",);
+    # my $CLIENT_REV = $host->{__version} ;
+
     my ( $req )  = @_ ;
     my $oreq = $req ;
     
@@ -5433,32 +5659,33 @@ sub require_api {
        $rev = $SESSION->server_version();
     }
 
-        # curiously, we can convert this to an IP address and
-        $rev =~ s/(r\d+-\d+).*/$1/;
-        $req =~ s/(r\d+-\d+).*/$1/;
-        $rev =~ s/\D/\./g;
-        $req =~ s/\D/\./g;
-    
-        # then just compare it
-        if ( abs_ip ( $req ) >= abs_ip ( $rev ) ) {
-            debug_cli(1,"version too low : req($req) srev($rev)");
-            print "Server version ($oreq) is required for this feature\n";
-            return ( 0 ) ;
-        }
-        else {
-            debug_cli(1,"version OK : req($req) srev($rev)");
-            return ( 1 ) ;
-        }
-    
-    # return true for non connected testing
-#     return ( 1 ) ;
+    # curiously, we can convert this to an IP address and
+    $rev =~ s/(r\d+-\d+).*/$1/;
+    $req =~ s/(r\d+-\d+).*/$1/;
+    $rev =~ s/\D/\./g;
+    $req =~ s/\D/\./g;
 
+    # then just compare it
+    if ( abs_ip ( $req ) >= abs_ip ( $rev ) ) {
+        debug_cli(1,"version too low : req($req) srev($rev)");
+        print "Server version ($oreq) is required for this feature\n";
+        return ( 0 ) ;
+    }
+    else {
+        debug_cli(1,"version OK : req($req) srev($rev)");
+        return ( 1 ) ;
+    }
+    
 }
 
 sub decode_comment {
     # urldecode a comment string
     my ( $string ) = @_ ;
     $string =~ s/%(..)/chr ( hex($1) )/ge;
+
+    # remove leading and training "
+    $string =~ s/^"//;
+    $string =~ s/"$//;
 
     # also undo quotes in inside the comment
     $string =~ s/''/"/g;
@@ -5507,6 +5734,9 @@ sub dump_data {
 
         my $data ;
 
+        # get the value for grins
+        my $ktype = $obj->{$key};
+
         # look for sub objects
         if ( $key eq "primary" 
              or $key eq "member"
@@ -5528,6 +5758,10 @@ sub dump_data {
 
         # arrays by just a value
         elsif ( $key eq "ntp_access_list" 
+             or $key eq "additional_ip_list"
+             or $key eq "allow_query"
+             or $key eq "allow_update"
+             or $key eq "ospf_list"
              or $key eq "match_clients" 
              or $key eq "match_client_keys" 
              or $key eq "ntp_authentication_key" 
@@ -5694,6 +5928,15 @@ sub dump_data {
                 }
             }
         }
+        # generic catchall for arrays
+        elsif ( $ktype =~ /ARRAY/ ) {
+
+            my @values = @{ $obj->{$key} } ;
+
+            # remember it
+            $data = "@values";
+        }
+        # just the value m'aam
         else {
             $data = $obj->{$key} ;
         }
@@ -6498,7 +6741,7 @@ my %COMMANDS = (
 # [x] show admins and groups
 
     'show grid <name>' => { 
-           words => "<cr> dhcp member",  
+           words => "<cr> dhcp dns member",  
            func => "cli_show_grid", },
 
     'show grid <name> member' => { 
@@ -6511,6 +6754,9 @@ my %COMMANDS = (
 
     'show grid <name> dhcp' => { 
            func => "cli_show_grid_dhcp", },
+
+    'show grid <name> dns' => { 
+           func => "cli_show_grid_dns", },
 
 # show admins
     'show admin' => { 
@@ -6731,7 +6977,7 @@ my %COMMANDS = (
 
 # - grid -
     'configure grid <name>' => { 
-           words => "disable enable add delete modify", },
+           words => "dns dhcp disable enable add delete modify", },
 
     'configure grid <name> disable' => { 
            words => "ntp|ntp_server",
@@ -6750,36 +6996,41 @@ my %COMMANDS = (
            func => "cli_mod_grid", },
 
     'configure grid <name> add' => { 
-           words => "member=<name> dns dhcp ntp_server=<ip>|lcd_input|remote_console_access|support_access",
+           words => "member=<name> ntp_server=<ip>|lcd_input|remote_console_access|support_access",
            func => "cli_mod_grid", },
 
-    'configure grid <name> add member <name>' => {
+    'configure grid <name> dns dhcp add member <name>' => {
            words => "ipaddress=<n.n.n.n/mm>", },
 
     'configure grid <name> add member <name> ipaddress <n.n.n.n/mm>' => {
            words => "<cr> hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
            func => "cli_add_member", },
 
+    'configure grid <name> dns' => { 
+           words => "add delete", },
+    'configure grid <name> dhcp' => { 
+           words => "add delete", },
 
-    'configure grid <name> add dns' => { 
-           words => "nsgroup=<name> acl", },
+    'configure grid <name> dns add' => { 
+           words => "<cr> default_ttl=<num>|recursion|nsgroup=<name> acl",
+           func => "cli_mod_dns", },
 
-    'configure grid <name> add dns nsgroup <name>' => { 
+    'configure grid <name> dns add nsgroup <name>' => { 
            words =>
            "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_grid_nsgroup", },
 
-    'configure grid <name> add dns acl' => { 
+    'configure grid <name> dns add acl' => { 
            words => "allow deny", },
 
-    'configure grid <name> add dns acl allow' => { 
+    'configure grid <name> dns add acl allow' => { 
            words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
            func => "cli_add_grid_dns_acl", },
-    'configure grid <name> add dns acl deny' => { 
+    'configure grid <name> dns add acl deny' => { 
            words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
            func => "cli_add_grid_dns_acl", },
 
-    'configure grid <name> add dhcp' => { 
+    'configure grid <name> dhcp add' => { 
            words => "option=<name=value>|typeoption=<name=value>",
            func => "cli_add_grid_dhcp", },
 
@@ -6833,12 +7084,12 @@ my %COMMANDS = (
 
     'configure zone modify <zone>' => { 
            words => "<cr>
-           nonauthorative|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone add <zone>' => { 
            words => "<cr>
-           nonauthorative|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -7161,6 +7412,20 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.30  2008/01/28 02:49:23  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description:
+# -e exec mode
+# -w cgi header
+# client API version checking for some routines
+# silent loading of a config file
+# adding ACLS on a member/grid
+# setting of global DNS settings
+# modify hosts
+# modify zones
+# 'set' operations on a zone
+#
 # Revision 3.29  2008/01/15 01:08:18  horne
 # BugId: 8205
 # Reviewer(s): Geoff
