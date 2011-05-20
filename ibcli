@@ -1,11 +1,11 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.40 2009/01/19 19:50:01 horne Exp $ ;
-my $REV = q$Revision: 3.40 $;
-# $Date: 2009/01/19 19:50:01 $
+my $ID  = q$Id: ibcli,v 3.41 2009/02/20 04:54:36 horne Exp $ ;
+my $REV = q$Revision: 3.41 $;
+# $Date: 2009/02/20 04:54:36 $
 #
 
-# (c) Copyright: Geoff horne, SLC 2001-2007
+# (c) Copyright: Geoff horne, SLC 2001-2009
 #               All rights reserved
 #
 # THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS `AS IS' AND
@@ -30,7 +30,7 @@ my $REV = q$Revision: 3.40 $;
 # 
 # 2: THE SELLER RESERVES THE RIGHT TO:
 #    - ADD, WITHDRAW OR SUBSTITUTE ARTISTS
-#    - VARY ADVERTISED PROBRAMMES, SEATING ARRANGEMENT AND AUDIENCE
+#    - VARY ADVERTISED PROGRAMMES, SEATING ARRANGEMENT AND AUDIENCE
 #      CAPACITY , AND:
 #    - REFUSE ADMISSION WITH REASONABLE CAUSE
 #
@@ -402,7 +402,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.40 $.
+$Revision: 3.41 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2161,13 +2161,7 @@ sub cli_add_host {
 #     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
 
-    # [ ] should be a function
-    $host =~ s/"//g;
-    $zone =~ s/"//g;
-    my $name ;
-    if ( $host and $zone ) { $name = "$host.$zone"; }
-    elsif ( $host and ! $zone ) { $name = "$host"; }
-    else { $name = $zone }
+    my $name = fqdn ( $host , $zone ) ;
 
     &debug_cli(1,"addh t($type) n($name) ip($ip) d($disable) c($comment) v($vname)");
 
@@ -2346,6 +2340,21 @@ sub cli_add_host {
 
 =cut
 
+# take a hostname and a zone and create a FQDN
+sub fqdn {
+    my ( $host , $zone ) = @_ ;
+
+    $host =~ s/"//g;
+    $zone =~ s/"//g;
+
+    my $name ;
+    if ( $host and $zone ) { $name = "$host.$zone"; }
+    elsif ( $host and ! $zone ) { $name = "$host"; }
+    else { $name = $zone }
+
+    return ( $name ) ;
+}
+
 sub cli_del_host {
     my ( $line ) = @_ ;
 
@@ -2354,13 +2363,14 @@ sub cli_del_host {
     my ( $host ) = $line =~/host (\S+)/ ;
     my ( $vname )     = $line =~/ view (\S+)/ ;
 
-    $host =~ s/"//g;
-    $zone =~ s/"//g;
-    my $name ;
-    if ( $host and $zone ) { $name = "$host.$zone"; }
-    elsif ( $host and ! $zone ) { $name = "$host"; }
-    else { $name = $zone }
+    my $name = fqdn ( $host , $zone ) ;
 
+#     $host =~ s/"//g;
+#     $zone =~ s/"//g;
+#     my $name ;
+#     if ( $host and $zone ) { $name = "$host.$zone"; }
+#     elsif ( $host and ! $zone ) { $name = "$host"; }
+#     else { $name = $zone }
 
     &debug_cli(1,"delh n($name) ");
 
@@ -2409,14 +2419,7 @@ sub cli_add_a_rec {
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
 
-    # scrub the host/zone for blanks
-    # [ ] make this a function
-    $host =~ s/"//g;
-    $zone =~ s/"//g;
-    my $name ;
-    if ( $host and $zone ) { $name = "$host.$zone"; }
-    elsif ( $host and ! $zone ) { $name = "$host"; }
-    else { $name = $zone }
+    my $name = fqdn ( $host , $zone )  ;
 
     my $obj = Infoblox::DNS::Record::A->new (
                   "name" => "$name",
@@ -2466,8 +2469,10 @@ sub cli_del_a_rec {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
 
+    my $name = fqdn ( $host , $zone )  ;
+
     my $obj = Infoblox::DNS::Record::A->new (
-                  "name" => "$host.$zone",
+                  "name" => "$name",
                   "ipv4addr" => "$ip",
     );
 
@@ -2478,7 +2483,7 @@ sub cli_del_a_rec {
         $obj->views ( [ $view ] ) ;
     }
 
-    &debug_cli(1,"del_a n($host) n($ip) ");
+    &debug_cli(1,"del_a n($name) n($ip) v($view)");
 
     # addit
     &do_func("remove",$obj);
@@ -2507,14 +2512,7 @@ sub cli_add_aaaa {
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
 
-    # scrub the host/zone for blanks
-    # [ ] make this a function
-    $host =~ s/"//g;
-    $zone =~ s/"//g;
-    my $name ;
-    if ( $host and $zone ) { $name = "$host.$zone"; }
-    elsif ( $host and ! $zone ) { $name = "$host"; }
-    else { $name = $zone }
+    my $name = fqdn ( $host , $zone ) ;
 
     my $obj = Infoblox::DNS::Record::AAAA->new (
                   "name" => "$name",
@@ -2705,13 +2703,7 @@ sub cli_add_srv_rec {
     $comment = &decode_comment ( $comment ) ;
 
     # scrub the host/zone for blanks
-    # [ ] make this a function
-    $host =~ s/"//g;
-    $zone =~ s/"//g;
-    my $name ;
-    if ( $host and $zone ) { $name = "$host.$zone"; }
-    elsif ( $host and ! $zone ) { $name = "$host"; }
-    else { $name = $zone }
+    my $name = fqdn ( $host , $zone ) ;
 
     my $obj = Infoblox::DNS::Record::SRV->new (
                   "name" => "$name",
@@ -2845,10 +2837,12 @@ sub cli_add_cname {
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
 
-    &debug_cli(1,"addcn z($zone) a($alias) cn($cname) c($comment)");
+    my $name = fqdn( $alias , $zone ) ;
+
+    &debug_cli(1,"addcn z($zone) a($name) n($name) cn($cname) c($comment)");
 
     my $obj = Infoblox::DNS::Record::CNAME->new (
-                    "name" => "$alias.$zone",
+                    "name" => "$name",
                     "canonical" => "$cname",
     );
 
@@ -3852,13 +3846,19 @@ Add a fixed address with comments
 
    conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 comment "comment string"
 
+=head2 Modify a fixed address
+
+You can also modify existing addresses with the same syntax
+
+   conf network 10.0.1.0/24 modify fixed 10.0.1.4 aa:bb:cc:11:22:33 ...
+
 =cut
 
 sub cli_add_fixed_address {
     my ( $line ) = @_ ;
 
     my ( $network ) = $line =~/configure network ($REcidr)/ ;
-    my ( $ip , $mac ) = $line =~/ add fixed (\S+) (\S+)/ ;
+    my ( $type , $ip , $mac ) = $line =~/ (add|modify) fixed (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my ( $template ) = $line =~/ template "?([^"]+)"?/ ;
     my @settings  = $line =~/ set (\S+)/g ;
@@ -3876,11 +3876,30 @@ sub cli_add_fixed_address {
 
     &debug_cli(1,"addfix n($network) ip($ip) mac($mac) o(@options) c($comment)");
 
-    my $obj = Infoblox::DHCP::FixedAddr->new (
+    my $obj ;
+    # get or add ?
+    if ( $type eq "modify" ) {
+        ( $obj ) = &do_func("get", (
+                "object" => "Infoblox::DHCP::FixedAddr",
+                "ipv4addr" => $ip ,
+                "mac" => $mac ,
+                )
+            ) ;
+
+        unless ( $obj ) {
+            print "  Error : $ip : No fixed addr found\n";
+            return ;
+        }
+
+    }
+    else {
+        $obj = Infoblox::DHCP::FixedAddr->new (
 #                   "network" => $network ,
                   "ipv4addr" => $ip ,
                   "mac" => $mac ,
-    );
+        );
+    }
+
     # hack around adding fixed addrs with out a parent network...
     unless ( $network eq "0.0.0.0/00" ) {
         $obj->network ( $network ) ;
@@ -3953,7 +3972,7 @@ sub cli_add_fixed_address {
     }
 
     # addit
-    &do_func("add",$obj);
+    &do_func($type,$obj);
 
 }
 
@@ -9597,7 +9616,7 @@ my %COMMANDS = (
     'configure network add' => { 
            words => "<n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
     'configure network modify' => { 
-           words => "<n.n.n.n/mm>", },
+           words => "fixed <n.n.n.n/mm>", },
 
 # - optiondef -
     'configure network add space <name>' => { 
@@ -9669,7 +9688,7 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> delete' => { 
            words => "permission network fixed range",  },
     'configure network <n.n.n.n/mm> modify' => { 
-           words => "range permission",  },
+           words => "fixed range permission",  },
 
     'configure network <n.n.n.n/mm> split' => { 
            words => "</cidr>",  },
@@ -9706,16 +9725,26 @@ my %COMMANDS = (
            words => "<cr> addreverse|comment=<comment>|member=<ip>|option=<name=value>",
            func => "cli_add_sub_network", },
 
+    'configure network <n.n.n.n/mm> modify fixed' => { 
+           words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
+           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           func => "cli_add_fixed_address", },
+    'configure network <n.n.n.n/mm> modify fixed <ip> <mac>' => { 
            words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     #  - fixed without parent
     'configure network add fixed' => { 
            words => "<ip>=<mac>",  },
+    'configure network modify fixed' => { 
+           words => "<ip>=<mac>",  },
     'configure network add fixed <ip> <mac>' => { 
+           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           func => "cli_add_fixed_address", },
+    'configure network modify fixed <ip> <mac>' => { 
            words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
@@ -9847,6 +9876,10 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.41  2009/02/20 04:54:36  horne
+#
+# modified fixed addresses
+#
 # Revision 3.40  2009/01/19 19:50:01  horne
 # Changed 'Cluster' to 'Grid'
 # TAB completion and other commands
