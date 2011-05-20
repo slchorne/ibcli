@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.9 2006/07/14 23:25:43 horne Exp $ ;
-my $REV = q$Revision: 3.9 $;
-# $Date: 2006/07/14 23:25:43 $
+my $ID  = q$Id: ibcli,v 3.10 2006/07/19 15:35:59 horne Exp $ ;
+my $REV = q$Revision: 3.10 $;
+# $Date: 2006/07/19 15:35:59 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.9 $
+$Revision: 3.10 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2270,9 +2270,7 @@ sub cli_del_dhcp_range {
 
 Filters can take many forms, so you need to be specific
 
-Add a mac address filter:
-
-    conf dhcpfilter add macfilter my_filter
+    conf network add macfilter my_filter
 
 =cut
 
@@ -2296,9 +2294,7 @@ sub cli_add_macfilter {
 
 =head2 Remove a DHCP filter
 
-Add a mac address filter:
-
-    conf dhcpfilter del macfilter my_filter
+    conf network del macfilter my_filter
 
 =cut
 
@@ -2321,11 +2317,11 @@ sub cli_del_macfilter {
 
 =head2 Add a mac address to a filter
 
-    conf dhcpfilter my_filter add macaddress aa:bb:cc:11:22:33
+    conf network filter my_filter add macaddress aa:bb:cc:11:22:33
 
 Add a mac address to a filter with comments
 
-    conf dhcpfilter my_filter add mac aa:bb:cc:11:22:33 comment "my comment"
+    conf network filter my_filter add mac aa:bb:cc:11:22:33 comment "my comment"
 
 =cut
 
@@ -2333,7 +2329,7 @@ sub cli_add_macfilteraddr {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $name ) = $line =~/ dhcpfilter (\S+)/ ;
+    my ( $name ) = $line =~/ filter (\S+)/ ;
     my ( $mac ) = $line =~/ macaddress (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
 
@@ -2351,7 +2347,7 @@ sub cli_add_macfilteraddr {
 
 =head2 remove a mac address from a filter
 
-    conf dhcpfilter my_filter delete macaddress aa:bb:cc:11:22:33
+    conf network filter my_filter delete macaddress aa:bb:cc:11:22:33
 
 =cut
 
@@ -2359,7 +2355,7 @@ sub cli_del_macfilteraddr {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $name ) = $line =~/ dhcpfilter (\S+)/ ;
+    my ( $name ) = $line =~/ filter (\S+)/ ;
     my ( $mac ) = $line =~/ macaddress (\S+)/ ;
 
     &debug_cli (1,"delmaddr f($name) m($mac)");
@@ -2374,6 +2370,36 @@ sub cli_del_macfilteraddr {
 }
 
 # global grid settings
+
+=head2 Show global Grid settings
+
+   show grid Infoblox
+
+=cut
+
+
+sub cli_show_grid {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/show grid (\S+)/ ;
+
+    my ( $show_mems , $member ) = $line =~/(member) (\S+)/ ;
+
+    # do we need to get members ?
+
+    # else get the grid
+    my %opthash = (
+          "object" => "Infoblox::Cluster",
+          "name" => $gridname ,
+    );
+    my ( $grid ) = &do_func("get", %opthash );
+
+    if ( $grid ) {
+        &dump_object ( $grid ) ;
+    }
+
+}
 
 =head2 configure global Grid settings
 
@@ -2536,17 +2562,19 @@ DNS ACLs
 
 # [ ] broken until i get syntax to set the Grid name
 
+
+
 =head2 add global DHCP settings
 
-   conf grid <name> add dhcp lease-time 3600
+   conf grid <name> add dhcp option lease-time=3600
 
 Custom optons
 
-   conf grid <name> add dhcp option 82,"opt 82 string" 
+   conf grid <name> add dhcp option 82="opt 82 string" 
 
 Set the type for a custom option
    
-   conf grid <name> add dhcp option 82 type IPADDRESS
+   conf grid <name> add dhcp typeoption 82=IPADDRESS
 
 Remove a custom option
 
@@ -2554,139 +2582,41 @@ Remove a custom option
 
 =cut
 
-###########
-# my $option1 = Infoblox::DHCP::Option->new(
-#                    "type" => "lease-time",
-#                    "seconds" => "50"
-#                    );
-# my $option1 = Infoblox::DHCP::Option->new(
-#                    "type" => "routers",
-#                    "ipv4addrs" => [ "1.4.1.1" , "2.2.2.2" ],
-#                    );
-# 
-# my $option2 = Infoblox::Cluster::DHCP::Custom_option->new(
-#                    "num" => "1",
-#                    "type" => "ip-address",
-#                    "value" => "255.0.0.0",
-#                    );
-# 
-# $dhcp->options( [ $option1 , $option2 ] );
-###########
+sub cli_add_grid_dhcp {
 
-sub cli_add_global_dhcp {
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/configure grid (\S+)/ ;
 
-    my ( $opt , $val , $type , @extra ) = @_ ;
-    if ( (! $opt ) or ( ! $val ) ) {
-       &missing_arg("<option> <'type'|value>")  ;
-       return ;
-    }
+    my @options  = $line =~/ option (\S+)/g ;
+    my @typedefs  = $line =~/ typeoption (\S+)/g ;
 
-    # all these custom opts are conditional, damn
-    my @opts = ( "lease-time","custom_option",
-                 "routers","nameservers","domain-name",
-                 "broadcast",
-                );
-
-    # but we can at least abbrev them.
-    my %optlist = abbrev ( @opts ) ;
-    my $eopt = $optlist{ lc($opt) } ;
-    # sput error
-    if ( ! $eopt ) { 
-          &missing_arg(@opts );
-          return ;
-    }
-
-    # look for 'type' (or anything else)
-    # we don't abbrev to avoid namespace conflicts
-    # if we find it, we shuffle the args
-
-    my $etype ;
-    if ( $eopt eq "custom_option" ) {
-       if ( $type =~ /^type$/i ) {
-          $etype = $type ;
-       }
-       else {
-          unshift @extra , $type ;
-       }
-    }
-
-    # now match quoted strings ( $etype will be undef )
-    my ( $data , @extra ) = &get_comment ( @extra ) ;
-
-    &debug_cli(2,"modglob o($eopt) v($val) t($etype) d($data)");
-
-    # ok , now we have the conditional loop to build the options
-    my $obj ;
-
-    if ( $eopt eq "lease-time" ) {
-       $obj = Infoblox::DHCP::Option->new(
-                      "type" => "lease-time",
-                      "seconds" => $val,
-                   );
-    }
-    elsif ( $eopt eq "routers" ) {
-       my @iplist = split ( "," , $val ) ;
-       $obj = Infoblox::DHCP::Option->new(
-                      "type" => "routers",
-                      "ipv4addrs" => \@iplist,
-                   );
-    }
-    elsif ( $eopt eq "nameservers" ) {
-       my @iplist = split ( "," , $val ) ;
-       $obj = Infoblox::DHCP::Option->new(
-                      "type" => "nameservers",
-                      "ipv4addrs" => \@iplist,
-                   );
-    }
-    elsif ( $eopt eq "broadcast" ) {
-       $obj = Infoblox::DHCP::Option->new(
-                      "type" => "broadcast",
-                      "ipv4addr" => $val,
-                   );
-    }
-    elsif ( $eopt eq "domain-name" ) {
-       $obj = Infoblox::DHCP::Option->new(
-                      "type" => "domain-name",
-                      "name" => $val,
-                   );
-    }
-
-    # customss
-    elsif ( $eopt eq "custom_option" ) {
-       if ( $etype ) {
-          # just set the type
-          &debug_cli(2,"modglob adding custom type");
-          $obj = Infoblox::Cluster::DHCP::Custom_option->new(
-                   "num" => $val,
-                   "type" => $data,
-                   "value" => "",
-                   );
-       }
-       else {
-          &debug_cli(2,"modglob adding custom value");
-          $obj = Infoblox::DHCP::Option->new(
-                      "type" => $val,
-                      "value" => $data,
-                   );
-       }
-    }
-
-    # now we have to get the global props and re-set them.
-    # [GDH] - unhardcode the cluster name
-    my %args = (
-                         "object" => "Infoblox::Cluster::DHCP",
-                         "cluster" => "Infoblox",
+    # else get the grid
+    my %opthash = (
+          "object" => "Infoblox::Cluster::DHCP",
+#           "cluster" => $gridname ,
+          "name" => $gridname ,
     );
 
-    
-    my ( $cluster ) = &do_func("get", %args ) ;
+    my ( $grid ) = &do_func("get", %opthash );
 
-    if ( $cluster ) {
-        # add the option, make the changes;
-        $cluster->options( [ $obj ] ) ;
-    print Dumper ( \$cluster ) ;
-        &do_func("modify", $cluster ) ;
-    }
+
+#        my $option = Infoblox::Cluster::DHCP::Custom_option->new(
+#                "num" => "1",
+#                "type" => "ip-address",
+#                "value" => "10.0.0.10" );
+
+
+
+    
+#     my ( $cluster ) = &do_func("get", %args ) ;
+# 
+#     if ( $cluster ) {
+#         # add the option, make the changes;
+#         $cluster->options( [ $obj ] ) ;
+#     print Dumper ( \$cluster ) ;
+#         &do_func("modify", $cluster ) ;
+#     }
 
 
 }
@@ -2931,6 +2861,8 @@ sub cli_show_lease {
 
    show network
 
+   show network 161.245.254.128/25
+
 =cut
 
 sub cli_show_network {
@@ -2944,10 +2876,12 @@ sub cli_show_network {
 
     &debug_cli(2,"shown n($net)");
 
+    # do we get all nets
     my $search = ".*";
+    # or just one net
     if ( $net ) { $search = $net ; }
 
-    # get all the zones
+    # get all the networks
     my %opthash = (
            "object" => "Infoblox::DHCP::Network", 
            "network" => $search,
@@ -2955,14 +2889,88 @@ sub cli_show_network {
 
     my @nets = &do_func("search", %opthash );
 
-    my @netlist ;
-    foreach my $nobj (@nets) {
-      my $name = $nobj->network();
-      push @netlist , "  $name\n";
+    # dump the network or all the list
+    if ( $net ) {
+        &dump_object ( shift @nets ) ;
+    }
+    else {
+
+        my @netlist ;
+        foreach my $nobj (@nets) {
+            my $name = $nobj->network();
+            push @netlist , "  $name\n";
+        }
+
+        # now print them (sorted)
+        print sort @netlist ; 
+    }
+    
+}
+
+=head2 Showing networks
+
+   show network 161.245.254.128/25 range
+
+   show network 161.245.254.128/25 range 161.245.254.130
+
+=cut
+
+sub cli_show_range {
+    #
+    # try and shopw a network
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $net ) = $line =~/ network (\S+)/ ;
+    my ( $range ) = $line =~/ range (\S+)/ ;
+
+    &debug_cli(2,"showr n($net) r($range)");
+
+#     # To get get ALL ranges
+#     my %opthash = (
+#            "object" => "Infoblox::DHCP::Range", 
+#            "start_addr" => ".*",
+#     );
+
+    # get all ranges in a network ( 3.2r9 ? )
+    my %opthash = (
+           "object" => "Infoblox::DHCP::Range", 
+           "network" => $net,
+           "start_addr" => ".*",
+    );
+
+    # if we want to be specific, we get an actual range
+    if ( $range ) {
+        %opthash = (
+           "object" => "Infoblox::DHCP::Range", 
+           "network" => $net,
+           "start_addr" => $range,
+        );
     }
 
-    # now print them (sorted)
-    print sort @netlist ; 
+    # get what we need
+    my @ranges = &do_func("search", %opthash );
+
+    # dump the range or all the list
+    if ( $range ) {
+        &dump_object ( shift @ranges ) ;
+    }
+    else {
+
+        # display all
+        my @rangelist ;
+        foreach my $nobj (@ranges) {
+            my $net = $nobj->network();
+            my $fip = $nobj->start_addr();
+            my $lip = $nobj->end_addr();
+            push @rangelist , "  $net : $fip - $lip\n";
+        }
+
+        # now print them (sorted)
+        print sort @rangelist ; 
+
+    }
     
 }
 
@@ -3031,6 +3039,9 @@ sub cli_add_server {
                      "password" => $passwd ,
                   );
 
+
+        print Dumper ( \$SESSION ) if $DEBUG >= 2 ;
+
       if ( $SESSION->status_code() ) {
           my $result = $SESSION->status_code();
           my $response = $SESSION->status_detail();
@@ -3049,6 +3060,33 @@ sub cli_add_server {
          }
       }
 
+
+}
+
+=head2 Show server details
+
+    show server version
+
+    show server error
+
+    show server message
+
+=cut
+sub cli_show_server {
+
+    my ( $line ) = @_ ;
+
+    # get the status
+    if ( $SESSION ) {
+        my $result = $SESSION->status_code();
+        my $response = $SESSION->status_detail();
+        my $rev = $SESSION->server_version();
+
+        # get the args from the line
+        if ( $line =~ /version/ ) {
+            print " Server Version : $rev\n";
+        }
+    }
 
 }
 
@@ -3141,6 +3179,49 @@ sub dump_object {
             my $sobj = $obj->{$key} ;
             $data = $sobj->{'name'};
         }
+        # arrays by 'ipv4addr'
+        elsif ( $key eq "syslog_server" or $key eq "match_members" ) {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+                my $name = $sobj->{'ipv4addr'};
+                push @values , "$name" ;
+            }
+
+            # remember it
+            $data = "@values";
+            $data = join " " , @values ;
+              
+        }
+        # arrays by just a value
+        elsif ( $key eq "ntp_access_list" 
+             or $key eq "match_clients" 
+             or $key eq "match_client_keys" 
+             or $key eq "ntp_authentication_key" 
+             ) {
+
+            my @values = @{ $obj->{$key} } ;
+
+            # remember it
+            $data = "@values";
+            $data = join " " , @values ;
+              
+        }
+        # arrays by 'address'
+        elsif ( $key eq "ntp_server" ) {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+                my $name = $sobj->{'address'};
+                push @values , "$name" ;
+            }
+
+            # remember it
+            $data = "@values";
+            $data = join " " , @values ;
+              
+        }
+        # views , by name
         elsif ( $key eq "views" ) {
             my @values ;
             # find all the names only
@@ -3151,7 +3232,7 @@ sub dump_object {
 
             # remember it
             $data = "@values";
-            $data = join " " , @values ;
+#             $data = join " " , @values ;
               
         }
         elsif ( $key eq "secondaries") {
@@ -3742,7 +3823,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "views lease zone network debug",  },
+           words => "server grid=<name> views lease zone network debug",  },
 
     'help' => { 
            words => "all",
@@ -3760,6 +3841,40 @@ my %COMMANDS = (
     'show debug commands detailed' => { 
            func => "debug_commands", },
 
+# -gdhshow-
+# [x] show grid xxx
+# [ ] show grid xxx dns nsgroup
+# [ ] show grid xxx dhcp
+# [ ] show grid xxx member
+# [ ] show grid xxx member yyyy
+# [x] show views
+# [x] show network
+# [ ] show network xxx
+#     list options and ranges
+# [ ] show network xxx stats
+#     Infoblox::DHCP::Statistics
+# [ ] show network xxx range yyy
+#     Infoblox::DHCP::Range
+#     Infoblox::DHCP::ExclusionRange
+#     Infoblox::DHCP::FilterRule
+# [ ] show zone (fqdn)
+# [ ] show host (fqdn)
+# [ ] show license
+# [ ] show failover
+# [ ] show filter xxx
+
+    'show grid <name>' => { 
+           words => "<cr> member",  
+           func => "cli_show_grid", },
+
+    'show grid <name> member' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_grid", },
+
+    'show grid <name> member <name>' => { 
+#            words => "<name>",  
+           func => "cli_show_grid", },
+
     'show views' => { 
            words => "<cr> <name>",  
            func => "cli_show_view", },
@@ -3776,7 +3891,13 @@ my %COMMANDS = (
            words => "<cr> <n.n.n.n/mm>",  
            func => "cli_show_network", },
     'show network <n.n.n.n/mm>' => { 
+           words => "<cr> range",  
            func => "cli_show_network", },
+    'show network <n.n.n.n/mm> range' => { 
+           words => "<cr> <ip>",  
+           func => "cli_show_range", },
+    'show network <n.n.n.n/mm> range <ip>' => { 
+           func => "cli_show_range", },
 
     'show lease' => { 
            words => "<ip> <mac>", },
@@ -3802,13 +3923,14 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "debug server zone network grid member dhcpfilter" , },
+           words => "debug server zone network grid member" , },
 
     'configure debug' => { 
            words => "<num>", },
     'configure debug <num>' => { 
            func => "set_debug", },
 
+# - server -
     'configure server' => { 
            words => "<value>", },
 
@@ -3818,19 +3940,25 @@ my %COMMANDS = (
            words => "password=<value>", 
            func => "cli_add_server", },
 
+
+    'show server' => { 
+           words => "version error message", },
+
+    'show server version' => { 
+           func => "cli_show_server", },
+    'show server error' => { 
+           func => "cli_show_server", },
+    'show server message' => { 
+           func => "cli_show_server", },
+
+# --
+
     'configure member' => { 
            words => "<name>", },
 
     'configure grid' => { 
            words => "<name>", },
 
-# GDH conf
-# [x] conf grid Infoblox modify session_timeout 6000
-# [x] conf grid Infoblox add remote_console_access
-# [x] conf grid Infoblox add support_access
-# [x] conf grid Infoblox add ntp_server <IP>
-# [-] conf grid Infoblox enable ntp
-#      ( grid props has some issues here )
 # [ ] conf member <name> enable ntp
 
 # - member -
@@ -3884,6 +4012,10 @@ my %COMMANDS = (
     'configure grid <name> add dns acl deny' => { 
            words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
            func => "cli_add_grid_dns_acl", },
+
+    'configure grid <name> add dhcp' => { 
+           words => "option=<name=value>|typeoption=<name=value>",
+           func => "cli_add_grid_dhcp", },
 
     'configure zone' => { 
            words => "add delete <zone>", },
@@ -3999,40 +4131,38 @@ my %COMMANDS = (
     'configure zone <zone> add cname <ip> <name> comment <comment>'=> { 
            func => "cli_add_ptr", },
 
-    'configure dhcpfilter' => { 
-           words => "<name> add delete", },
-    'configure dhcpfilter add' => { 
-           words => "macfilter=<name>", },
-    'configure dhcpfilter delete' => { 
-           words => "macfilter=<name>", },
-    'configure dhcpfilter add macfilter <name>' => { 
-           func => "cli_add_macfilter", },
-    'configure dhcpfilter delete macfilter <name>' => { 
-           func => "cli_del_macfilter", },
-
-   # [ ] comments..
-    'configure dhcpfilter <name>' => { 
-           words => "add delete", },
-    'configure dhcpfilter <name> add' => { 
-           words => "macaddress=<mac>", },
-    'configure dhcpfilter <name> delete' => { 
-           words => "macaddress=<mac>", },
-    'configure dhcpfilter <name> add macaddress <mac>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_macfilteraddr", },
-    'configure dhcpfilter <name> delete macaddress <mac>' => { 
-           func => "cli_del_macfilteraddr", },
-
     'configure network' => { 
-           words => "add delete <n.n.n.n/mm>", },
+           words => "add delete <n.n.n.n/mm> filter=<name>", },
 
     'configure network delete' => { 
-           words => "<n.n.n.n/mm>", },
+           words => "<n.n.n.n/mm> macfilter=<name> shared=<name>", },
     'configure network delete <n.n.n.n/mm>' => { 
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "<n.n.n.n/mm> shared=<name>", },
+           words => "<n.n.n.n/mm> macfilter=<name> shared=<name>", },
+
+# - macfilters -
+    'configure network add macfilter <name>' => { 
+           func => "cli_add_macfilter", },
+    'configure network delete macfilter <name>' => { 
+           func => "cli_del_macfilter", },
+
+    'configure network filter <name>' => { 
+           words => "add delete", },
+
+    'configure network filter <name> add' => { 
+           words => "macaddress=<mac>", },
+    'configure network filter <name> add macaddress <mac>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_macfilteraddr", },
+
+    'configure network filter <name> delete' => { 
+           words => "macaddress=<mac>", },
+    'configure network filter <name> delete macaddress <mac>' => { 
+           func => "cli_del_macfilteraddr", },
+
+# - sharednetworks -
     'configure network add shared <name>' => { 
            words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
@@ -4158,6 +4288,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.10  2006/07/19 15:35:59  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: extra show comands
+#
 # Revision 3.9  2006/07/14 23:25:43  horne
 # BugId: 8205
 # Reviewer(s): Geoff
