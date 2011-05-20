@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.13 2006/08/06 19:08:40 milli Exp $ ;
-my $REV = q$Revision: 3.13 $;
-# $Date: 2006/08/06 19:08:40 $
+my $ID  = q$Id: ibcli,v 3.14 2006/08/18 19:06:18 horne Exp $ ;
+my $REV = q$Revision: 3.14 $;
+# $Date: 2006/08/18 19:06:18 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.13 $.
+$Revision: 3.14 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1489,8 +1489,17 @@ sub cli_add_a_rec {
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
 
+    # scrub the host/zone for blanks
+    # [ ] make this a function
+    $host =~ s/"//g;
+    $zone =~ s/"//g;
+    my $name ;
+    if ( $host and $zone ) { $name = "$host.$zone"; }
+    elsif ( $host and ! $zone ) { $name = "$host"; }
+    else { $name = $zone }
+
     my $obj = Infoblox::DNS::Record::A->new (
-                  "name" => "$host.$zone",
+                  "name" => "$name",
                   "ipv4addr" => "$ip",
     );
 
@@ -1908,6 +1917,143 @@ sub cli_delete_network {
 
 }
 
+=head2 Join Networks
+
+#    [ ] chenge syntax
+   conf network 1.1.1.0/23 join /23 net 1.1.2.0/24
+
+   # this will copy all the ranges etc from the network
+   # and create a new network
+
+=cut
+
+sub cli_join_network {
+    # get the line
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $cidr ) = $line =~/ join \/(\S+)/ ;
+    my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+
+    my @subnets  = $line =~/ network (\S+)/g ;
+
+    # de-urlencode the comment string
+    $comment = &decode_comment ( $comment ) ;
+
+    # work out the new network name
+    my $basenet = $subnets[0];
+    my $newnet = $basenet ;
+    $newnet =~ s/\/\d+/\/$cidr/;
+    &debug_cli (1,"joinnet new($newnet) j($cidr) m(@subnets)");
+
+    my @orig_ranges ;
+    my @orig_fixed ;
+
+    foreach my $snet ( @subnets ) {
+
+        # [ ] get all the ranges
+        my %opthash = (
+            "object" => "Infoblox::DHCP::Range", 
+            "network" => $snet,
+            "start_addr" => ".*",
+        );
+
+        # get what we need
+        my @robjs = &do_func("search", %opthash );
+
+        push @orig_fixed , @robjs ;
+
+        # [ ] get all the fixed addresses
+        my %opthash = (
+            "object" => "Infoblox::DHCP::FixedAddr", 
+            "network" => $snet,
+            "ipv4addr" => ".*",
+        );
+
+        # get what we need
+        my @robjs = &do_func("search", %opthash );
+
+        push @orig_fixed , @robjs ;
+
+
+    }
+
+    # [ ] make a copy of all the ranges and fixed addrs
+    my @newobjs = ( @orig_ranges , @orig_fixed ) ;
+
+    foreach my $robj ( @newobjs ) {
+        # change the parent network for the ranges etc
+        $robj->network ( $newnet ) ;
+
+        # [ ] remove the gateway address from all range options
+        # [ ] remove the gateway address from all fixed options
+        my $options = $robj->options();
+        my @new_options ;
+        foreach my $oobj ( @{ $options } ) {
+            unless ( $oobj->type() eq "routers" ) {
+                push @new_options , $oobj;
+            }
+        }
+
+        # replace the options
+        if ( @new_options ) { $robj->options( \@new_options ); }
+        else { $robj->options( undef ); }
+    }
+
+    # [ ] get the current first network
+    my %opthash = (
+           "object" => "Infoblox::DHCP::Network", 
+           "network" => $basenet,
+    );
+    my ( $nobj ) = &do_func("get", %opthash );
+
+    # [ ] modify it with the new subnet mask
+    if ( $nobj ) {
+        $nobj->network ( $newnet ) ;
+    }
+
+    # [ ] get the current membership;
+    my $memsvrs = $nobj->members();
+
+    # [ ] remove the parent network, if there is one that
+    #     matched the new cidr
+    # [ ] and have the re-parent on delete...
+    # [ ] *** may not have to worry with 3.2r11
+#     my $net = Infoblox::DHCP::Network->new (
+#                    "network" => $subnet ,
+#                 );
+# 
+#     &do_func("remove",$net);
+
+
+    # [ ] remove the child networks
+    # [ ] remove the joined network
+
+    foreach my $snet ( @subnets ) {
+        my $net = Infoblox::DHCP::Network->new (
+                   "network" => $snet ,
+                );
+        &do_func("remove",$net);
+    }
+
+    # [ ] add the joined network
+    #     [ ] if it fails, add add in the old networks etc..
+
+    my $net = Infoblox::DHCP::Network->new (
+                   "network" => $newnet ,
+                );
+       $net->members ( $memsvrs ) ;
+
+    &do_func("add",$net);
+
+    # [ ] add the ranges
+    # [ ] add the fixed addresses
+    foreach my $obj ( @newobjs ) {
+        &do_func("add",$obj);
+    }
+
+}
+
 =head2 Add a shared network
 
    conf network add shared my_shared child_network 1.1.1.0/24 child 1.1.2.0/24
@@ -1946,7 +2092,6 @@ sub cli_add_shared {
 
     # de-urlencode the comment string
     $comment = &decode_comment ( $comment ) ;
-
 
     my @children  = $line =~/ child_network (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
@@ -2051,7 +2196,7 @@ sub cli_split_network {
     my ( $ncidr ) = $line =~/ split \/(\S+)/ ;
     my ( $type )  = $line =~/ split \/\S+ (\S+)/ ;
 
-    &debug_cli(2,"splitnet n($network) s($ncidr) t($type)");
+    &debug_cli(1,"splitnet n($network) s($ncidr) t($type)");
 
     # create the split object
     my $obj = Infoblox::DHCP::SplitNetwork->new (
@@ -2673,6 +2818,8 @@ sub cli_mod_member {
 
         if ( $use_ntp ) { $memobj->enable_ntp ( $use_ntp ) }
 
+        if ( $gateway ) { $memobj->gateway ( $gateway ) }
+
         if ( $address ) { 
             $memobj->mask ( $mask ) ;
             $memobj->ipv4addr ( $ip) 
@@ -2692,6 +2839,74 @@ sub cli_mod_member {
         # push the changes, if we were ok
         &do_func("modify",$memobj);
     }
+
+}
+
+=head2 Adding members
+
+   configure grid Infoblox add member ns1.foo.com ipaddress 1.2.3.20/24
+
+=cut
+
+sub cli_add_member {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $member)  = $line =~/add member (\S+)/ ;
+
+    my ($grid)    = $line =~/ grid (\S+)/ ;
+    my ($vip)    = $line =~/ ipaddress (\S+)/ ;
+    my ($gateway)    = $line =~/ gateway (\S+)/ ;
+    my ($haaddr)    = $line =~/ hapair (\S+)/ ;
+    my ($harid)    = $line =~/ routerid (\S+)/ ;
+
+    # break ip into ip and mask
+    my ( $ip , $cidr ) = split ( /\// , $vip ) ;
+    my $mask = &cidrtomask( $cidr ) ;
+
+    &debug_cli (2,"addme ip($ip) m($mask) gw($gateway) ha($haaddr)");
+
+    # create the object
+    my $memobj = Infoblox::Cluster::Member->new(
+          "cluster" => $grid ,
+          "name" => $member ,
+          "gateway" => $gateway ,
+          "ipv4addr" => $ip ,
+          "mask" => $mask ,
+#             "comment"   => $comment,
+    );
+
+    # make some changes, if we have a grid
+    if ( $memobj ) {
+
+#         if ( $use_ntp ) { $memobj->enable_ntp ( $use_ntp ) }
+
+#         if ( $gateway ) { $memobj->gateway ( $gateway ) }
+# 
+#         if ( $vip ) { 
+#             $memobj->mask ( $mask ) ;
+#             $memobj->ipv4addr ( $ip) 
+#         }
+
+        # make this an hapair
+        if ( $haaddr ) { 
+            my ( $l1,$h1,$l2,$h2 ) = split ( /,/ , $haaddr ) ;
+            $memobj->type ("HApair" ) ;
+            $memobj->node1_lan ($l1) ;
+            $memobj->node1_ha ($h1) ;
+            $memobj->node2_lan ($l2) ;
+            $memobj->node2_ha ($h2) ;
+            $memobj->router_ID ( $harid ) ;
+        }
+
+        # push the changes, if we were ok
+        &do_func("add",$memobj);
+    }
+    else {
+          my $result = Infoblox->status_code();
+          my $response = Infoblox->status_detail();
+        print "ERR $result , $response\n";
+        }
 
 }
 
@@ -3433,6 +3648,7 @@ sub dump_object {
         }
         # hash arrays by key 'ipv4addr'
         elsif ( $key eq "syslog_server"
+             or $key eq "forward_to"
              or $key eq "match_members" ) {
             my @values ;
             # find all the names only
@@ -3442,7 +3658,7 @@ sub dump_object {
             }
 
             # remember it
-            $data = "@values";
+#             $data = "@values";
             $data = join " " , @values ;
               
         }
@@ -3453,6 +3669,34 @@ sub dump_object {
             foreach my $sobj ( @{ $obj->{$key} } ) {
                 my $name = $sobj->{'address'};
                 push @values , "$name" ;
+            }
+
+            # remember it
+            $data = join " " , @values ;
+              
+        }
+        # hash arrays (ranges) by key 'start_address'
+        elsif ( $key eq "filters" ) {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+                my $name = $sobj->{'filter_name'};
+                my $perm = $sobj->{'permission'};
+                push @values , "$name($perm)" ;
+            }
+
+            # remember it
+            $data = join " " , @values ;
+              
+        }
+        # hash arrays (ranges) by key 'start_address'
+        elsif ( $key eq "exclude" ) {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+                my $efip = $sobj->{'start_address'};
+                my $elip = $sobj->{'end_address'};
+                push @values , "$efip,$elip" ;
             }
 
             # remember it
@@ -4135,7 +4379,10 @@ my %COMMANDS = (
            func => "debug_commands", },
 
 # -gdhshow-
+# [ ] port for readline
+# [ ] exit , bye , quit 
 # [ ] show license
+# [ ] join member ( drop session, reconnect )
 # [ ] show failover
 # [ ] show filter xxx
 # [x] show grid xxx
@@ -4297,8 +4544,17 @@ my %COMMANDS = (
            func => "cli_mod_grid", },
 
     'configure grid <name> add' => { 
-           words => "dns dhcp ntp_server=<ip>|lcd_input|remote_console_access|support_access",
+           words => "member=<name> dns dhcp ntp_server=<ip>|lcd_input|remote_console_access|support_access",
            func => "cli_mod_grid", },
+
+    'configure grid <name> add member <name>' => {
+           words => "ipaddress=<n.n.n.n/mm>", },
+
+    'configure grid <name> add member <name> ipaddress <n.n.n.n/mm>' => {
+           words => "<cr> hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
+           func => "cli_add_member", },
+
+
     'configure grid <name> add dns' => { 
            words => "nsgroup=<name> acl", },
 
@@ -4500,7 +4756,7 @@ my %COMMANDS = (
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
-           words => "split add delete ", },
+           words => "split add delete join=</cidr>", },
 
     'configure network <n.n.n.n/mm> add' => { 
            words => "network fixed range",  },
@@ -4516,6 +4772,14 @@ my %COMMANDS = (
            func => "cli_split_network", },
     'configure network <n.n.n.n/mm> split </cidr> all' => { 
            func => "cli_split_network", },
+
+# - join networks -
+    'configure network <n.n.n.n/mm> join </cidr>' => { 
+           words => "network=<n.n.n.n/mm>",  },
+
+    'configure network <n.n.n.n/mm> join </cidr> network <n.n.n.n/mm>' => { 
+           words => "<cr>|network=<n.n.n.n/mm>",  
+           func => "cli_join_network", },
 
     'configure network <n.n.n.n/mm> delete fixed' => { 
            words => "<ip>=<mac>",  },
@@ -4617,6 +4881,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.14  2006/08/18 19:06:18  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: join networks and add members to a grid
+#
 # Revision 3.13  2006/08/06 19:08:40  milli
 # BugId: 8205
 # Reviewer(s): milli
