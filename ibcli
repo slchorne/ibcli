@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.1.2.4 2005/09/26 22:16:29 horne Exp $ ;
-my $REV = q$Revision: 3.1.2.4 $;
-# $Date: 2005/09/26 22:16:29 $
+my $ID  = q$Id: ibcli,v 3.1.2.5 2005/09/29 17:18:13 horne Exp $ ;
+my $REV = q$Revision: 3.1.2.5 $;
+# $Date: 2005/09/29 17:18:13 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -549,7 +549,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.1.2.4 $
+$Revision: 3.1.2.5 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1367,10 +1367,10 @@ sub cli_add_zone {
     # find a member to be the primary (external or otherwise)
     # or is it a forward zone...
     if ( @forwarders ) {
+
        # external primaries
        my @fwd_svrs ;
        foreach my $fwd_ip ( @forwarders ) {
-
           push @fwd_svrs , Infoblox::DNS::Nameserver->new(
                              "ipv4addr" => $fwd_ip ,
                              );
@@ -1380,8 +1380,11 @@ sub cli_add_zone {
 
        $obj->forward_to( \@fwd_svrs ) ;
 
+       # [ ] and add the right members...
+
     }
-    elsif ( $pri ) {
+    else {
+    if ( $pri ) {
        # member primary
        my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $pri, );
        $obj->primary( $pri_ns ) ;
@@ -1444,6 +1447,7 @@ sub cli_add_zone {
     }
 
     # add any secondaries we found parsing the args
+     
     $obj->secondaries ( \@sec_svrs ) ;
 
     # do we import ?
@@ -1451,6 +1455,7 @@ sub cli_add_zone {
        $obj->import_from ( $import ) ;
        &debug_cli (2,"addz z($zone) imp($import)");
     }
+    } # not a forward ?
 
     # now add the damn thing
     &do_func("add",$obj);
@@ -2478,7 +2483,7 @@ sub cli_add_server {
        $SESSION = Infoblox::Session->new( 
                      "master" => $server,
                      "username" => $user,
-                     "password" , $passwd ,
+                     "password" => $passwd ,
                   );
 
       if ( $SESSION->status_code() ) {
@@ -2652,6 +2657,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.1.2.5  2005/09/29 17:18:13  horne
+# *** empty log message ***
+#
 # Revision 3.1.2.4  2005/09/26 22:16:29  horne
 # added support for failover and forwarders
 #
