@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.17 2006/12/01 20:20:49 horne Exp $ ;
-my $REV = q$Revision: 3.17 $;
-# $Date: 2006/12/01 20:20:49 $
+my $ID  = q$Id: ibcli,v 3.18 2006/12/01 20:32:23 horne Exp $ ;
+my $REV = q$Revision: 3.18 $;
+# $Date: 2006/12/01 20:32:23 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.17 $.
+$Revision: 3.18 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1194,6 +1194,7 @@ sub cli_add_zone {
     # get the args from the line
     my ($zone)     = $line =~/zone add (\S+)/ ;
     my ($import)   = $line =~/ import (\S+)/ ;
+    my ($nonauthorative)   = $line =~ /\bnonauthorative\b/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
     my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
     my ($nsgroup)  = $line =~/ nsgroup (\S+)/ ;
@@ -1321,7 +1322,8 @@ sub cli_add_zone {
        $obj->primary( \@ext_svrs ) ;
 
     }
-    elsif ( $MASTER_IP ) {
+    # don't apply any nameservers if it is nonauth
+    elsif ( $MASTER_IP  and !$nonauthorative) {
        # use the server as the primary
        my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $MASTER_IP, );
 
@@ -1579,6 +1581,7 @@ sub cli_add_a_rec {
 
     # get the args from the line
     my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $disable ) = $line =~/add a_record \S+.* \b(disabled)\b/ ;
     my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
@@ -1598,9 +1601,11 @@ sub cli_add_a_rec {
                   "name" => "$name",
                   "ipv4addr" => "$ip",
     );
+    if ( $disable ) { $obj->disable ( "TRUE" ) }
+
 
     if ( $comment ) { $obj->comment ( $comment ) }
-
+    &debug_cli(1,"add_a n($host) n($ip) d($disable) c($comment)");
     &debug_cli(1,"add_a n($host) n($ip) c($comment)");
 
     # addit
@@ -4943,7 +4948,7 @@ my %COMMANDS = (
            words => "<zone>", },
     'configure zone add <zone>' => { 
            words => "<cr>
-           view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -5008,7 +5013,7 @@ my %COMMANDS = (
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> comment=<comment>", 
+           words => "<cr> comment=<comment>|disabled", 
            func => "cli_add_a_rec", },
     'configure zone <zone> add a_record <name> <ip> comment <comment>' => { 
            func => "cli_add_a_rec", },
@@ -5215,6 +5220,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.18  2006/12/01 20:32:23  horne
+# BugId: 8205
+# Reviewer(s): Ron
+# Description: added disabled A records and non-auth zones
+#
 # Revision 3.17  2006/12/01 20:20:49  horne
 # BugId: 8205
 # Reviewer(s): Geoff
