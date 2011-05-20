@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.5 2004/12/22 20:52:05 horne Exp $
+#   $Id: ibcli,v 2.6 2005/03/05 19:27:15 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.5 $
-$Date: 2004/12/22 20:52:05 $
+$Revision: 2.6 $
+$Date: 2005/03/05 19:27:15 $
 ';
 $REV =~ s/\$//g;
 
@@ -78,6 +78,7 @@ use lib "$FindBin::Bin";
 use Infoblox::InfobloxDNS;
 use Infoblox::RADIUSOne ;
 use Infoblox;
+use MIGRATION;
 
 ######################
 #
@@ -209,7 +210,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 2.5 $
+$Revision: 2.6 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -625,6 +626,8 @@ while (<>) {
    # another call to 'shift_Arg'
    #
    $LINE = $_ ;
+
+   # [ ] need a way to find strings protected by quotes ( "xxx yyy" )
    @WORDS  = split /\s+/ ;
    @P_ARGS = () ;
    my $arg = shift @WORDS ;
@@ -895,8 +898,8 @@ sub add_to_network_commands {
                 "fixed" => 'cli_add_fixed_address',
                 "address" => 'cli_add_fixed_address',
                 "network" => 'add_sub_network',
-                "range" => 'add_dhdprange',
-                "dhcprange" => 'add_dhdprange',
+                "range" => 'cli_add_dhcp_range',
+                "dhcprange" => 'cli_add_dhcp_range',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -1038,7 +1041,7 @@ sub remove_from_zone_commands {
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
-                "host" => 'remove_host',
+                "host" => 'cli_remove_host',
                 "cname" => 'remove_cname',
                 "bulkhost" => 'remove_bulkhost',
                 "a" => 'remove_a_rec',
@@ -1428,6 +1431,10 @@ sub cli_remove_zone {
 
     my %opthash ;
     $opthash{'name'}=$zone;
+    $opthash{'network'}=$zone;
+
+#     $opthash{'type'}="Delegated" ;
+#     $opthash{'is_reverse_zone'}="false" ;
 
     my @function=("remove_zone",%opthash);
     &do_pub_func(@function);
@@ -1470,7 +1477,7 @@ sub cli_add_host {
 
 =cut
 
-sub remove_host {
+sub cli_remove_host {
     my ( $zone , $host ) = @_ ;
     if ( ! $host ) {
        &missing_arg("<host>")  ;
@@ -1781,20 +1788,72 @@ sub add_sub_network {
 }
 
 sub cli_add_network {
-    my ( $network , $comment ) = @_ ;
+    my ( $network , @type_opts ) = @_ ;
+
     if ( ! $network ) { 
             &missing_arg("<n.n.n.n/mm>") ; 
             return 
     }
 
-    &debug (2,"addn n($network) c($comment)");
+    &debug (2,"addn n($network)");
 
     my %opthash ;
     $opthash{'network'}=$network;
-    if ( $comment ) { $opthash{'comment'}=$comment; }
 
-    # add to the default member
-    push @{ $opthash{"members"} } , {( "member" , $S_ID )};
+    # set the list of acceptable options
+    my @opts = ( "member" , "comment" , "option" );
+    my %optlist = abbrev ( @opts ) ;
+
+    # build the rest as name value pairs
+    while ( my $type = shift @type_opts ) {
+       my $value = shift @type_opts ;
+       my $etype = $optlist{ lc($type) } ;
+
+       &debug (3,"addrng t($type) et($etype) v($value) oo(@type_opts)");
+
+       if ( ! $etype || ! $value ) { 
+          &missing_arg(@opts );
+          return ;
+       }
+
+       # check for custom options ?
+       if ( $etype eq "option" ) {
+          # set some custom options;
+          # split on the FIRST '='
+          my ( $opt , $val ) = $value =~  /^(.*?)=(.*)/ ;
+
+          &debug (3,"addrng o($opt) v($val) oo(@type_opts)");
+
+          my ($key,$item)=make_dhcp_option($DEBUG,$opt,$val) ;
+
+          # add a custom option to the hash
+          if ( $key =~ /^Option / ) {
+                 push @{ $opthash{'custom_options'} } , $item ;
+          }
+          # general options are returned as the full object
+          elsif ( $key ) {
+                 $opthash{$key}=$item ;
+          }
+
+       }
+       # multiple members
+       elsif ( $etype eq "member" ) {
+          &debug (3,"addrng mem($value) oo(@type_opts)");
+
+          push @{ $opthash{"members"} } , {( "member" , $value )};
+       }
+
+       else {
+          # just set the hash
+          $opthash{$etype}=$value;
+       }
+
+    }
+
+    # add to the default member, if required
+    if ( ! $opthash{'members'} ) {
+       push @{ $opthash{"members"} } , {( "member" , $S_ID )};
+    }
 
     my @function=("add_network",%opthash);
     &do_pub_func(@function);
@@ -2000,14 +2059,14 @@ As are adding the member
 
 =cut
 
-sub add_dhdprange {
-    my ( $network , $fip , $lip , $type , @type_opts ) = @_ ;
+sub cli_add_dhcp_range {
+    my ( $network , $fip , $lip , @type_opts ) = @_ ;
     if ( (! $fip ) or ( ! $lip ) ) {
        &missing_arg("<first_ip> <last_ip>")  ;
        return ;
     }
 
-    &debug (2,"addrng n($network) s($fip) e($lip) t($type) oo(@type_opts)");
+    &debug (2,"addrng n($network) s($fip) e($lip) oo(@type_opts)");
 
     my %opthash ;
     $opthash{'network'}=$network;
@@ -2015,21 +2074,47 @@ sub add_dhdprange {
     $opthash{'end_address'}=$lip;
     $opthash{'member'}=$S_ID;
 
-    # parse optional extra arguments
+    # set the list of acceptable options
+    my @opts = ( "member" , "comment" , "failover_association" , "option" );
+    my %optlist = abbrev ( @opts ) ;
 
-    my $etype ;
-    if ( $type ) {
-       my @opts = ( "failover_association");
-       my %optlist = abbrev ( @opts ) ;
-       $etype = $optlist{ lc($type) } ;
+    # build the rest as name value pairs
+    while ( my $type = shift @type_opts ) {
+       my $value = shift @type_opts ;
+       my $etype = $optlist{ lc($type) } ;
 
-       if ( ! $etype || ! @type_opts ) { 
-          &missing_arg(@opts , "<name>" );
+       &debug (3,"addrng t($type) et($etype) v($value) oo(@type_opts)");
+
+       if ( ! $etype || ! $value ) { 
+          &missing_arg(@opts );
           return ;
        }
 
-       # set the hash
-       $opthash{$etype}="@type_opts";
+       # check for custom options ?
+       if ( $etype eq "option" ) {
+          # set some custom options;
+          # split on the FIRST '='
+#           my ( $opt , $val ) = split ( /=/ , $value ) ;
+          my ( $opt , $val ) = $value =~  /^(.*?)=(.*)/ ;
+
+          &debug (3,"addrng o($opt) v($val) oo(@type_opts)");
+
+          my ($key,$item)=make_dhcp_option($DEBUG,$opt,$val) ;
+
+          # add a custom option to the hash
+          if ( $key =~ /^Option / ) {
+                 push @{ $opthash{'custom_options'} } , $item ;
+          }
+          # general options are returned as the full object
+          elsif ( $key ) {
+                 $opthash{$key}=$item ;
+          }
+
+       }
+       else {
+          # just set the hash
+          $opthash{$etype}=$value;
+       }
 
     }
 
@@ -3535,6 +3620,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.6  2005/03/05 19:27:15  horne
+# added support for custom options
+#
 # Revision 2.5  2004/12/22 20:52:05  horne
 # fixed the commit prompt
 # changed commit to 'reatart'
