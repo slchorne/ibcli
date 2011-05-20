@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# (c) Copyright: Geoff horne, SLC 2001-2003
+# (c) Copyright: Geoff horne, SLC 2001-2005
 #               All rights reserved
 #
 # THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS `AS IS' AND
@@ -53,23 +53,16 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.1 2004/12/14 05:09:01 horne Exp $
+#   $Id: ibcli,v 2.2 2004/12/18 12:10:13 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.1 $
-$Date: 2004/12/14 05:09:01 $
+$Revision: 2.2 $
+$Date: 2004/12/18 12:10:13 $
 ';
 $REV =~ s/\$//g;
 
-
-####******#########
-#
-# my %options;
-# getopts('f:hl', \%options);   # read the options with getopts
-# 
 # uncomment the following two lines to see what the options hash contains
-#use Data::Dumper;
-#print Dumper \%options;
-####******#########
+#[ ] use Data::Dumper;
+#[ ] print Dumper \%options;
 
 # Perl CGI common chunks
 #
@@ -115,10 +108,11 @@ my $LINE ;
 my $SAVE_HIST ;
 my @CLIST ;
 my @WORDS ;
-my @P_ARGS ;
 my @HISTORY ;
 
 my $PROMPT ;
+
+my @P_ARGS ;
 
 #
 # WTF is P_ARGS ??
@@ -127,18 +121,6 @@ my $PROMPT ;
 # arguments, so we keep these in a stack and pass them around where
 # necessary. it is a global because all sorts of subs will want to play
 # with it...
-#
-
-#
-#####################
-
-# read the lines
-# the datastructure is kinda nested, but the command set is still small
-# enough to avoid some sort of lexical overhead subroutine
-
-## NOTE - to make a better CLI version we should have a wrapper loop that
-#  checks if you are coming in as a file or STD in. The primary loop in
-#  either case should pass to the actual arg parser
 #
 
 # optional args
@@ -171,32 +153,12 @@ if ( $GET_VERSION ) {
    exit 0 ;
 }
 
-# set the first level command set
-my %commands = ( 
-            'history' => 'show_history',
-            'commit' => 'commit',
-            'connect' => 'connect',
-            'disconnect' => 'disconnect',
-            'download' => 'download_commands',
-#             'upload' => 'upload_commands',
-            'set' => 'set_commands' ,
-            'configure' => 'set_commands' ,
-            'show' => 'show_commands' ,
-            'get' => 'show_commands' ,
-            'exit' => 'do_exit' ,
-            'quit' => 'do_exit' ,
-) ;
+## NOTE - to make a better CLI version we should have a wrapper loop that
+#  checks if you are coming in as a file or STD in. The primary loop in
+#  either case should pass to the actual arg parser
 
 # catch fools who forget to do a '-f'
 if ( @ARGV ) { $CONFIG = shift ; }
-
-# if we were called with a "-c" we are dumping the command parsing tree
-if ( $LIST_COMM ) {
-   print "$REV\n";
-
-   &walk_tree(%commands) ;
-   exit ;
-}
 
 # are we in make mode ?
 if ( $MAKE ) { &script_header }
@@ -238,6 +200,327 @@ if ( ! $CONFIG ) {
 if ( $CONFIG ) { 
    # make 'while(<>)' still work...
    push @ARGV , $CONFIG  ;
+}
+
+#####################################################################
+# perldoc goes here
+
+=head1 NAME
+
+The INFOBLOX CLI, a users guide
+
+=head1 Synopsis
+
+*A guide for Infoblox SEs and other commandline junkies*
+
+=head1 Preamble
+
+This is 
+version 1.6 of the code, 
+there were previous versions that were
+even worse, this one is pretty bad, it really is beta code. But it is a
+start.
+
+So why do this, what is this CLI for ? Well there were a few primary
+reasons:
+
+=over
+
+=item Quick changes are now easy,
+
+You don't need to wait for a GUI to start or get the right version
+of java functional, this allows you to quickly get into the database
+and make some simple and efficient changes
+
+=item Abstract command set
+
+Now you don't need to know the intricacies of the API, a few simple
+commands will achieve the same effect, if you are a user that
+doesn't know PERL you can still drive the CLI and get the results
+you need. This may not be an advantage if you are reading data from
+another system to import into an Infoblox unit (since you still need
+to write software to parse the data, eg PERL) but it may still help
+and end user that can convert this data in to the CLI command set
+but not know enough to write PERL.
+
+=item Customers wanted it
+
+    Need I say more ?
+
+=back 
+
+Lastly, why is this called 'ibcli' and not 'DNScli' ? Well, this is just
+a wrapper to any API we like, it is not really DNS specific.
+
+
+=head1 Quickstart
+
+Simple example, adding a zone
+
+   [0] ! no server > set server 10.0.1.224
+   [0] ! 10.0.1.224 > set pass infoblox
+   SERVER :: connecting
+   [0] * 10.0.1.224 > set zone add com
+   [0] * 10.0.1.224 > set zone add foo.com
+   [0] * 10.0.1.224 > disconnect
+
+A more detailed example
+
+   [0] ! no server > set server 10.0.1.224
+   [0] ! 10.0.1.224 > set pass infoblox
+   SERVER :: connecting
+   [0] * 10.0.1.224 > set zone add com
+   [0] * 10.0.1.224 > set zone add foo.com
+   [0] * 10.0.1.224 > set zone foo.com add host test 1.2.3.4
+   [0] * 10.0.1.224 > set zone delete bar.com
+   [0] * 10.0.1.224 > disconnect
+
+A complex example, multiple connections
+
+   [0] ! no server > set server 10.0.1.224
+   [0] ! 10.0.1.224 > set pass infoblox
+   SERVER :: connecting
+   [0] * 10.0.1.224 > set zone add sales.foo.com
+   [0] * 10.0.1.224 > disconnect
+   [0] ! no server > set server 10.0.1.200
+   CANNOT CONNECT :: no server/pass supplied 
+   [0] ! 10.0.1.200 > set pass infoblox
+   SERVER :: connecting
+   [0] * 10.0.1.200 > set zone add biz.foo.com
+   [0] * 10.0.1.200 > disconnect
+
+=head1 Description
+
+=head1 Installation
+
+It should run 'as is' from a uniz machine. 
+
+If you have a windows OS then you will have a few hurdles to cross:
+
+=over
+
+=item * Rename the script to 'ibcli.pl'. 
+
+I still don't understand why Windows uses file suffix to type its data
+rather than doing something intelligent like looking at the contents of
+the file, but then, we are dealing with people who thought 8.3 was all
+you'd ever need as a file namespace and 640K for ram...
+
+=item * Make sure you have the necessary libraries installed, 
+
+you'll need:
+   o Getopt::Long
+   o Text::Abbrev
+
+=item * Get access to 'dig' 
+      ...If you want the 'show' commands to work.
+
+
+=back
+
+=head1 Getting started
+
+Run the ibcli - it is a perl script, you will get a prompt
+
+    drgeoff:infoblox/src/ibcli > ./ibcli
+    CLI version
+    [0] ! no server >
+
+Ideally, you should now connect the CLI to a server somewhere, to do
+this you give it the server and a password, you can do these in either
+order, it just tries to eventually connect when it has enough data.
+
+    [0] ! no server > set server 10.0.1.230
+    CANNOT CONNECT :: no server/pass supplied
+    [0] ! 10.0.1.230 > set password infoblox
+    SERVER :: connecting
+
+Or you can also do this from the initial invocation:
+
+    drgeoff:infoblox/src/ibcli > ./ibcli -s 10.0.1.230 -p infoblox
+
+"HOLD ON A SEC", I hear you ask, "Why am i connecting to a server, isn't
+this CLI running on a console somewhere ?". No, Grasshopper, the CLI is
+just a wrapper to the InfoBloxDNS.pm so you can run it from anywhere in
+the world. This gives you the added advantage of being able to work on
+MANY servers from the one CLI.
+
+
+=head1 Setting the debug level
+
+    [0] ! no server > set debug 3
+    [3] ! no server >
+
+Or you can also do this from the initial invocation:
+
+    drgeoff:infoblox/src/ibcli > ./ibcli -d 3
+
+
+=head1 Other Gritty Details
+
+OK, so what the hell can I do from here ?
+
+=head2 Members and secondaries
+
+By default all stuff is added to just the Cluster Master, the API guesses
+this from the SERVER setting. If you explicitly want to add stuff to
+certain members you need to append the members to the command arg :
+
+   conf zone add foo.com members 1.2.3.4
+   conf zone add foo.com members 1.2.3.4,1.2.3.5
+
+=head2 Laziness
+
+The command parser accepts abbreviations
+
+    se z a foo.com
+
+is the same as
+
+    set zone add foo.com
+
+There is also command ambiguity. since the command parser uses seperate
+code to the actual library calls it is easy to make multiple commands
+mean the same thing.
+
+    * 'show' or 'get' mean the same thing
+    * 'set' or 'configure' mean the same thing
+    * 'delete' or 'remove' mean the same thing
+
+
+=head2 BATCH processing
+
+You can read a set of commands from a file, and then pass them to the
+CLI via the -f option
+
+   # 
+   # meta input language for infoblox DNSOne scripts
+   #
+   # SAMPLE input file
+   #
+   
+   # set the debug level
+   conf DEBUG 1
+   
+   # server likes either names or IP's
+   #
+   conf SERVER   45.0.12.20
+   conf PASSWORD infoblox
+   
+   conf zone add foo.com
+   conf zone foo.com add host 2-bulktest 45.103.1.2
+   conf zone foo.com add host 3-bulktest 45.103.1.3
+   conf zone foo.com add host 4-bulktest 45.103.1.4
+   conf zone foo.com add host 5-bulktest 45.103.1.5
+   
+   # scripts commit and disconnect by default.
+   #
+  
+
+And then just run the script
+
+    drgeoff:infoblox/src/ibcli > ./ibcli -f sample.in
+
+
+=head2 Write your own code
+
+In the essence of a recursive 'eat your own dogfood' mentality, it is
+actually possible to get the CLI to write out self executing perl
+scripts. You do this with the -m option
+
+    ibcli -m -f <config_file>
+
+You may not see the immediate benefit of this, but it really helps if you
+can't recall the API syntax. It also helps if you are in a
+situation where you have set up a CLI config file but want to give 
+someone else reproducable programmes without giving them the CLI tool
+you will understand the value of this.
+
+Perhaps an example would work. Given this input :
+
+   # 
+   # meta input language for infoblox DNSOne scripts
+   #
+   # SAMPLE input file
+   #
+   # server likes either names or IP's
+   #
+   conf SERVER 45.0.12.20 infoblox
+   
+   conf zone add foo.com
+   conf zone foo.com add host 2-bulktest 45.103.1.2
+   conf zone foo.com add host 3-bulktest 45.103.1.3
+   conf zone foo.com add host 4-bulktest 45.103.1.4
+   conf zone foo.com add host 5-bulktest 45.103.1.5
+
+   # scripts commit and disconnect by default.
+   #
+  
+
+The CLI will produce the following perl script
+
+   #!/usr/bin/perl
+   #
+   # AUTOGENERATED from ibcli 
+   #
+   use InfoBloxDNS ;
+   ib_open_connection($SERVER_IP,$SERVER_PASS);
+   
+   # 
+   # meta input language for infoblox DNSOne scripts
+   #
+   # SAMPLE input file
+   #
+   
+   # server likes either names or IP's
+   #
+   
+   ib_insert_zone("foo.com","authoritative") ;
+   ib_insert_host("2-bulktest.foo.com","45.103.1.2") ;
+   ib_insert_host("3-bulktest.foo.com","45.103.1.3") ;
+   ib_insert_host("4-bulktest.foo.com","45.103.1.4") ;
+   ib_insert_host("5-bulktest.foo.com","45.103.1.5") ;
+   
+   # scripts commit and disconnect by default.
+   #
+   
+   ib_close_connection();
+   
+   exit ;
+ 
+=cut
+
+#####################################################################
+
+# read the lines
+# the datastructure is kinda nested, but the command set is still small
+# enough to avoid some sort of lexical overhead subroutine
+#
+# also if you build this as a hash it becomes harder to read, you need to
+# visualise each argument block in one chunk
+
+# set the first level command set
+my %commands = ( 
+            'history' => 'show_history',
+            'commit' => 'commit',
+            'connect' => 'connect',
+            'disconnect' => 'disconnect',
+            'download' => 'download_commands',
+#             'upload' => 'upload_commands',
+            'set' => 'set_commands' ,
+            'configure' => 'set_commands' ,
+            'show' => 'show_commands' ,
+            'get' => 'show_commands' ,
+            'exit' => 'do_exit' ,
+            'quit' => 'do_exit' ,
+) ;
+
+# if we were called with a "-c" we are dumping the command parsing tree
+if ( $LIST_COMM ) {
+   print "$REV\n";
+
+   &walk_tree(%commands) ;
+   exit ;
 }
 
 #
@@ -892,6 +1175,15 @@ sub format_ib_func {
 #
 ###########################################
 
+=head1 GENERAL COMMAND REFERENCE
+
+The syntax mostly matches the API syntax. Also, since this is based on
+the API (duh) the same restrictions about requires arguments applies.
+Don't expect the cli to work around requiring dumb extra arguments. When
+you look deep into the API you realise why they are there.
+
+=cut
+
 # sub get_logs {
 #     #
 #     # download the logs to the current dir
@@ -914,6 +1206,12 @@ sub format_ib_func {
 # 
 # }
 
+=head2 Export the database
+
+    download database
+
+=cut
+
 sub get_database {
     #
     # download the database to the current dir
@@ -922,12 +1220,12 @@ sub get_database {
 #     chomp($dest = `pwd`);
 #     $dest="$dest/IB_files";
     if ( ! $dest ) {
-       &missing_arg("<dir>")  ;
+       &missing_arg("<file>")  ;
        return ;
     }
 
-    &err_print("DOWNLOADING ALL DATABASE data to $dest ...");
-    if ( ! -d $dest ) { mkdir($dest,0755); }
+    &err_print("DOWNLOADING ALL DATABASE data as $dest ...");
+#     if ( ! -d $dest ) { est,0755); }
 
     my %opthash ;
     $opthash{'path'}=$dest;
@@ -984,6 +1282,7 @@ sub get_database {
 # }
 
 sub import_to_zone {
+    ## DEPRICATED - see 'cli_add_zone' ;
     my ( $zone , $ip , $opt ) = @_ ;
     if ( ! $ip ) {
        &missing_arg("<ip> [noptr]")  ;
@@ -997,169 +1296,37 @@ sub import_to_zone {
 
 }
 
-sub cli_add_host {
-    my ( $zone , $host , $ip , $comment ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<host> <ip>")  ;
-       return ;
-    }
-    my $name="$host.$zone";
+=head2 Add a Zone
 
-    &debug (2,"addh n($name) n($ip) c($comment)");
+Zones can be added as either forward or reverse. If you add a zone of the
+form n.n.n.n/mm it will assume it is a reverse zone
 
-    my %opthash ;
-    $opthash{'zone'}=$zone;
-    $opthash{'name'}=$host;
-    if ( $comment ) { $opthash{'comment'}=$comment; }
+Add a forward zone
 
-    # add the IP address
-    push @{ $opthash{"address_list"} } , {( "address" , $ip )};
+   conf zone add foo.com
 
-    my @function = ("add_host",%opthash);
+Add a reverse zone
 
-    &do_pub_func(@function);
+   conf zone add 10.0.1.0/24
 
-}
+Add a zone to specific members
 
-sub remove_host {
-    my ( $zone , $host ) = @_ ;
-    if ( ! $host ) {
-       &missing_arg("<host>")  ;
-       return ;
-    }
-    my %opthash ;
-    $opthash{'zone'}=$zone;
-    $opthash{'name'}=$host;
+   conf zone add foo.com members 1.2.3.4,1.2.3.5,1.2.3.6
 
-    my @function = ("remove_host",%opthash);
-    &debug (2,"addh n($host) ");
+=head2 Import a zone
 
-    &do_pub_func(@function);
+Zones can be imported as either forward or reverse. You just add an extra
+argument of the import source
 
-}
+Import a forward zone
 
-sub add_a_rec {
-    my ( $zone , $host , $ip , $comment ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<host> <ip>")  ;
-       return ;
-    }
+   conf zone add foo.com import 45.0.1.220
 
-    my %opthash ;
-    $opthash{'zone'}=$zone;
-    $opthash{'name'}=$host;
-    $opthash{'address'}=$ip;
-    if ( $comment ) { $opthash{'comment'}=$comment; }
+Import a reverse zone
 
-    &debug (2,"add1h n($host) n($ip) ");
+   conf zone add 10.0.1.0/24 import 45.0.1.220
 
-    my @function = ("add_rr_a",%opthash);
-    &do_pub_func(@function);
-
-}
-
-sub remove_a_rec {
-    my ( $zone , $host , $ip ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<host> <ip>")  ;
-       return ;
-    }
-
-    my %opthash ;
-    $opthash{'zone'}=$zone;
-    $opthash{'name'}=$host;
-    $opthash{'address'}=$ip;
-
-    &debug (2,"add1h n($host) n($ip) ");
-
-    my @function = ("remove_rr_a",%opthash);
-    &do_pub_func(@function);
-
-}
-
-sub add_bulkhost {
-    my ( $zone , $prefix , $fip , $lip , $comment ) = @_ ;
-
-    if ( $zone and $prefix and $fip and $lip ) {
-
-       &debug (2,"addbh n($zone) p($prefix) n($fip,$lip) ");
-
-       my %opthash ;
-       $opthash{'zone'}=$zone;
-       $opthash{'prefix'}=$prefix;
-       $opthash{'start_address'}=$fip;
-       $opthash{'end_address'}=$lip;
-       if ( $comment ) { $opthash{'comment'}=$comment; }
-
-       my @function=("add_bulk_host",%opthash);
-       &do_pub_func(@function);
-    }
-    else {
-       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
-       return ;
-    }
-
-}
-
-sub remove_bulkhost {
-    my ( $zone , $prefix , $fip , $lip ) = @_ ;
-
-    if ( $zone and $prefix and $fip and $lip ) {
-
-       &debug (2,"addbh n($zone) p($prefix) n($fip,$lip) ");
-
-       my %opthash ;
-       $opthash{'zone'}=$zone;
-       $opthash{'prefix'}=$prefix;
-       $opthash{'start_address'}=$fip;
-       $opthash{'end_address'}=$lip;
-
-       my @function=("remove_bulk_host",%opthash);
-       &do_pub_func(@function);
-    }
-    else {
-       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
-       return ;
-    }
-}
-
-sub add_cname {
-    my ( $zone , $alias , $cname , $comment ) = @_ ;
-    if ( (! $alias ) or ( ! $cname ) ) {
-       &missing_arg("<alias> <cname>")  ;
-       return ;
-    }
-
-    &debug (2,"addh a($alias) cn($cname) ");
-
-    my %opthash ;
-    $opthash{'zone'}=$zone;
-    $opthash{'alias'}=$alias;
-    $opthash{'canonical_name'}=$cname;
-    if ( $comment ) { $opthash{'comment'}=$comment; }
-
-    my @function=("add_rr_cname",%opthash);
-    &do_pub_func(@function);
-
-}
-
-sub remove_cname {
-    my ( $zone , $alias ) = @_ ;
-    if ( ! $alias ) {
-       &missing_arg("<alias>")  ;
-       return ;
-    }
-
-    &debug (2,"addh n($alias) ");
-
-    my %opthash ;
-    $opthash{'zone'}=$zone;
-    $opthash{'alias'}=$alias;
-
-    my @function=("remove_rr_cname",%opthash);
-    &do_pub_func(@function);
-
-}
+=cut
 
 sub cli_add_zone {
 
@@ -1227,6 +1394,20 @@ sub cli_add_zone {
 
 }
 
+=head2 Remove a zone
+
+Forward or reverse, the syntax follows the same logic as add zone
+
+Remove a forward zone
+
+   conf zone del foo.com
+
+Remove a reverse zone
+
+   conf zone del 10.0.1.0/24
+
+=cut
+
 sub cli_remove_zone {
     my ( $zone ) = @_ ;
     if ( ! $zone ) { &missing_arg("<zone>") ; return }
@@ -1234,12 +1415,287 @@ sub cli_remove_zone {
 
     my %opthash ;
     $opthash{'name'}=$zone;
-    $opthash{'parent_zone'}=".";
 
     my @function=("remove_zone",%opthash);
     &do_pub_func(@function);
 
 }
+
+=head2 Add a host to a zone
+
+   conf zone foo.com add host test 1.2.3.4
+
+=cut
+
+sub cli_add_host {
+    my ( $zone , $host , $ip , $comment ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<host> <ip>")  ;
+       return ;
+    }
+    my $name="$host.$zone";
+
+    &debug (2,"addh n($name) n($ip) c($comment)");
+
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
+
+    # add the IP address
+    push @{ $opthash{"address_list"} } , {( "address" , $ip )};
+
+    my @function = ("add_host",%opthash);
+
+    &do_pub_func(@function);
+
+}
+
+=head2 Remove a host from a zone
+
+   conf zone foo.com delete host test
+
+=cut
+
+sub remove_host {
+    my ( $zone , $host ) = @_ ;
+    if ( ! $host ) {
+       &missing_arg("<host>")  ;
+       return ;
+    }
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
+
+    my @function = ("remove_host",%opthash);
+    &debug (2,"addh n($host) ");
+
+    &do_pub_func(@function);
+
+}
+
+=head2 Add an A record to a zone
+
+   conf zone foo.com add A test 1.2.3.4
+
+=cut
+
+
+sub add_a_rec {
+    my ( $zone , $host , $ip , $comment ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<host> <ip>")  ;
+       return ;
+    }
+
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
+    $opthash{'address'}=$ip;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
+
+    &debug (2,"add1h n($host) n($ip) ");
+
+    my @function = ("add_rr_a",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 Remove An A record from a zone
+
+   conf zone foo.com delete A test 1.2.3.4
+
+=cut
+
+
+sub remove_a_rec {
+    my ( $zone , $host , $ip ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<host> <ip>")  ;
+       return ;
+    }
+
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
+    $opthash{'address'}=$ip;
+
+    &debug (2,"add1h n($host) n($ip) ");
+
+    my @function = ("remove_rr_a",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 Add a bulk host to a zone
+
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20
+
+=cut
+
+sub add_bulkhost {
+    my ( $zone , $prefix , $fip , $lip , $comment ) = @_ ;
+
+    if ( $zone and $prefix and $fip and $lip ) {
+
+       &debug (2,"addbh n($zone) p($prefix) n($fip,$lip) ");
+
+       my %opthash ;
+       $opthash{'zone'}=$zone;
+       $opthash{'prefix'}=$prefix;
+       $opthash{'start_address'}=$fip;
+       $opthash{'end_address'}=$lip;
+       if ( $comment ) { $opthash{'comment'}=$comment; }
+
+       my @function=("add_bulk_host",%opthash);
+       &do_pub_func(@function);
+    }
+    else {
+       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
+       return ;
+    }
+
+}
+
+=head2 Remove a bulk host from a zone
+
+   conf zone foo.com del bulkhost my_prefix 1.2.3.10 1.2.3.20
+
+=cut
+
+sub remove_bulkhost {
+    my ( $zone , $prefix , $fip , $lip ) = @_ ;
+
+    if ( $zone and $prefix and $fip and $lip ) {
+
+       &debug (2,"addbh n($zone) p($prefix) n($fip,$lip) ");
+
+       my %opthash ;
+       $opthash{'zone'}=$zone;
+       $opthash{'prefix'}=$prefix;
+       $opthash{'start_address'}=$fip;
+       $opthash{'end_address'}=$lip;
+
+       my @function=("remove_bulk_host",%opthash);
+       &do_pub_func(@function);
+    }
+    else {
+       &missing_arg("<prefix> <start_ip> <end_ip>")  ;
+       return ;
+    }
+}
+
+=head2 Add a CNAME to a zone
+
+   conf zone foo.com add CNAME alias real.foo.com
+
+=cut
+
+sub add_cname {
+    my ( $zone , $alias , $cname , $comment ) = @_ ;
+    if ( (! $alias ) or ( ! $cname ) ) {
+       &missing_arg("<alias> <cname>")  ;
+       return ;
+    }
+
+    &debug (2,"addh a($alias) cn($cname) ");
+
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'alias'}=$alias;
+    $opthash{'canonical_name'}=$cname;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
+
+    my @function=("add_rr_cname",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 Remove a CNAME from a zone
+
+   conf zone foo.com delete CNAME alias
+
+=cut
+
+sub remove_cname {
+    my ( $zone , $alias ) = @_ ;
+    if ( ! $alias ) {
+       &missing_arg("<alias>")  ;
+       return ;
+    }
+
+    &debug (2,"addh n($alias) ");
+
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'alias'}=$alias;
+
+    my @function=("remove_rr_cname",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 Add a PTR to a zone
+
+   conf zone 10.0.0.0/24 add PTR 10.0.0.20 ns2.foo.com
+
+Add a PTR with comments
+
+   conf zone 10.0.0.0/24 add PTR 10.0.0.20 ns2.foo.com "comment string"
+
+=cut
+
+sub add_zone_ptr {
+    my ( $network , $ip , $host , $comment ) = @_ ;
+    if ( (! $host ) or ( ! $ip ) ) {
+       &missing_arg("<ip> <host>")  ;
+       return ;
+    }
+#     my ($net,$cidr) = split(/\//,$parent) ;
+#     my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"addnp n($network) ip($ip) h($host)");
+
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'name'}=$ip;
+    $opthash{'host'}=$host;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
+
+    my @function=("add_rr_ptr",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 Remove a PTR from a zone
+
+   conf zone 10.0.0.0/24 del PTR 10.0.0.20 ns2.foo.com
+
+=cut
+
+sub del_zone_ptr {
+    my ( $network , $ip , $host ) = @_ ;
+    if ( ( ! $ip ) or ( ! $host ) ) {
+       &missing_arg("<ip> <host>")  ;
+       return ;
+    }
+    &debug (2,"remnp n($network) ip($ip) ho($host)");
+
+    my %opthash ;
+    $opthash{'network'}=$network;
+    $opthash{'name'}=$ip;
+    $opthash{'host'}=$host;
+
+    my @function=("remove_rr_ptr",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 Modify global DHCP settings
+
+TBD
+
+=cut
 
 # sub mod_global_dhcp {
 #     my ( $opt , $val , @extra ) = @_ ;
@@ -1276,6 +1732,89 @@ sub cli_remove_zone {
 #     &do_pub_func(@function);
 # 
 # }
+
+=head2 Add a network
+
+   conf network add 1.1.1.0/24
+
+Add a network with members
+
+   conf network add 1.1.1.0/24 members 1.1.1.2,1.1.1.3,1.1.1.4
+
+Add a network with comments
+
+   conf network add 1.1.1.0/24 comment "comment string"
+
+When you split a network and want to add children you just add them to
+the parent network. All other options are the same as for adding networks
+
+   conf network 1.1.0.0/16 add 1.1.4.0/22 
+
+=cut
+
+sub add_sub_network {
+    my ( $network , $subnet ) = @_ ;
+    if ( ! $subnet ) { &missing_arg("<n.n.n.n/mm>") ; return }
+
+    &debug (2,"addsn pn($network) n($subnet)");
+
+    my %opthash ;
+    $opthash{'network'}=$subnet;
+    $opthash{'network_container'}=$network;
+
+    my @function=("add_subnetwork",%opthash);
+    &do_pub_func(@function);
+
+}
+
+sub cli_add_network {
+    my ( $network , $comment ) = @_ ;
+    if ( ! $network ) { 
+            &missing_arg("<n.n.n.n/mm>") ; 
+            return 
+    }
+
+    &debug (2,"addn n($network) c($comment)");
+
+    my %opthash ;
+#     $opthash{'network'}=$network;
+    $opthash{'address'}=$network;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
+
+    # add to the default member
+    push @{ $opthash{"members"} } , {( "member" , $S_ID )};
+
+    my @function=("add_network",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 Remove a network
+
+   conf network del 1.1.1.0/24
+
+=cut
+
+sub cli_remove_network {
+    my ( $network ) = @_ ;
+    if ( ! $network ) { &missing_arg("<n.n.n.n/mm>") ; return }
+
+    &debug (2,"remn n($network)");
+
+    my %opthash ;
+#     $opthash{'network'}=$network;
+    $opthash{'address'}=$network;
+
+    my @function=("remove_network",%opthash);
+    &do_pub_func(@function);
+
+}
+
+=head2 modify a network
+
+TBD
+
+=cut
 
 sub modify_network {
 
@@ -1371,6 +1910,17 @@ sub modify_network {
     &do_priv_func(@function);
 }
 
+=head2 Add a fixed address
+
+   conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 
+
+Add a fixed address with comments
+
+   conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 "comment string"
+
+=cut
+
+
 sub cli_add_fixed_address {
     my ( $network , $ip , $mac , $comment ) = @_ ;
     if ( (! $ip ) or ( ! $mac ) ) {
@@ -1390,6 +1940,16 @@ sub cli_add_fixed_address {
 
 }
 
+=head2 Remove a fixed address
+
+For some clever reason, you don't really need to specify the parent
+network to remove a fixed address, but we enforct it here to keep people
+sane (In reality, any bogus string for the network name will work)
+
+   conf network 10.0.1.0 remove fixed 1.2.3.4
+
+=cut
+
 sub del_fixed_address {
     my ( $network , $ip ) = @_ ;
     if ( ! $ip  ) {
@@ -1408,45 +1968,26 @@ sub del_fixed_address {
 
 }
 
-sub add_zone_ptr {
-    my ( $network , $ip , $host , $comment ) = @_ ;
-    if ( (! $host ) or ( ! $ip ) ) {
-       &missing_arg("<ip> <host>")  ;
-       return ;
-    }
-#     my ($net,$cidr) = split(/\//,$parent) ;
-#     my $mask = &cidrfind($cidr) ;
+=head2 Add a dhcp range to a network
 
-    &debug (2,"addnp n($network) ip($ip) h($host)");
+Dhcp ranges, by default, will get added to the cluster master unless you
+override that setting with the member <member> syntax
 
-    my %opthash ;
-    $opthash{'network'}=$network;
-    $opthash{'name'}=$ip;
-    $opthash{'host'}=$host;
-    if ( $comment ) { $opthash{'comment'}=$comment; }
+   conf network 10.1.1.1/24 add dhcp_range 10.1.1.20 10.1.1.40
 
-    my @function=("add_rr_ptr",%opthash);
-    &do_pub_func(@function);
+Ranges can also take alternative (lazy) syntax
 
-}
+   conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40
 
-sub del_zone_ptr {
-    my ( $network , $ip , $host ) = @_ ;
-    if ( ( ! $ip ) or ( ! $host ) ) {
-       &missing_arg("<ip> <host>")  ;
-       return ;
-    }
-    &debug (2,"remnp n($network) ip($ip) ho($host)");
+Failover associations are an additional argument
 
-    my %opthash ;
-    $opthash{'network'}=$network;
-    $opthash{'name'}=$ip;
-    $opthash{'host'}=$host;
+   conf net 10.1.1.1/24 add range 10... failover "my_peering"
 
-    my @function=("remove_rr_ptr",%opthash);
-    &do_pub_func(@function);
+As are adding the member
 
-}
+   conf net 10.1.1.1/24 add range 10... member 1.1.1.2
+
+=cut
 
 sub add_dhdprange {
     my ( $network , $fip , $lip , $type , @type_opts ) = @_ ;
@@ -1486,6 +2027,12 @@ sub add_dhdprange {
 
 }
 
+=head2 Remove a dhcp range
+
+   conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40
+
+=cut
+
 sub del_dhcprange {
     my ( $network , $fip , $lip ) = @_ ;
     if ( ( ! $fip ) or ( ! $lip )  ) {
@@ -1505,43 +2052,18 @@ sub del_dhcprange {
 
 }
 
-sub cli_add_network {
-    my ( $network , $comment ) = @_ ;
-    if ( ! $network ) { 
-            &missing_arg("<n.n.n.n/mm>") ; 
-            return 
-    }
+=head2 Split a network
 
-    &debug (2,"addn n($network) c($comment)");
+You need to specify the netmaks of the children networks when you are
+doing a split. So to split a /16 into /20 networks :
 
-    my %opthash ;
-#     $opthash{'network'}=$network;
-    $opthash{'address'}=$network;
-    if ( $comment ) { $opthash{'comment'}=$comment; }
+   conf network 1.1.0.0/16 split /24
 
-    # add to the default member
-    push @{ $opthash{"members"} } , {( "member" , $S_ID )};
+Split a network and add all children
 
-    my @function=("add_network",%opthash);
-    &do_pub_func(@function);
+   conf network 1.1.0.0/16 split /24 all
 
-}
-
-
-sub cli_remove_network {
-    my ( $network ) = @_ ;
-    if ( ! $network ) { &missing_arg("<n.n.n.n/mm>") ; return }
-
-    &debug (2,"remn n($network)");
-
-    my %opthash ;
-#     $opthash{'network'}=$network;
-    $opthash{'address'}=$network;
-
-    my @function=("remove_network",%opthash);
-    &do_pub_func(@function);
-
-}
+=cut
 
 sub cli_split_network {
     #
@@ -1596,26 +2118,25 @@ sub cli_split_network {
 
 }
 
-sub add_sub_network {
-    my ( $network , $subnet ) = @_ ;
-    if ( ! $subnet ) { &missing_arg("<n.n.n.n/mm>") ; return }
-
-    &debug (2,"addsn pn($network) n($subnet)");
-
-    my %opthash ;
-    $opthash{'network'}=$subnet;
-    $opthash{'network_container'}=$network;
-
-    my @function=("add_subnetwork",%opthash);
-    &do_pub_func(@function);
-
-}
-
 ##########################################################
 #
 # RADIUS commands
 #
 ##########################################################
+
+=head1 RADIUS commands
+
+The cli will also speak to a RADIUS One...
+
+=head2 Adding a realm
+
+   conf realm add my_realm
+
+Add a realm with options
+
+   conf realm add my_realm <option> <value> <option> <value>
+
+=cut
 
 sub add_realm {
     my ( $realm , @type_opts) = @_ ;
@@ -1646,6 +2167,12 @@ sub add_realm {
 
 }
 
+=head2 Removing a realm
+
+   conf realm delete "my_realm"
+
+=cut
+
 sub remove_realm {
     my ( $realm ) = @_ ;
 
@@ -1662,6 +2189,17 @@ sub remove_realm {
     &do_pub_func(@function);
 
 }
+
+=head2 Adding an attribute to a realm
+
+You need to specify if this is a CHECK or RELPY item
+
+   conf realm myrealm add attribute check name value
+
+   conf realm ms.com add attr check Nas-IP-Address 45.0.0.1
+   conf realm ms.com add attr reply framed-ip-netmask 255.255.255.0
+
+=cut
 
 # add an attribute to a realm
 sub add_attrib_to_realm {
@@ -1698,6 +2236,17 @@ sub add_attrib_to_realm {
 
 }
 
+=head2 Removing an attribute from a realm
+
+You need to specify if this is a CHECK or REPLY item
+
+   conf realm myrealm del attribute check name value
+
+   conf realm ms.com del attr check Nas-IP-Address 45.0.0.1
+   conf realm ms.com del attr reply framed-ip-netmask 255.255.255.0
+
+=cut
+
 # delete an attribute to a realm
 sub remove_attrib_from_realm {
     #
@@ -1732,6 +2281,16 @@ sub remove_attrib_from_realm {
     &do_pub_func(@function);
 
 }
+
+=head1 Adding a user to a realm
+
+   conf realm foo.com add user brian password xxxx
+
+To add the default user:
+
+   conf realm foo.com add user default
+
+=cut
 
 # add an user to a realm
 sub add_user_to_realm {
@@ -1781,6 +2340,12 @@ sub add_user_to_realm {
 
 }
 
+=head2 Remove a user from a realm
+
+   conf realm foo.com del user brian
+
+=cut
+
 # remove an user to a realm
 sub remove_user_from_realm {
     #
@@ -1811,6 +2376,14 @@ sub remove_user_from_realm {
     &do_pub_func(@function);
 
 }
+
+=head2 Adding an attribute to a user
+
+You must specify CHECK or REPLY
+
+   conf realm foo modify user brian add attrib check foo 1.2.3.4
+
+=cut
 
 sub modify_realm_user_add_att {
     #
@@ -1856,6 +2429,14 @@ sub modify_realm_user_add_att {
 
 }
 
+=head2 Removing an attribute from a user
+
+You must specify CHECK or REPLY
+
+   conf realm foo modify user brian del attrib check foo 1.2.3.4
+
+=cut
+
 sub modify_realm_user_del_att {
     #
     my ( $realm , $name , $type , $att , $value ) = @_ ;
@@ -1900,20 +2481,9 @@ sub modify_realm_user_del_att {
 
 }
 
-##########################################################
-#
-# An important thing to note :
-#
-# what happens if you issue commands and you do NOT have a connection in
-# place yet ? do we rely on the infoblox module to generate errors or
-# should we assume the worst ? we don't want to re-invent the wheel
-# here...
-#
-#
-
-
 ###########################################3
 #
+###########################################3
 
 sub missing_arg {
     &debug(4,"MISS ARG call");
@@ -1949,6 +2519,12 @@ sub err_print {
     }
 }
 
+=head2 Change (or Set) the debug level
+
+   conf debug <level>
+
+=cut
+
 #
 # SET DEBUG
 #
@@ -1978,6 +2554,12 @@ sub addhistory {
 
 }
 
+=head2 Show the history
+
+    [0] * 10.0.1.230 > history
+
+=cut
+
 sub show_history {
     my $lineno = 1 ;
 
@@ -1997,6 +2579,18 @@ sub show_history {
 # SERVER CONNECTION STUFF.....
 #
 
+=head2 Connect to a server
+
+    [0] ! no server > conf server 10.0.1.230 infoblox
+        
+Connect to another server , reseting the password (don't supply the
+password)
+ 
+     [0] * 10.0.1.230 > conf server 10.0.1.224
+
+=cut
+
+        
 sub add_server {
     my ($type,@args) = @_ ;
     # save the server id and see if we have enough info to connect
@@ -2166,6 +2760,14 @@ sub connect {
 
 }
 
+=head1 RESTARTING services
+
+the cli will not restart services, you have to do that manually
+
+   conf ??? do something ?
+
+=cut
+
 sub disconnect {
 
     &err_print ( "Disconnect :: depricated");
@@ -2212,6 +2814,31 @@ sub commit {
 #
 # DIGS AND GET ROUTINES
 #
+
+=head1 SHOW commands
+
+What ? I thought the API didn't support 'show' ? You are correct, the
+API doesn't but we can wrap a more abstract syntax around commands like
+'dig' and or 'nslookup'. Now, we aren't really interrogating the
+database, just the Protocol server, but this is a good thing since we
+want to make sure that the data has actually been published anyway.
+
+Show a zone (SOA by default)
+
+    show zone foo.com
+
+Show the full zone file
+
+    show zone foo.com axfr
+
+Show a host
+
+    show host test.foo.com
+
+NOTE, in order to make sure we are getting data from the server, all
+queries are non-recursive.
+
+=cut
 
 sub show_host {
     my ($query,$verbose) = @_ ;
@@ -2726,6 +3353,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.2  2004/12/18 12:10:13  horne
+# this version has perldoc
+#
 # Revision 2.1  2004/12/14 05:09:01  horne
 # first round of bug testing
 # also added member support
