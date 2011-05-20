@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.28 2008/01/02 23:17:04 horne Exp $ ;
-my $REV = q$Revision: 3.28 $;
-# $Date: 2008/01/02 23:17:04 $
+my $ID  = q$Id: ibcli,v 3.29 2008/01/15 01:08:18 horne Exp $ ;
+my $REV = q$Revision: 3.29 $;
+# $Date: 2008/01/15 01:08:18 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -227,6 +227,10 @@ if ( $SDB_FILE ) {
     &cli_load_db ( "configure file load $SDB_FILE" );
 }
 
+# GET/store the API version
+my $host = Infoblox::DNS::Host->new ("name" => "name",);
+my $CLIENT_REV = $host->{__version} ;
+
 ##########################################################
 
 # otherwise - we initialise and get going
@@ -346,7 +350,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.28 $.
+$Revision: 3.29 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1238,6 +1242,62 @@ sub cli_del_view {
 
 }
 
+#
+# shared record groups
+#
+=head2 Add a shared record group
+
+   conf zone add shared_record_group my_group
+
+   conf zone delete shared_record_group my_group
+
+=cut
+
+sub cli_add_shared_group {
+    my ( $line ) = @_ ;
+
+    require_api( "4.2r1-0" ) or return;
+
+    # get the args from the line
+    my ( $name )     = $line =~/shared_record_group (\S+)/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
+    &debug_cli(1,"addv v($name) c($comment)");
+
+    my $obj = Infoblox::DNS::SRG->new (
+                  "name" => "$name",
+    );
+
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    # addit
+    &do_func("add",$obj);
+
+}
+
+sub cli_del_shared_group {
+    my ( $line ) = @_ ;
+
+    # version specific...
+    require_api( "4.2r1-0" ) or return;
+
+    # get the args from the line
+    my ( $name )     = $line =~/shared_record_group (\S+)/ ;
+
+    &debug_cli(1,"delv v($name)");
+
+    my $obj = Infoblox::DNS::SRG->new (
+                  "name" => "$name",
+    );
+
+    # addit
+    &do_func("remove",$obj);
+
+}
+
 =head2 Add a Zone
 
 Zones can be added as either forward or reverse. If you add a zone of the
@@ -1270,13 +1330,18 @@ Add a zone with an nsgroup
 
    conf zone add foo.com nsgroup mygroup
 
+Add a shared record group to a zone
+
+   conf zone modify foo.com shared_record_group mygroup
+   conf zone add foo.com shared_record_group mygroup
+
 Add a forwarding zone
 
-    configure zone add fwd.foo.com forward_to 2.2.2.2 forward_to 3.3.3.3
+   configure zone add fwd.foo.com forward_to 2.2.2.2 forward_to 3.3.3.3
 
 Add a delegated zone
 
-    configure zone add deleg.foo.com delegate_to ns1.s.foo.com,1.2.3.4
+   configure zone add deleg.foo.com delegate_to ns1.s.foo.com,1.2.3.4
 
 =head2 Import a zone
 
@@ -1300,7 +1365,7 @@ sub cli_add_zone {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ($zone)     = $line =~/zone add (\S+)/ ;
+    my ($type , $zone)     = $line =~/zone (add|modify) (\S+)/ ;
     my ($import)   = $line =~/ import (\S+)/ ;
     my ($nonauthorative)   = $line =~ /\bnonauthorative\b/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
@@ -1320,6 +1385,7 @@ sub cli_add_zone {
     my (@ext_sec) = $line =~/ ext_secondary (\S+)/g ;
     my (@stealth_ext_sec) = $line =~/ stealth_ext_secondary (\S+)/g ;
     my (@views) = $line =~/ view (\S+)/g ;
+    my (@shared_groups)  = $line =~/ shared_record_group (\S+)/g ;
 
     # de-urlencode the name string
 #     if ( $comment ) { $obj->comment ( $comment ) }
@@ -1334,7 +1400,38 @@ sub cli_add_zone {
     &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
 
     # create the zone...
-    my $obj = Infoblox::DNS::Zone->new ( "name" => $zone, );
+    my $obj;
+
+    if ( $type eq "modify" ) {
+        # get the zone 
+        my %opthash = (
+            "object" => "Infoblox::DNS::Zone", 
+            "name" => $zone
+        );
+        my @zones = &do_func("get", %opthash );
+
+        if ( $#zones > 0 ) {
+            # we found too many
+            my $list = &dump_summ ( "name" , @zones );
+            print "  More than 1 zone found : $list\n";
+            # exit here
+            return
+        }
+        elsif ( ! @zones ) {
+            # we found too few
+            print "  No zone found\n";
+            # exit here
+            return
+        }
+        else {
+            $obj = shift @zones ;
+        }
+
+    }
+
+    else {
+        $obj = Infoblox::DNS::Zone->new ( "name" => $zone, );
+    }
 
     if ( $comment ) { $obj->comment ( $comment ) }
     if ( $prefix ) { $obj->prefix ( $prefix ) }
@@ -1521,6 +1618,11 @@ sub cli_add_zone {
         $obj->views ( \@view_objs ) ;
     }
 
+    # do we add it to a shared record group ?
+    if ( @shared_groups ) {
+        $obj->shared_record_groups ( \@shared_groups ) ;
+    }
+
     # email
     if ( $email ) {
        $obj->email ( $email ) ;
@@ -1535,7 +1637,8 @@ sub cli_add_zone {
     }
 
     # now add the damn thing
-    &do_func("add",$obj);
+    # ( the method is defined in $type );
+    &do_func($type,$obj);
 
 }
 
@@ -1606,6 +1709,15 @@ You add multiple fields with additional 'info <name=value>' pairs
    conf zone info.com add host pc1 2.3.3.3 info Asset=23456-06
    conf zone info.com add host pc2 2.3.3.3 info Custom1="Room 207"
 
+=head2 Modifying hosts
+
+You cannot rename a host, only modify the contents of it
+
+   conf zone foo.com modify host test 1.2.3.4
+
+   conf zone foo.com modify host test 1.2.3.4 comment "this is a comment"
+
+
 =cut
 
 sub cli_add_host {
@@ -1656,6 +1768,12 @@ sub cli_add_host {
             # we found too many
             my $list = &dump_summ ( "name" , @hosts );
             print "  More than 1 host found : $list\n";
+            # exit here
+            return
+        }
+        elsif ( ! @hosts ) {
+            # we found too few
+            print "  No host found\n";
             # exit here
             return
         }
@@ -1715,7 +1833,7 @@ sub cli_add_host {
 
     }
 
-    # everything here is conditional zos we may
+    # everything here is conditional cos we may
     # be in modify mode
 
     if ( @ips ) { $obj->ipv4addrs ( \@iplist ); }
@@ -1798,16 +1916,24 @@ sub cli_del_host {
 
    conf zone foo.com add A test 1.2.3.4
 
+To add the record to a shared record group (zone must be blank)
+
+   conf zone "" add A test 1.2.3.4 shared_record_group mygroup
+
 =cut
+
+# add an A record to a shared record group
+# we can use the same utility as for adding an A record
 
 sub cli_add_a_rec {
     my ( $line ) = @_ ;
 
     # get the args from the line
     my ( $zone )     = $line =~/zone (\S+)/ ;
-    my ( $vname )     = $line =~/view (\S+)/ ;
-    my ( $disable ) = $line =~/add a_record \S+.* \b(disabled)\b/ ;
     my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
+    my ( $view )     = $line =~/view (\S+)/ ;
+    my ( $shared )     = $line =~/shared_record_group (\S+)/ ;
+    my ( $disable ) = $line =~/add a_record \S+.* \b(disabled)\b/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
@@ -1827,16 +1953,28 @@ sub cli_add_a_rec {
                   "ipv4addr" => "$ip",
     );
 
+    # overrwrite this for shared record groups
+    if ( $shared ) {
+        # version specific...
+        require_api( "4.2r1-0" ) or return;
+
+        $obj = Infoblox::DNS::SharedRecord::A->new (
+                  "name" => "$name",
+                  "ipv4addr" => "$ip",
+                  "shared_record_group" => "$shared",
+        );
+    }
+
     if ( $disable ) { $obj->disable ( "TRUE" ) }
 
-    if ( $vname ) {
-        my $view = Infoblox::DNS::View->new ( name => $vname, );
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
         $obj->views ( [ $view ] ) ;
     }
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
-    &debug_cli(1,"add_a n($host) n($ip) c($comment)");
+    &debug_cli(1,"add_a n($host) n($ip) c($comment) sh($shared)");
 
     # addit
     &do_func("add",$obj);
@@ -1872,6 +2010,10 @@ sub cli_del_a_rec {
 
    conf zone foo.com add AAAA test fe80::0001
 
+To add the record to a shared record group (zone must be blank)
+
+   conf zone "" add AAAA test ad::2007 shared_record_group mygroup
+
 =cut
 
 sub cli_add_aaaa {
@@ -1899,6 +2041,18 @@ sub cli_add_aaaa {
                   "name" => "$name",
                   "ipv6addr" => "$ip",
     );
+    # override this for shared records...
+    my ( $shared )     = $line =~/shared_record_group (\S+)/ ;
+    if ( $shared ) {
+        # version specific...
+        require_api( "4.2r1-0" ) or return;
+
+        $obj = Infoblox::DNS::SharedRecord::AAAA->new (
+                  "name" => "$name",
+                  "ipv6addr" => "$ip",
+                  "shared_record_group" => "$shared",
+        );
+    }
 
     if ( $disable ) { $obj->disable ( "TRUE" ) }
     if ( $comment ) { $obj->comment ( $comment ) }
@@ -1939,6 +2093,10 @@ sub cli_del_aaaa {
 
    conf zone foo.com add mx mail 10 mail.bar.com
 
+To add the record to a shared record group (zone must be blank)
+
+   conf zone "" add mx mail 10 mail.bar.com shared_record_group mygroup
+
 =cut
 
 sub cli_add_mx {
@@ -1962,6 +2120,20 @@ sub cli_add_mx {
                     "exchanger" => $dest ,
                     "comment" => $comment,
     );
+    # override this for shared records...
+    my ( $shared )     = $line =~/shared_record_group (\S+)/ ;
+    if ( $shared ) {
+        # version specific...
+        require_api( "4.2r1-0" ) or return;
+
+        $obj = Infoblox::DNS::SharedRecord::MX->new (
+                    "name" => "$host",
+                    "pref" => $pref ,
+                    "exchanger" => $dest ,
+                    "comment" => $comment,
+                    "shared_record_group" => "$shared",
+        );
+    }
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
@@ -2092,8 +2264,8 @@ sub cli_add_cname {
     &debug_cli(1,"addcn z($zone) a($alias) cn($cname) c($comment)");
 
     my $obj = Infoblox::DNS::Record::CNAME->new (
-                  "name" => "$alias.$zone",
-                  "canonical" => "$cname",
+                    "name" => "$alias.$zone",
+                    "canonical" => "$cname",
     );
 
     if ( $comment ) { $obj->comment ( $comment ) }
@@ -3732,6 +3904,12 @@ Show NameServer Groups
 
     show zone nsgroup <name>
 
+Show Shared Record Groups
+
+    show zone shared_record_group
+
+    show zone shared_record_group <name>
+
 =cut
 
 
@@ -3745,6 +3923,7 @@ sub cli_show_zone {
     my ( $type ) = $line =~/ zone (\S+)/ ;
     my ( $name ) = $line =~/ zone \S+ (\S+)/ ;
     my ( $view ) = $line =~/ view (\S+)/ ;
+    my ( $shared ) = $line =~/ shared_record_group (\S+)/ ;
 
     &debug_cli(1,"showz t($type)");
 
@@ -3801,6 +3980,27 @@ sub cli_show_zone {
         my @groups = &do_func("search", %opthash );
 
         &dump_object ( @groups ) ;
+
+    }
+    elsif ( $type eq "shared_record_group" ) {
+        # get nsgroup info
+        my $search = ".*" ;
+        if ( $name ) { $search = $name }
+
+        my %opthash = (
+               "object" => "Infoblox::DNS::SRG", 
+               "name" => $search, 
+        );
+
+        my @groups = &do_func("search", %opthash );
+#         my @names = map ( "  " . $_->name() . "\n" , @groups ) ;
+
+        if ( $name ) {
+            &dump_object ( @groups ) ;
+        }
+        else {
+            print map ( "  " . $_->name() . "\n" , @groups ) ;
+        }
 
     }
     else {
@@ -5218,6 +5418,43 @@ sub cli_set_path {
 #
 ###########################################
 
+sub require_api {
+    # this is a quick and dirty version checker
+    # that should hopefully break out of a subroutine
+    #
+    #     return unless requires_api ( 4.1r2-0 );
+    #     requires_api ( 4.1r2-0 ) or return ;
+
+    my ( $req )  = @_ ;
+    my $oreq = $req ;
+    
+    my $rev = $CLIENT_REV ;
+    if ( $SESSION ) {
+       $rev = $SESSION->server_version();
+    }
+
+        # curiously, we can convert this to an IP address and
+        $rev =~ s/(r\d+-\d+).*/$1/;
+        $req =~ s/(r\d+-\d+).*/$1/;
+        $rev =~ s/\D/\./g;
+        $req =~ s/\D/\./g;
+    
+        # then just compare it
+        if ( abs_ip ( $req ) >= abs_ip ( $rev ) ) {
+            debug_cli(1,"version too low : req($req) srev($rev)");
+            print "Server version ($oreq) is required for this feature\n";
+            return ( 0 ) ;
+        }
+        else {
+            debug_cli(1,"version OK : req($req) srev($rev)");
+            return ( 1 ) ;
+        }
+    
+    # return true for non connected testing
+#     return ( 1 ) ;
+
+}
+
 sub decode_comment {
     # urldecode a comment string
     my ( $string ) = @_ ;
@@ -5264,6 +5501,7 @@ sub dump_data {
         # ignore privates
         next if $key =~ /^__/;
         next if $key =~ /FUNCTION/;
+        next if $key =~ /CHANGED/;
         next if $key =~ /RETURN_FIELDS/;
         next if ! $obj->{$key} ;
 
@@ -5294,6 +5532,7 @@ sub dump_data {
              or $key eq "match_client_keys" 
              or $key eq "ntp_authentication_key" 
              or $key eq "permission_list" 
+             or $key eq "shared_record_groups" 
              or $key eq "trap_receiver"
              or $key eq "nat_group_list"
 #              or $key eq "ipv4addrs"
@@ -5383,6 +5622,20 @@ sub dump_data {
             $data = "@values";
             $data = join " " , @values ;
               
+        }
+        # hash arrays by key 'name'
+        elsif ( $key eq "zone_association" ) {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+#                 push @values , $sobj->{'name'};
+                my $name = $sobj->{'name'};
+                my $view = $sobj->{views}[0]->{name};
+                push @values , "$name($view)" ;
+            }
+
+            # remember it
+            $data = "@values";
         }
         # views , by name
         elsif ( $key eq "views" ) {
@@ -6288,12 +6541,19 @@ my %COMMANDS = (
            func => "cli_show_host", },
 
     'show zone' => { 
-           words => "<cr> <zone>|forward|reverse|nsgroup|view=<name>",  
+           words => "<cr> <zone>|forward|reverse|shared_record_group|nsgroup|view=<name>",  
            func => "cli_show_zone", },
+
     'show zone nsgroup' => { 
            words => "<name>",
            func => "cli_show_zone", },
     'show zone nsgroup <name>' => { 
+           func => "cli_show_zone", },
+
+    'show zone shared_record_group' => { 
+           words => "<name>",
+           func => "cli_show_zone", },
+    'show zone shared_record_group <name>' => { 
            func => "cli_show_zone", },
 
 # show networks
@@ -6544,16 +6804,18 @@ my %COMMANDS = (
 
 # - zone -
     'configure zone' => { 
-           words => "add delete <zone>", },
+           words => "add delete modify <zone>", },
 
     'configure zone delete' => { 
-           words => "<zone>|view=<name>", },
+           words => "<zone>|view=<name>|shared_record_group=<name>", },
     'configure zone delete <zone>' => { 
            words => "<cr>
                     view=<name>",
            func => "cli_delete_zone", },
 
     'configure zone add' => { 
+           words => "<zone>|view=<name>|shared_record_group=<name>", },
+    'configure zone modify' => { 
            words => "<zone>|view=<name>", },
 
 # - views -
@@ -6562,9 +6824,21 @@ my %COMMANDS = (
     'configure zone delete view <name>' => { 
            func => "cli_del_view", },
 
+# - shared record groups -
+    'configure zone add shared_record_group <name>' => { 
+           words => "<cr> comment=<comment>",
+           func => "cli_add_shared_group", },
+    'configure zone delete shared_record_group <name>' => { 
+           func => "cli_del_shared_group", },
+
+    'configure zone modify <zone>' => { 
+           words => "<cr>
+           nonauthorative|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           func => "cli_add_zone", },
+
     'configure zone add <zone>' => { 
            words => "<cr>
-           nonauthorative|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -6608,22 +6882,19 @@ my %COMMANDS = (
     'configure zone <zone> delete cname <name> <canonical>' => { 
            func => "cli_del_cname", },
 
+    'configure zone <zone> delete mx' => { 
+           words => "<name>", },
+    'configure zone <zone> delete mx <name>' => { 
+           words => "<priority>=<name>", },
+    'configure zone <zone> delete mx <name> <priority> <name>' => { 
+           func => "cli_del_mx", },
+
     'configure zone <zone> delete ptr_record' => { 
            words => "<ip>", },
     'configure zone <zone> delete ptr_record <ip>' => { 
            words => "<name>", },
     'configure zone <zone> delete ptr_record <ip> <name>' => { 
            func => "cli_del_ptr", },
-
-    'configure zone <zone> add mx' => { 
-           words => "<name>", },
-    'configure zone <zone> add mx <name>' => { 
-           words => "<priority>=<name>", },
-    'configure zone <zone> add mx <name> <priority> <name>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_mx", },
-    'configure zone <zone> add mx <name> <priority> <name> comment <comment>' => { 
-           func => "cli_add_mx", },
 
     'configure zone <zone> modify host <name>' => { 
            words => "<cr> <ip,ip>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
@@ -6638,13 +6909,13 @@ my %COMMANDS = (
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> comment=<comment>|disabled|view=<name>", 
+           words => "<cr> shared_record_group=<name>|comment=<comment>|disabled|view=<name>", 
            func => "cli_add_a_rec", },
 
     'configure zone <zone> add aaaa' => { 
            words => "<name>=<ipv6>", },
     'configure zone <zone> add aaaa <name> <ipv6>' => { 
-           words => "<cr> comment=<comment>|disabled", 
+           words => "<cr> shared_record_group=<name>|comment=<comment>|disabled", 
            func => "cli_add_aaaa", },
 
     'configure zone <zone> add bulkhost' => { 
@@ -6674,8 +6945,14 @@ my %COMMANDS = (
     'configure zone <zone> add cname <name> <canonical>' => { 
            words => "<cr> comment=<comment>", 
            func => "cli_add_cname", },
-    'configure zone <zone> add cname <name> <canonical> comment <comment>'=> { 
-           func => "cli_add_cname", },
+
+    'configure zone <zone> add mx' => { 
+           words => "<name>", },
+    'configure zone <zone> add mx <name>' => { 
+           words => "<priority>=<name>", },
+    'configure zone <zone> add mx <name> <priority> <name>' => { 
+           words => "<cr> shared_record_group=<name>|comment=<comment>", 
+           func => "cli_add_mx", },
 
     'configure zone <zone> add ptr_record' => { 
            words => "<ip>", },
@@ -6884,6 +7161,13 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.29  2008/01/15 01:08:18  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: added support for shared record groups
+# you can not modify HOSTS
+# you can now modify ZONES
+#
 # Revision 3.28  2008/01/02 23:17:04  horne
 # BugId: 8205
 # Reviewer(s): Geoff
