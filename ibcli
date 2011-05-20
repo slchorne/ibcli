@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.36 2008/07/23 00:41:24 horne Exp $ ;
-my $REV = q$Revision: 3.36 $;
-# $Date: 2008/07/23 00:41:24 $
+my $ID  = q$Id: ibcli,v 3.37 2008/08/05 01:20:32 horne Exp $ ;
+my $REV = q$Revision: 3.37 $;
+# $Date: 2008/08/05 01:20:32 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -398,7 +398,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.36 $.
+$Revision: 3.37 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -3948,12 +3948,38 @@ sub cli_del_macfilteraddr {
 
 =head2 Adding custom metadata fields
 
-   configure grid modify device_type <name> <field> <new-name>
-   configure grid modify device_type <name> <field> <new-name>
+Add a device type
+
+   configure grid add device_type <name>
+
+Add a device type with new custom labels
+
+   configure grid add device_type <name> label <orig>=<new-name>
 
 =cut
 
-sub cli_mod_device_types {
+sub cli_add_device_types {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $dev ) = $line =~/ device_type (\S+)/ ;
+    my @labels  = $line =~/ label (\S+)/g ;
+
+    &debug_cli (1,"adddev d($dev) l(@labels)");
+
+    # create the new device_type
+    my ( $dobj ) = Infoblox::DHCP::DeviceType->new(
+        name => $dev,
+    );
+
+    # now walk and create any custom labels
+    foreach my $clabel ( @labels ) {
+        my ( $orig , $new ) = $clabel =~ /(.*)=(.*)/;
+        $dobj->$orig ( $new ) ;
+    }
+
+    # add it !
+    &do_func("add",$dobj);
 
 }
 
@@ -4116,10 +4142,10 @@ sub cli_add_radius_device {
     my ( $shared ) = $line =~/ shared_secret (\S+)/ ;
     my ( $member ) = $line =~/ member (\S+)/ ;
 
-    &debug_cli (1,"adddev n($name) i($ip) s($shared)");
-
 #     # assign a member
     unless ( $member ) { $member = $MASTER_IP }
+
+    &debug_cli (1,"adddev n($name) i($ip) m($member) s($shared)");
 
     my $mem = Infoblox::RADIUS::Member->new (
         secret => $shared,
@@ -4160,6 +4186,44 @@ sub cli_add_radius_device {
         &do_func("add",$obj);
     }
 
+}
+
+=head2 Deleting Radius devices
+
+   conf radius del device <name> <ip> member 1.2.3.4 shared_secret xxxx
+
+=cut
+
+sub cli_del_radius_device {
+
+    my ( $line ) = @_ ;
+
+    require_api( "4.2r4-1" ) or return;
+
+    # get the args from the line
+    my ( $ip , $name ) = $line =~/ delete device (\S+)/ ;
+    my ( $shared ) = $line =~/ shared_secret (\S+)/ ;
+    my ( $member ) = $line =~/ member (\S+)/ ;
+
+    # only works for 4.2r4 or later
+    unless ( $member ) { $member = $MASTER_IP }
+
+    &debug_cli (1,"deldev n($name) i($ip) m($member) s($shared)");
+
+#     # if you have 4.2r4 you need to use member objects
+#     my $mem = Infoblox::RADIUS::Member->new (
+#         secret => $shared,
+#         ipv4addr => $member );
+
+# we just need IP
+    my $obj = Infoblox::RADIUS::NAS->new (
+                   ipv4addr => $ip ,
+#                    name => $name ,
+#                    secret => $shared ,
+#                    members => [ $mem ] ,
+                );
+
+        &do_func("remove",$obj);
 }
 
 =head2 Showing Radius users
@@ -4630,6 +4694,8 @@ sub cli_mod_member {
     my ($gateway)    = $line =~/ gateway (\S+)/ ;
     my ($haaddr)    = $line =~/ hapair (\S+)/ ;
     my ($harid)    = $line =~/ routerid (\S+)/ ;
+    my ($comment)    = $line =~/ comment (\S+)/ ;
+    $comment = &decode_comment ( $comment ) ;
 
     # find some booleans
     my $use_ntp ;
@@ -4651,6 +4717,8 @@ sub cli_mod_member {
 
     # make some changes, if we have a grid
     if ( $memobj ) {
+
+        if ( $comment ) { $memobj->comment ( $comment ) }
 
         if ( $use_ntp ) { $memobj->enable_ntp ( $use_ntp ) }
 
@@ -4714,7 +4782,8 @@ sub cli_add_member {
     &debug_cli (2,"addme ip($ip) m($mask) gw($gateway) ha($haaddr)");
 
     # create the object
-    my $memobj = Infoblox::Cluster::Member->new(
+    my $memobj = Infoblox::Grid::Member->new(
+#     my $memobj = Infoblox::Cluster::Member->new(
           "cluster" => $grid ,
           "name" => $member ,
           "gateway" => $gateway ,
@@ -5273,20 +5342,25 @@ sub cli_show_host {
     # get the args from the line
     my ( $fqdn ) = $line =~/ host (\S+)/ ;
     my ( $view ) = $line =~/ view (\S+)/ ;
+    my ( $ip ) = $line =~/ ipv4addr (\S+)/ ;
 
-    &debug_cli(2,"showh n($fqdn) v($view)");
+    &debug_cli(2,"showh n($fqdn) v($view) i($ip)");
 
-    # get the host 
+    # set up the searcp params
     my %opthash = (
            "object" => "Infoblox::DNS::Host", 
-           "name" => $fqdn,
     );
+    # search by IP/name
+    if ( $ip ) {
+        $opthash{'ipv4addr'} = $ip ;
+    }
+    elsif ( $fqdn ) {
+        $opthash{'name'} = $fqdn ;
+    }
+
+    # include view
     if ( $view ) {
-        %opthash = (
-           "object" => "Infoblox::DNS::Host", 
-           "name" => $fqdn ,
-           view => $view,
-        );
+        $opthash{'view'} = $view ;
     }
     
     my @hosts = &do_func("search", %opthash );
@@ -5345,9 +5419,13 @@ sub cli_show_record {
 
 =head2 Showing leases
 
-   show lease 1.1.1.1
+   show network lease 1.1.1.1
 
-   shoe lease aa:bb:cc:11:22:33
+   shoe network lease aa:bb:cc:11:22:33
+
+Show ALL leases
+
+   show network lease
 
 =cut
 
@@ -5388,7 +5466,7 @@ sub cli_show_lease {
 
    show network
 
-   show network 161.245.254.128/25
+   show network 45.200.100.128/25
 
 =cut
 
@@ -5503,7 +5581,7 @@ sub cli_show_failover {
 
    show network statistics
 
-   show network 161.245.254.128/25 statistics
+   show network 45.200.100.128/25 statistics
 
 =cut
 
@@ -5521,7 +5599,7 @@ sub cli_show_netstats {
     # do we get all nets
     my $search = ".*";
     # or just one net
-    if ( $net ) { $search = $net ; }
+    unless ( $net =~ /statistics/ ) { $search = $net ; }
 
     # get all the networks
     my %opthash = (
@@ -5540,11 +5618,11 @@ sub cli_show_netstats {
 
 List ALL the used and unused addresses in a subnet
 
-   show network 161.245.254.128/25 ipam
+   show network 45.200.100.128/25 ipam
 
 Show just the unused addresses
 
-   show network 161.245.254.128/25 ipam used
+   show network 45.200.100.128/25 ipam used
 
 =cut
 
@@ -5676,11 +5754,11 @@ sub cli_show_ipam {
 
 Show all ranges in a network
 
-   show network 161.245.254.128/25 range
+   show network 45.200.100.128/25 range
 
 Show just a specific range
 
-   show network 161.245.254.128/25 range 161.245.254.130
+   show network 45.200.100.128/25 range 161.245.254.130
 
 =cut
 
@@ -5750,11 +5828,11 @@ sub cli_show_range {
 
 Show all fixed addresses in a network
 
-   show network 161.245.254.128/25 fixed
+   show network 45.200.100.128/25 fixed
 
 Show just a specific fixed address
 
-   show network 161.245.254.128/25 fixed 161.245.254.130
+   show network 45.200.100.128/25 fixed 161.245.254.130
 
 =cut
 
@@ -5810,7 +5888,7 @@ sub cli_show_fixed {
 
     # dump the fixed or all the list
     if ( $fixed ) {
-        &dump_object ( shift @fixobjs ) ;
+        &dump_object ( @fixobjs ) ;
     }
     else {
 
@@ -6954,6 +7032,21 @@ sub dump_data {
     my ( $obj ) = @_ ;
 
     print Dumper ( \$obj ) if $DEBUG > 3 ;
+
+    # nasty hack to insert the hostname into a fixed address
+    if ( $obj->{__type} =~ /Infoblox.DHCP.FixedAddr/ ) {
+        # get the name (fixed hosts do not have '/' in them)
+        unless ( $obj->__key() =~ /\// ) {
+            my $name = $obj->__key();
+
+            # and clean it up, reverse the parts etc
+            $name =~ s/.$REip$//;
+            $name =~ s/^._(\w+).//;
+            $name = join ( "." , reverse split ( /\./ , $name ) ) ;
+    
+            printf ( "%30s : %s\n", "name" , $name ) ;
+        }
+    }
 
     foreach my $key ( sort keys %{ $obj } ) {
         # ignore privates
@@ -8118,13 +8211,15 @@ my %COMMANDS = (
            func => "cli_show_view", },
 
     'show host' => { 
-           words => "<name>",  },
-    'show host <name>' => { 
-           words => "<cr> view=<name>",  
+#            words => "<name>|ipv4addr=<ip>|view=<name>",  },
+           words => "<cr> <name>|ipv4addr=<ip>|view=<name>",
            func => "cli_show_host", },
-    'show host <name> view <name>' => { 
-           words => "<cr>",  
-           func => "cli_show_host", },
+#     'show host <name>' => { 
+#            words => "<cr> view=<name>",  
+#            func => "cli_show_host", },
+#     'show host <name> view <name>' => { 
+#            words => "<cr>",  
+#            func => "cli_show_host", },
 
 # show DNS records
     'show record' => { 
@@ -8150,7 +8245,7 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> details <n.n.n.n/mm> lease options failover fixed filter",  
+           words => "<cr> details <n.n.n.n/mm> statistics lease options failover fixed filter",  
            func => "cli_show_network", },
 
     'show network details' => { 
@@ -8166,6 +8261,8 @@ my %COMMANDS = (
            words => "<cr> ipam range fixed statistics",  
            func => "cli_show_network", },
 
+    'show network statistics' => { 
+           func => "cli_show_netstats", },
     'show network <n.n.n.n/mm> statistics' => { 
            func => "cli_show_netstats", },
 
@@ -8346,9 +8443,21 @@ my %COMMANDS = (
 # - grid -
 
     'configure grid' => { 
-           words => "<name>", },
+           words => "add <name>", },
 
 # [ ] conf grid <name> modify member <name> enable ntp
+
+# add device types :
+# configure grid add device_type <name> label <orig>=<new-name>
+    'configure grid add' => { 
+           words => "device_type" },
+    'configure grid add device_type' => { 
+           words => "<name>" },
+    'configure grid add device_type <name>' => { 
+           words => "label=<name=value>" ,
+           func => "cli_add_device_types", },
+    'configure grid device_type add label <name=value>' => { 
+           func => "cli_add_device_types", },
 
 # - grid -
     'configure grid <name>' => { 
@@ -8437,7 +8546,7 @@ my %COMMANDS = (
            words => "ipaddress=<n.n.n.n/mm> disable enable", },
 
     'configure grid <name> modify member <name> ipaddress <n.n.n.n/mm>' => { 
-           words => "hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
+           words => "comment=<comment>|hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
            func => "cli_mod_member", },
 
     'configure grid <name> modify member <name> disable' => { 
@@ -8831,7 +8940,11 @@ my %COMMANDS = (
            func => "cli_add_radius_device", },
 
     'configure radius delete' => { 
-           words => "user=<name>",  },
+           words => "device=<ip> user=<name>",  },
+    'configure radius delete device <ip>' => { 
+           words => "<cr> member=<ip>|name=<name>",
+           func => "cli_del_radius_device", },
+
     'configure radius delete user <name>' => { 
            func => "cli_del_radius_user", },
 
@@ -8922,6 +9035,13 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.37  2008/08/05 01:20:32  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: added adding device types (for the EU folk!)
+# search for host by IP addr
+# deleting radius objetcts
+#
 # Revision 3.36  2008/07/23 00:41:24  horne
 # BugId: 8205
 # Reviewer(s): Geoff
