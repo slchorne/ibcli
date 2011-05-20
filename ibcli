@@ -5,6 +5,7 @@ my $SRTAG = q$Revision: 105$ ;
 my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
 my $REV = "Revision 3.$SVNREV";
 # $Date$
+# $Revision$
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2009
