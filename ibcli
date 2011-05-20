@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.15 2006/11/14 21:53:47 horne Exp $ ;
-my $REV = q$Revision: 3.15 $;
-# $Date: 2006/11/14 21:53:47 $
+my $ID  = q$Id: ibcli,v 3.16 2006/11/21 21:23:22 horne Exp $ ;
+my $REV = q$Revision: 3.16 $;
+# $Date: 2006/11/21 21:23:22 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -70,11 +70,11 @@ use lib "lib" ;
 # use Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
 
 use Text::Abbrev ;
-use Data::Dumper ;
 use Getopt::Long;
 use Infoblox;
 
 # globals
+use Data::Dumper ;
 $Data::Dumper::Sortkeys = 1 ;
 
 ### ---  GLOBAL PRE canned regexes --- ###
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.15 $.
+$Revision: 3.16 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1183,19 +1183,34 @@ sub cli_add_zone {
     my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
     my ($nsgroup)  = $line =~/ nsgroup (\S+)/ ;
     my ($email)    = $line =~/ email (\S+)/ ;
+    my ($serial)    = $line =~/ serial (\S+)/ ;
+    my ($mname)    = $line =~/ mname (\S+)/ ;
 
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
     my (@forwarders) = $line =~/ forward_to (\S+)/g ;
+    my (@delegates) = $line =~/ delegate_to (\S+)/g ;
     my (@sec)     = $line =~/ secondary (\S+)/g ;
+    my (@stealth_sec)     = $line =~/ stealth_secondary (\S+)/g ;
     my (@mems)     = $line =~/ member (\S+)/g ;
     my (@ext_sec) = $line =~/ ext_secondary (\S+)/g ;
     my (@stealth_ext_sec) = $line =~/ stealth_ext_secondary (\S+)/g ;
     my (@views) = $line =~/ view (\S+)/g ;
 
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
+    # hack for in-addr.arpa syntax
+    if ( $zone =~ /.in-addr.arpa$/ ) {
+        $zone = arpa_to_net ( $zone ) ;
+    }
+
     &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
 
     # create the zone...
     my $obj = Infoblox::DNS::Zone->new ( "name" => $zone, );
+
+    if ( $comment ) { $obj->comment ( $comment ) }
 
 
     # find a member to be the primary (external or otherwise)
@@ -1227,8 +1242,27 @@ sub cli_add_zone {
         }
         $obj->members ( \@memlist ) ;
 
-
     }
+    # are we delegating ?
+    elsif ( @delegates ) {
+
+       my @del_svrs ;
+       foreach my $ns ( @delegates ) {
+
+          # get the name , ip pair
+          my ( $nsname , $ip ) = split ( /,/ , $ns ) ;
+
+          &debug_cli (2,"addz z($zone) deleg($nsname)($ip)");
+
+          push @del_svrs , Infoblox::DNS::Nameserver->new(
+                            'name' => $nsname, 
+                            'ipv4addr' => $ip, 
+                             );
+       }
+
+       $obj->delegate_to ( \@del_svrs ) ;
+    }
+
     # using ns groups ?
     elsif ( $nsgroup ) {
        $obj->ns_group( $nsgroup ) ;
@@ -1291,6 +1325,17 @@ sub cli_add_zone {
        &debug_cli (2,"addz z($zone) sec($sec_ip)");
     }
 
+    # stealth secondaries
+    foreach my $sec_ip ( @stealth_sec ) {
+       # normaal members
+       push @sec_svrs , Infoblox::DNS::Member->new(
+#                              "name" => $value ,
+                             "ipv4addr" => $sec_ip ,
+                            'stealth' => "TRUE" ,
+                             );
+       &debug_cli (2,"addz z($zone) s-sec($sec_ip)");
+    }
+
     # external secondaries
     foreach my $ext_ip ( @ext_sec ) {
        # external secondaries
@@ -1328,7 +1373,9 @@ sub cli_add_zone {
 
     # add any secondaries we found parsing the args
      
-    $obj->secondaries ( \@sec_svrs ) ;
+    if ( @sec_svrs ) {
+        $obj->secondaries ( \@sec_svrs ) ;
+    }
 
     # do we import ?
     if ( $import ) {
@@ -1349,6 +1396,13 @@ sub cli_add_zone {
     if ( $email ) {
        $obj->email ( $email ) ;
        &debug_cli (2,"addz z($zone) email($email)");
+    }
+    if ( $serial ) {
+       $obj->soa_serial_number ( $serial ) ;
+       $obj->override_serial_number ( "TRUE" ) ;
+    }
+    if ( $mname ) {
+       $obj->soa_mname ( $mname ) ;
     }
 
     # now add the damn thing
@@ -4334,6 +4388,27 @@ sub abs_ip {
     return ($absval) ;
 }
 
+sub arpa_to_net {
+    my ( $revzone ) = @_ ;
+  
+    # find all digits and reverse the order
+    my @octs = reverse $revzone =~ /(\d+)/g ;
+
+    # the cidr is a lookup based on array length
+    # @cidr[$#octs]
+    my @cidr_list = ( 8 , 16 , 24 ) ;
+    my $cidr = $cidr_list[$#octs] ;
+
+    # pad the array with zeroes
+    push @octs , ( 0 , 0 , 0 , 0 ) ;
+
+    # grab the first 4 , join them
+    my $net = join "." , splice ( @octs , 0 , 4 ) ;
+
+    return ( "$net/$cidr" ) ;
+}
+
+
 sub cli_exit {
     # quit and cleanup
     print "\nexiting...bye\n"; 
@@ -4760,7 +4835,7 @@ my %COMMANDS = (
            words => "<zone>", },
     'configure zone add <zone>' => { 
            words => "<cr>
-           view=<name>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>",  
+           view=<name>|comment=<name>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -5032,6 +5107,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.16  2006/11/21 21:23:22  horne
+# BugId: 8205
+# Reviewer(s): geoff
+# Description: delegate_to, stealth_secondary, in-addr.arpa rev zones
+#
 # Revision 3.15  2006/11/14 21:53:47  horne
 # BugId: 8205
 # Reviewer(s): geoff
