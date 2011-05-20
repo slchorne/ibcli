@@ -41,15 +41,15 @@
 #
 # StreetLevel Communications
 #
-#			support@slc.com.au
-#			ph: +1-650-483-0998
+#            support@slc.com.au
+#            ph: +1-650-483-0998
 #
 ###############################################################################
 
 
-# $Id: ibcli,v 1.2 2003/09/09 22:58:27 horne Exp $
-# $Revision: 1.2 $
-# $Date: 2003/09/09 22:58:27 $
+# $Id: ibcli,v 1.3 2003/09/16 23:17:25 horne Exp $
+# $Revision: 1.3 $
+# $Date: 2003/09/16 23:17:25 $
 #
 
 # Perl CGI common chunks
@@ -74,9 +74,10 @@ my ($BASE,$NAME)=($Bin,$Script) ;
 #
 my $DEBUG = 0 ;
 my $CLI = 0 ;
-my $PROMPT = "not connected > " ;
+my $PROMPT = "no server > " ;
 my $CONN_STRING = "!" ;
 my $server_id ;
+my $server_user ;
 my $server_pass ;
 my $CONNECTED ;
 my $GOOD_COMMAND ;
@@ -108,79 +109,149 @@ if ( ! @ARGV ) {
 while (<>) {
 
    # strip blanks, comments etc
-   next if /^\s*#/ ;
-   next if /^\s*$/ ;
+   if ( /^\s*#/ ) { &print_prompt ; next ; } ;
+   if ( /^\s*$/ ) { &print_prompt ; next ; } ;
+
    $GOOD_COMMAND = 0;
    $NO_COMMAND = 1;
 
    chomp ;
    # now break the commandline into components
-   my (@args) = split /\s+/ ;
-   # we want to use 'shift' but keep the original args...
-#    my @eatline = @args ;
-   my $command = shift @args ;
+   my (@words) = split /\s+/ ;
+   # we want to use 'shift' but keep the original words...
+#    my @eatline = @words ;
+   my $arg = shift @words ;
 
-   #    &debug(1,"args : [$command] @args");
+   #    &debug(1,"words : [$arg] @words");
 
    # you know, a case statement would work well here...
    #
    # when we call rd_line, we need to re-write the original command
    # so that it goes into history correctly
+   #
+   # we check HERE if a command has enough arguments, if not
+   # then we need to sput an appropriate error
+   #  - unrecognised (foo)
+   #  - incomplete   (set ?)
+   #  this will STOP us setting 'GOOD_COMMAND' inside EACH subroutine
+   #  so we have the check the have enough args BEFORE we proceed
+   #
+   #  if we call rd_line, we ASSUME the command is good.
 
    
    # general commands
       # HISTORY
-   if ($command =~ /^H\w*/i)  { &rd_line("show_history","history",@args) }
-      # DEBUG
-   if ($command =~ /^DEB\w*/i)  { &rd_line("set_debug","debug",@args) }
-      # SERVER
-#    if ($command =~ /^SER\w*/i)   { &add_server(@args)  ; &addhistory($_) }
-   if ($command =~ /^SER\w*/i)   { &rd_line("add_server","server",@args) }
-      # password
-   if ($command =~ /^P\w*/i)    { &add_pass(@args)    ; &addhistory($_) }
+   if ($arg =~ /^H\w*/i)   { &rd_line("show_history","history",@words) }
+
       # commit
-   if ($command =~ /^CO\w*/i)  { &commit               ; &addhistory($_) }
-      # commit
-   if ($command =~ /^DIS\w*/i)  { &disconnect          ; &addhistory($_) }
+   if ($arg =~ /^COM\w*/i) { &commit               ; &addhistory($_) }
+
+      # disconnect
+   if ($arg =~ /^DIS\w*/i) { &disconnect          ; &addhistory($_) }
 
       # split
-   if ($command =~ /^SP\w*/i) {
-      my $command = shift @args ;
+   if ($arg =~ /^SP\w*/i) {
+      my $arg = shift @words ;
       # network
-      if ($command =~ /^N\w*/i) { &split_net(@args)  ; &addhistory($_) }
+      if ($arg =~ /^N\w*/i) { &split_net(@words)  ; &addhistory($_) }
    }
 
-   # get
-   if ($command =~ /^G\w*/i) {
-      &debug(1,"[$command]=get");
-	  my $command = shift @args ;
-      # zone
-      if ($command =~ /^Z\w*/i)   { &get_zone(@args)   ; &addhistory($_) }
+   # 
+   # if i REALLY get exotic i should be able to
+   # abstract this loop into a hash of the form
+   # { arg1 , subroutine }
+   # BUT for the present, we'll keep it the way it is...
+   #
+
+   # set commands
+   if ($arg =~ /^SE\w*/i) {
+      $arg="set";
+      &debug(1,"arg=[$arg]");
+
+      if (@words) {
+         my $arg1 = shift @words ;
+
+         # DEBUG
+         if ($arg1 =~ /^DEB\w*/i) { 
+             $arg1 = "debug";
+            if (@words) { &rd_line("set_debug","$arg $arg1",@words) }
+            else        { &missing_arg("$arg $arg1 <level>"); }
+         }
+
+         # SERVER
+         if ($arg1 =~ /^SER\w*/i) { 
+             $arg1 = "server";
+            if (@words) { &rd_line("add_server","$arg $arg1",@words) }
+            else        { &missing_arg("$arg $arg1 <server>"); }
+         }
+
+         # PASSWORD
+         if ($arg1 =~ /^P\w*/i) { 
+             $arg1 = "password";
+            if (@words) { &rd_line("add_pass","$arg $arg1",@words) }
+            else        { &missing_arg("$arg $arg1 <password>"); }
+         }
+
+         # USER
+         if ($arg1 =~ /^U\w*/i) { 
+             $arg1 = "user";
+            if (@words) { &rd_line("add_user","$arg $arg1",@words) }
+            else        { &missing_arg("$arg $arg1 <user>"); }
+         }
+      }
+      else        { &missing_arg("set ?"); }
+   }
+
+
+   # show commands
+   if ($arg =~ /^SH\w*/i) {
+      $arg="show";
+      &debug(1,"arg=[$arg]");
+
+      if (@words) {
+          my $arg1 = shift @words ;
+
+          # zone
+          if ($arg1 =~ /^Z\w*/i)   { 
+             $arg1 = "zone";
+             if (@words) { &rd_line("get_zone","$arg $arg1",@words) }
+             else        { &missing_arg("$arg $arg1 <zone>"); }
+          }
+          
+          # network
+          if ($arg =~ /^N\w*/i)   { 
+             $arg1 = "network";
+             if (@words) { &rd_line("get_zone","$arg $arg1",@words) }
+             else        { &missing_arg("$arg $arg1 <1.2.3.4>"); }
+          }
+      }
+      else        { &missing_arg("show <zone|network>"); }
+      
    }
    
    # add
-   if ($command =~ /^A\w*/i) {
-      &debug(1,"[$command]=add");
-	  my $command = shift @args ;
+   if ($arg =~ /^A\w*/i) {
+      &debug(1,"[$arg]=add");
+      my $arg = shift @words ;
       # zone
-      if ($command =~ /^Z\w*/i)   { &add_zone(@args)   ; &addhistory($_) }
+      if ($arg =~ /^Z\w*/i)   { &add_zone(@words)   ; &addhistory($_) }
       # network
-      if ($command =~ /^N\w*/i)   { &add_net(@args)    ; &addhistory($_) }
+      if ($arg =~ /^N\w*/i)   { &add_net(@words)    ; &addhistory($_) }
       # subnet
-      if ($command =~ /^S\w*/i)   { &add_sub(@args)    ; &addhistory($_) }
+      if ($arg =~ /^S\w*/i)   { &add_sub(@words)    ; &addhistory($_) }
       # host
-      if ($command =~ /^HO\w/i)    { &add_host(@args)   ; &addhistory($_) }
+      if ($arg =~ /^HO\w/i)    { &add_host(@words)   ; &addhistory($_) }
    }
 
    # delete
-   if ($command =~ /^DEL\w*/i) {
-	  my $command = shift @args ;
+   if ($arg =~ /^DEL\w*/i) {
+      my $arg = shift @words ;
       # network
-      if ($command =~ /^N\w*/i)  { &remove_net(@args)   ; &addhistory($_) }
+      if ($arg =~ /^N\w*/i)  { &remove_net(@words)   ; &addhistory($_) }
       # host
-      if ($command =~ /^H\w*/i)  { &remove_host(@args)  ; &addhistory($_) }
+      if ($arg =~ /^H\w*/i)  { &remove_host(@words)  ; &addhistory($_) }
       # zone
-      if ($command =~ /^Z\w*/i)  { &remove_zone(@args)  ; &addhistory($_) }
+      if ($arg =~ /^Z\w*/i)  { &remove_zone(@words)  ; &addhistory($_) }
    }
 
    # no_command is only set if we didn't get something we recognised
@@ -222,11 +293,11 @@ sub print_prompt {
 sub set_debug {
     if ( "@_" =~ /\d+/ ) {
        $DEBUG = shift @_ ;
-       $GOOD_COMMAND = 1 ;
+#        $GOOD_COMMAND = 1 ;
     }
-    else {
-       &missing_arg("debug <level>");
-    }
+#     else {
+#        &missing_arg("debug <level>");
+#     }
 }
 
 # parse a line, this is called EVERYTIME we press <cr> so we can
@@ -247,9 +318,7 @@ sub rd_line {
     &$command(@args);
 
     # history
-    if ( $GOOD_COMMAND ) {
-       &addhistory("$hstring",@args);
-    }
+    &addhistory("$hstring",@args);
 
     # prompt
     &print_prompt ;
@@ -262,12 +331,12 @@ sub rd_line {
 sub addhistory {
     my ($line) = "@_" ;
 
-	#cleanup spacing
-	$line =~ s/^\s*//;
-	$line =~ s/\s+/ /g;
-	$line =~ tr/A-Z/a-z/;
+    #cleanup spacing
+    $line =~ s/^\s*//;
+    $line =~ s/\s+/ /g;
+    $line =~ tr/A-Z/a-z/;
 
-	push @history , $line ;
+    push @history , $line ;
 
 }
 
@@ -275,13 +344,13 @@ sub addhistory {
 sub show_history {
     my $lineno = 1 ;
 
-	# walk through the history array and print what we input
-	print "\n-- COMMAND HISTORY --\n";
+    # walk through the history array and print what we input
+    print "\n-- COMMAND HISTORY --\n";
     foreach my $command ( @history ) {
-	   print "-- $lineno\t$command\n";
-	   $lineno ++ ;
+       print "-- $lineno\t$command\n";
+       $lineno ++ ;
     }
-	print "\n";
+    print "\n";
 
     $GOOD_COMMAND = 1 ;
 
@@ -289,30 +358,30 @@ sub show_history {
 
 sub split_net {
     # this one assumes there is a parent
-	# and thus requires some funky netmasking
-	# so it takes more args , newmask
+    # and thus requires some funky netmasking
+    # so it takes more args , newmask
 
 #     my ($net,$cidr) = split(/\//,$_[0] );
     my ($oldnet,$ncidr) = @_ ;
     my ($net,$cidr) = split(/\//,$oldnet );
     $ncidr =~ s/\/// ;
-	my $mask = &cidrfind($cidr) ;
-	my $bitshift = $ncidr - $cidr ;
-	&debug (2,"split net [$net] [$cidr] [$ncidr] ($bitshift)\n");
+    my $mask = &cidrfind($cidr) ;
+    my $bitshift = $ncidr - $cidr ;
+    &debug (2,"split net [$net] [$cidr] [$ncidr] ($bitshift)\n");
 
     &debug (1,"splitting network [$net , $mask] to add [$bitshift] bits");
 
-	# ib_split_network("10.0.0.0", "255.255.0.0", 8);
-	ib_split_network("$net", "$mask", "$bitshift");
+    # ib_split_network("10.0.0.0", "255.255.0.0", 8);
+    ib_split_network("$net", "$mask", "$bitshift");
 }
 
 sub remove_net {
     # the split is done here in case we want to change the syntax
     my ($net,$cidr) = split(/\//,$_[0] );
-	my $mask = &cidrfind($cidr) ;
+    my $mask = &cidrfind($cidr) ;
     &debug (1,"removing network [$net] mask: [$mask]");
 
-	ib_remove_network("$net","$mask");
+    ib_remove_network("$net","$mask");
 }
 
 sub add_net {
@@ -320,12 +389,12 @@ sub add_net {
     my ($net,$cidr) = split(/\//,$_[0] );
     &debug (2,"adding network [$net] cidr: [$cidr]");
 
-	my $mask = &cidrfind($cidr) ;
+    my $mask = &cidrfind($cidr) ;
     &debug (1,"adding network [$net] mask: [$mask]");
-	# add net now requires a bogus parent
-	# not that this will add it at the root level. you need to
-	# use add subnet for anything else
-	ib_insert_network("$net","$mask","0.0.0.0","0.0.0.0");
+    # add net now requires a bogus parent
+    # not that this will add it at the root level. you need to
+    # use add subnet for anything else
+    ib_insert_network("$net","$mask","0.0.0.0","0.0.0.0");
 }
 
 sub add_sub {
@@ -335,34 +404,34 @@ sub add_sub {
     &debug (2,"adding subnet [$net] cidr: [$cidr]");
     &debug (2,"  to parent subnet [$parent] cidr: [$pcidr]");
 
-	my $mask = &cidrfind($cidr) ;
-	my $pmask = &cidrfind($pcidr) ;
+    my $mask = &cidrfind($cidr) ;
+    my $pmask = &cidrfind($pcidr) ;
     &debug (1,"NOOP adding subnet [$net, $mask] to: [$parent, $pmask]");
 
-	ib_insert_network("$net","$mask","$parent","$pmask");
+    ib_insert_network("$net","$mask","$parent","$pmask");
 }
 
 sub add_host {
     my ($name,$ip) = @_ ;
     &debug (1,"adding host [$name] [$ip]");
-	ib_insert_host("$name","$ip");
+    ib_insert_host("$name","$ip");
 }
 
 sub remove_host {
     my ($name) = @_ ;
     &debug (1,"remove host [$name]");
-	ib_remove_host("$name");
+    ib_remove_host("$name");
 }
 
 sub add_zone {
     # zones can be authoritative or not, we look to see
-	# if the command has the 'auth' keyword after it
+    # if the command has the 'auth' keyword after it
     my $isauth = "false" ;
     my ($zone,$auth) = @_ ;
-	if ( $auth =~ /^aut/ ) { $isauth = "true" }
+    if ( $auth =~ /^aut/ ) { $isauth = "true" }
 
     &debug (1,"adding zone [$zone] [$isauth]");
- 	ib_insert_zone("$zone","$isauth");
+     ib_insert_zone("$zone","$isauth");
 }
 
 sub remove_zone {
@@ -378,46 +447,62 @@ sub add_server {
 
     if ($arg) {
        &debug (2,"adding server [$arg]");
-	   $server_id = $arg ;
+       $server_id = $arg ;
 
-       $PROMPT = "$server_id >" ;
+       $PROMPT = "$server_id > " ;
 
-	   &connect ;
+       &connect ;
     }
-    else {
-       &missing_arg("server <server>");
+}
+
+sub add_user {
+    my ($arg) = @_ ;
+
+    if ($arg) {
+       # save the server user and see if we have enough info to connect
+       &debug (2,"adding user [$arg]");
+       $server_user = $arg ;
+       &connect ;
     }
 }
 
 sub add_pass {
     my ($arg) = @_ ;
-    # save the server password and see if we have enough info to connect
-    &debug (2,"adding passwd [$arg]");
-	$server_pass = $arg ;
-	&connect ;
+
+    if ($arg) {
+       # save the server password and see if we have enough info to connect
+       &debug (2,"adding passwd [$arg]");
+       $server_pass = $arg ;
+       &connect ;
+    }
 }
 
 sub connect {
     # make a connection
-	# unless we have both server and password die
-	if ( $server_id && $server_pass ) {
+    # unless we have both server and password die
+    if ( $server_id && $server_pass && $server_user ) {
        &debug (1,"connecting to server [$server_id] [$server_pass]");
 
        print "SERVER :: connecting \n";
-# 	   ib_open_connection($server_id,$server_pass) ;
+
+       ######
+       print "Connections :: DISABLED \n";
+       ######
+
+#        ib_open_connection($server_id,$server_pass) ;
 
        my $ibc='ib_open_connection($server_id,$server_pass)';
-	   &debug (3,"ibc [$ibc]");
-	   eval $ibc ;
+       &debug (3,"ibc [$ibc]");
+       eval $ibc ;
 
-       $PROMPT = "$server_id >" ;
+       $PROMPT = "$server_id > " ;
        $CONN_STRING = "*" ;
 
-	   $CONNECTED = 1 ;
+       $CONNECTED = 1 ;
 
     }
-	else {
-	   &debug (3,"NOOP - incomplete details for server connection");
+    else {
+       &debug (3,"NOOP - incomplete details for server connection");
     }
 
 }
@@ -426,25 +511,27 @@ sub disconnect {
     if ( $CONNECTED ) {
        &commit ;
        print "SERVER :: disconnecting \n";
-	   ib_close_connection();
-	   $CONNECTED = 0 ;
-	}
-	else {
-	   print "CANNOT DISCONNECT - no connection is in place\n";
-	}
+       ib_close_connection();
+       $CONNECTED = 0 ;
+    }
+    else {
+       print "CANNOT DISCONNECT - no connection is in place\n";
+    }
 
 }
 
 sub commit {
     if ( $CONNECTED ) {
-	   &debug (1,"comitting changes");
-	   print "SERVER :: Comitting Changes .. ";
+       &debug (1,"comitting changes");
+       print "SERVER :: Comitting Changes .. ";
        ib_update_server();
-	   print "DONE.\n";
-	}
-	else {
-	   print "CANNOT COMMIT - no connection is in place\n";
-	}
+       print "DONE.\n";
+
+       $CONN_STRING = " " ;
+    }
+    else {
+       print "CANNOT COMMIT - no connection is in place\n";
+    }
 }
 
 sub get_zone {
@@ -455,7 +542,7 @@ sub get_zone {
     if ( ! $type ) { $type = "SOA" }
 
     if ( ! $server_id ) {
-	   print "CANNOT GET - no server is specified\n";
+       print "CANNOT dig - no server is specified\n";
     }
     else {
        &do_dig($server_id,$query,$type,$verb);
@@ -497,6 +584,9 @@ sub do_dig {
 sub missing_arg {
     print "INCOMPLETE COMMAND :: @_\n";
     $GOOD_COMMAND = 0 ;
+    $NO_COMMAND = 0 ;
+
+    &print_prompt ;
 }
 
 ############################################3
@@ -504,42 +594,42 @@ sub missing_arg {
 sub cidrfind {
     # match up netmasks to cidr syntax
     my ($cidr) = @_ ;
-	my %mlook = (
-	   8 =>  '255.0.0.0' ,
-	   9 =>  '255.128.0.0' ,
-	   10 => '255.192.0.0' ,
-	   11 => '255.224.0.0' ,
-	   12 => '255.240.0.0' ,
-	   13 => '255.248.0.0' ,
-	   14 => '255.252.0.0' ,
-	   15 => '255.254.0.0' ,
-	   16 => '255.255.0.0' ,
-	   17 => '255.255.128.0' ,
-	   18 => '255.255.192.0' ,
-	   19 => '255.255.224.0' ,
-	   20 => '255.255.240.0' ,
-	   21 => '255.255.248.0' ,
-	   22 => '255.255.252.0' ,
-	   23 => '255.255.254.0' ,
-	   24 => '255.255.255.0' ,
-	   25 => '255.255.255.128' ,
-	   26 => '255.255.255.192' ,
-	   27 => '255.255.255.224' ,
-	   28 => '255.255.255.240' ,
-	   29 => '255.255.255.248' ,
-	   30 => '255.255.255.252' ,
+    my %mlook = (
+       8 =>  '255.0.0.0' ,
+       9 =>  '255.128.0.0' ,
+       10 => '255.192.0.0' ,
+       11 => '255.224.0.0' ,
+       12 => '255.240.0.0' ,
+       13 => '255.248.0.0' ,
+       14 => '255.252.0.0' ,
+       15 => '255.254.0.0' ,
+       16 => '255.255.0.0' ,
+       17 => '255.255.128.0' ,
+       18 => '255.255.192.0' ,
+       19 => '255.255.224.0' ,
+       20 => '255.255.240.0' ,
+       21 => '255.255.248.0' ,
+       22 => '255.255.252.0' ,
+       23 => '255.255.254.0' ,
+       24 => '255.255.255.0' ,
+       25 => '255.255.255.128' ,
+       26 => '255.255.255.192' ,
+       27 => '255.255.255.224' ,
+       28 => '255.255.255.240' ,
+       29 => '255.255.255.248' ,
+       30 => '255.255.255.252' ,
     ) ;
 
-	&debug(2,"CIDR is [$cidr]");
-	&debug(2,"MASK is [$mlook{$cidr}]");
+    &debug(2,"CIDR is [$cidr]");
+    &debug(2,"MASK is [$mlook{$cidr}]");
 
-	return($mlook{$cidr}) ;
+    return($mlook{$cidr}) ;
 }
 
 sub debug {
     # we're passed a message and a level
-	# if this level is <= the CURRENT DEBUG level 
-	# we print the data
+    # if this level is <= the CURRENT DEBUG level 
+    # we print the data
     my $level = shift @_ ;
 
     if ($level <= $DEBUG) {
@@ -551,6 +641,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.3  2003/09/16 23:17:25  horne
+# *** empty log message ***
+#
 # Revision 1.2  2003/09/09 22:58:27  horne
 # *** empty log message ***
 #
