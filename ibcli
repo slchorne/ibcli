@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.31 2008/02/04 21:31:25 horne Exp $ ;
-my $REV = q$Revision: 3.31 $;
-# $Date: 2008/02/04 21:31:25 $
+my $ID  = q$Id: ibcli,v 3.32 2008/02/15 22:29:51 horne Exp $ ;
+my $REV = q$Revision: 3.32 $;
+# $Date: 2008/02/15 22:29:51 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -391,7 +391,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.31 $.
+$Revision: 3.32 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1279,7 +1279,7 @@ sub cli_add_view {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $view )     = $line =~/view (\S+)/ ;
+    my ( $view )     = $line =~/ view (\S+)/ ;
 
     # get and de-urlencode the comment string
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
@@ -1308,7 +1308,7 @@ sub cli_del_view {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $view )     = $line =~/view (\S+)/ ;
+    my ( $view )     = $line =~/ view (\S+)/ ;
 
     &debug_cli(1,"delv v($view)");
 
@@ -1455,7 +1455,7 @@ sub cli_add_zone {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ($type , $zone)     = $line =~/zone (add|modify) (\S+)/ ;
+    my ($type , $zone)     = $line =~/ zone (add|modify) (\S+)/ ;
     my ($import)   = $line =~/ import (\S+)/ ;
     my ($nonauthorative)   = $line =~ /\bnonauthorative\b/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
@@ -1652,8 +1652,10 @@ sub cli_add_zone {
        $obj->primary( \@ext_svrs ) ;
 
     }
+
     # don't apply any nameservers if it is nonauth
-    elsif ( $MASTER_IP  and !$nonauthorative) {
+    # don't apply the GM nameserver if we are modifying
+    elsif ( $MASTER_IP and !$nonauthorative and $type eq "add" ) {
        # use the server as the primary
        my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $MASTER_IP, );
 
@@ -1784,7 +1786,7 @@ sub cli_delete_zone {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    ( my $zone)     = $line =~/zone delete (\S+)/ ;
+    ( my $zone)     = $line =~/ zone delete (\S+)/ ;
     my (@views) = $line =~/ view (\S+)/g ;
     &debug_cli(1,"remz n($zone)");
 
@@ -1803,6 +1805,218 @@ sub cli_delete_zone {
     &do_func("remove",$obj);
 
 }
+
+=head2 Add a NS group
+
+    conf zone add nsgroup internal primary 45.0.12.20 secondary 45.0.128.20
+
+You can also cal this as a grid command
+
+    conf grid Infoblox dns add nsgroup internal ...
+
+=cut
+
+sub cli_add_nsgroup {
+
+    # essentially all options are passed as name value pairs
+    # need : 
+    # name
+    # primary
+    # secondaries
+    # 
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ($type , $name)     = $line =~/ zone (add|modify) nsgroup (\S+)/ ;
+    my ($pri)      = $line =~/ primary (\S+)/ ;
+    my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
+    my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
+    my (@sec)     = $line =~/ secondary (\S+)/g ;
+    my (@ext_sec) = $line =~/ ext_secondary (\S+)/g ;
+    my (@stealth_sec)     = $line =~/ stealth_secondary (\S+)/g ;
+    my (@stealth_ext_sec) = $line =~/ stealth_ext_secondary (\S+)/g ;
+
+    &debug_cli (1,"addnsg n($name) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
+
+    # create the zone...
+    my $obj;
+
+    # [ ]
+
+    if ( $type eq "modify" ) {
+        # get the zone 
+        my %opthash = (
+            "object" => "Infoblox::Grid::DNS::Nsgroup", 
+            "name" => $name
+        );
+        my @groups = &do_func("get", %opthash );
+
+        if ( $#groups > 0 ) {
+            # we found too many
+            my $list = &dump_summ ( "name" , @groups );
+            print "  More than 1 nsgroup found : $list\n";
+            # exit here
+            return
+        }
+        elsif ( ! @groups ) {
+            # we found too few
+            print "  No nsgroup found\n";
+            # exit here
+            return
+        }
+        else {
+            $obj = shift @groups ;
+        }
+
+    }
+
+    else {
+        $obj = Infoblox::Grid::DNS::Nsgroup->new ( "name" => $name, );
+    }
+
+    # find a member to be the primary (external or otherwise)
+    # or normal nameservers ?
+
+    if ( $stealth_pri ) {
+       # member primary
+       my $pri_ns = Infoblox::DNS::Member->new ( 
+                        'stealth' => "TRUE" ,
+                        'ipv4addr' => $stealth_pri, );
+
+       $obj->primary( $pri_ns ) ;
+
+       &debug_cli (2,"addnsg n($name) mem-p($pri)");
+    }
+    elsif ( $pri ) {
+       # member primary
+       my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $pri, );
+       $obj->primary( $pri_ns ) ;
+
+       &debug_cli (2,"addnsg n($name) mem-p($pri)");
+    }
+    elsif ( @ext_pri ) {
+       # external primaries
+       my @ext_svrs ;
+       foreach my $external ( @ext_pri ) {
+          # we override with an external primary
+          my ( $nsname , $ip ) = split ( /,/ , $external ) ;
+
+          &debug_cli (2,"addnsg n($name) ext-p($nsname)($ip)");
+          my $primary = Infoblox::DNS::Nameserver->new ( 
+                     'name' => $nsname, 
+                     'ipv4addr' => $ip, 
+                      );
+
+          push @ext_svrs , $primary ;
+       }
+
+       $obj->primary( \@ext_svrs ) ;
+
+    }
+    elsif ( $MASTER_IP and $type eq "add" ) {
+       # use the server as the primary
+        # don't apply any nameservers if it is nonauth
+        # don't apply the GM nameserver if we are modifying
+
+       my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $MASTER_IP, );
+
+       $obj->primary( $pri_ns ) ;
+       &debug_cli (2,"addnsg n($name) mas-p($MASTER_IP)");
+    }
+
+    # find secondaries
+    my @sec_svrs ;
+
+    foreach my $sec_ip ( @sec ) {
+       # normaal members
+       push @sec_svrs , Infoblox::DNS::Member->new(
+                             "ipv4addr" => $sec_ip ,
+                             );
+       &debug_cli (2,"addnsg n($name) sec($sec_ip)");
+    }
+
+    # stealth secondaries
+    foreach my $sec_ip ( @stealth_sec ) {
+       # normaal members
+       push @sec_svrs , Infoblox::DNS::Member->new(
+                             "ipv4addr" => $sec_ip ,
+                            'stealth' => "TRUE" ,
+                             );
+       &debug_cli (2,"addnsg n($name) s-sec($sec_ip)");
+    }
+
+    # external secondaries
+    foreach my $ext_ip ( @ext_sec ) {
+       # external secondaries
+       my ( $nsname , $ip ) = split ( /,/ , $ext_ip ) ;
+
+       # IP is optional (kinda)
+       if ( ! $ip ) { $ip = "255.255.255.255" }
+
+       my $secondary = Infoblox::DNS::Nameserver->new ( 
+                        'name' => $nsname, 
+                        'ipv4addr' => $ip, 
+                      );
+
+       push @sec_svrs , $secondary ;
+       &debug_cli (2,"addnsg n($name) ext-s($nsname)($ip)");
+    }
+
+    # stealth external secondaries
+    foreach my $sext_ip ( @stealth_ext_sec ) {
+       # external secondaries
+       my ( $nsname , $ip ) = split ( /,/ , $sext_ip ) ;
+
+       # IP is optional (kinda)
+       if ( ! $ip ) { $ip = "255.255.255.255" }
+
+       my $secondary = Infoblox::DNS::Nameserver->new ( 
+                        'name' => $nsname, 
+                        'ipv4addr' => $ip, 
+                        'stealth' => "TRUE" ,
+                      );
+
+       push @sec_svrs , $secondary ;
+       &debug_cli (2,"addnsg n($name) s-ext-s($nsname)($ip)");
+    }
+
+    # add any secondaries we found parsing the args
+     
+    if ( @sec_svrs ) {
+        $obj->secondaries ( \@sec_svrs ) ;
+    }
+
+    # now add the damn thing
+    # ( the method is defined in $type );
+    &do_func($type,$obj);
+
+}
+
+=head2 Delete a NS group
+
+    conf zone del nsgroup internal
+
+You can also call this as a grid command
+
+    conf grid Infoblox dns del nsgroup internal
+
+=cut
+
+sub cli_del_nsgroup {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    ( my $name)     = $line =~/ zone delete nsgroup (\S+)/ ;
+    &debug_cli(1,"remnsg n($name)");
+
+    my $obj = Infoblox::Grid::DNS::Nsgroup->new (
+                  "name" => $name,
+    );
+
+    &do_func("remove",$obj);
+
+}
+
 
 =head2 Add a host to a zone
 
@@ -1852,8 +2066,8 @@ sub cli_add_host {
     my ( $type , $host ) = $line =~/(add|modify) host (\S+)/ ;
     my ( $j , $ip ) = $line =~/(add|modify) host \S+ ($REip\S*)/ ;
 
-    my ( $zone )     = $line =~/zone (\S+)/ ;
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
     my ( $mac )     = $line =~/mac (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     my ( $disable ) = $line =~/add host \S+.* \b(disabled)\b/ ;
@@ -1971,7 +2185,7 @@ sub cli_add_host {
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
     # views
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -2015,7 +2229,7 @@ sub cli_del_host {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host ) = $line =~/host (\S+)/ ;
 
     $host =~ s/"//g;
@@ -2055,9 +2269,9 @@ sub cli_add_a_rec {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
-    my ( $view )     = $line =~/view (\S+)/ ;
+    my ( $view )     = $line =~/ view (\S+)/ ;
     my ( $shared )     = $line =~/shared_record_group (\S+)/ ;
     my ( $disable ) = $line =~/add a_record \S+.* \b(disabled)\b/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
@@ -2092,7 +2306,7 @@ sub cli_add_a_rec {
     }
 
     # views
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -2124,7 +2338,7 @@ sub cli_del_a_rec {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
 
     my $obj = Infoblox::DNS::Record::A->new (
@@ -2153,7 +2367,7 @@ sub cli_add_aaaa {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $disable ) = $line =~/add aaaa \S+.* \b(disabled)\b/ ;
     my ( $host , $ip ) = $line =~/ aaaa (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
@@ -2188,7 +2402,7 @@ sub cli_add_aaaa {
     }
 
     # views
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -2214,7 +2428,7 @@ sub cli_del_aaaa {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/ aaaa (\S+) (\S+)/ ;
 
     my $obj = Infoblox::DNS::Record::AAAA->new (
@@ -2243,7 +2457,7 @@ sub cli_add_mx {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $pref , $dest ) = $line =~/ mx (\S+) (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
@@ -2278,7 +2492,7 @@ sub cli_add_mx {
     if ( $comment ) { $obj->comment ( $comment ) }
 
     # views
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -2301,7 +2515,7 @@ sub cli_del_mx {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $pref , $dest ) = $line =~/ mx (\S+) (\S+) (\S+)/ ;
 
     my $obj = Infoblox::DNS::Record::MX->new (
@@ -2333,10 +2547,10 @@ sub cli_add_srv_rec {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $priority , $weight , $port , $target ) 
         = $line =~/ srv (\S+) (\S+) (\S+) (\S+) (\S+)/ ;
-    my ( $view )    = $line =~/view (\S+)/ ;
+    my ( $view )    = $line =~/ view (\S+)/ ;
     my ( $shared )  = $line =~/shared_record_group (\S+)/ ;
     my ( $disable ) = $line =~/add srv \S+.* \b(disabled)\b/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
@@ -2410,11 +2624,11 @@ sub cli_add_bulk {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
     my ( $addrev ) = $line =~/ addreverse/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -2451,7 +2665,7 @@ sub cli_del_bulk {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
 
     &debug_cli(1,"delbh z($zone) p($prefix) n($fip,$lip) ");
@@ -2478,7 +2692,7 @@ sub cli_add_cname {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
@@ -2493,7 +2707,7 @@ sub cli_add_cname {
     );
 
     # views
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -2516,7 +2730,7 @@ sub cli_del_cname {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
 
     &debug_cli(1,"delcn z($zone) n($alias) cn($cname)");
@@ -2545,7 +2759,7 @@ sub cli_add_ptr {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $ip , $host ) = $line =~/ ptr_record (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
@@ -2560,7 +2774,7 @@ sub cli_add_ptr {
     );
 
     # views
-    my ( $vname )     = $line =~/view (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -2583,7 +2797,7 @@ sub cli_del_ptr {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $ip , $host ) = $line =~/ ptr_record (\S+) (\S+)/ ;
 
     &debug_cli(1,"delptr n($zone) ip($ip) h($host)");
@@ -3104,6 +3318,59 @@ sub cli_add_sub_network {
     &debug_cli(2,"addsn l[$line]");
 
     &cli_add_network ( $line ) ;
+
+}
+
+=head2 Add a failover association
+
+   conf net add failover AtoB primary 45.0.12.20 secondary 45.0.128.30
+
+=cut
+
+sub cli_add_failover {
+    # essentially all options are passed as name value pairs
+    # 
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/add failover (\S+)/ ;
+    my ( $primary )  = $line =~/ primary (\S+)/ ;
+    my ( $secondary )  = $line =~/ secondary (\S+)/ ;
+
+    my @settings  = $line =~/ set (\S+)/g ;
+
+    &debug_cli (1,"addfail n($name) p($primary) s($secondary)");
+
+    # create the members
+    my $pobj = Infoblox::DHCP::Member->new("ipv4addr"=>$primary);
+    my $sobj = Infoblox::DHCP::Member->new("ipv4addr"=>$secondary);
+
+    # create the object
+    my $fobj = Infoblox::DHCP::FailOver->new (
+                   "name" => $name ,
+                   "primary" => $pobj ,
+                   "secondary" => $sobj ,
+                );
+
+    # settings - these are additional fields that the API supports
+    if ( @settings ) {
+
+       my @set_list ;
+       foreach my $setval ( @settings ) {
+          # set some custom options;
+          # split on the ','
+          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addnet s($set) v($val)");
+   
+          # and set this on the object
+          $fobj->$set ( $val ) ;
+       }
+
+    }
+
+    # add the network 
+    &do_func("add",$fobj);
 
 }
 
@@ -5269,7 +5536,7 @@ sub cli_download_log {
     print "DONE\n";
 }
 
-=head2 Export the database
+=head2 Download the database
 
     download database <file>
 
@@ -5295,7 +5562,36 @@ sub cli_download_database {
     print "DONE\n";
 }
 
-=head2 download the DHCP configuration
+=head2 Restore the database
+
+This will always force a restore and KEEP the current IP settings
+(the API and GUI has other options, but I can't see why you'de need them)
+
+    upload database <file>
+
+=cut
+
+sub cli_upload_database {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $dest)  = $line =~/database (\S+)/ ;
+
+    my %opthash = (
+          "type" => "backup",
+          "force" => "true",
+          "keep_grid_ip" => "true",
+    );
+
+    print "RESTORING ALL DATABASE data from $dest ...\n";
+
+    my @function=("import_data",%opthash);
+    &do_func(@function);
+
+    print "DONE\n";
+}
+
+=head2 Download the DHCP configuration
 
     download dhcp_conf <file>
 
@@ -6867,10 +7163,14 @@ my %COMMANDS = (
 # -gdhtodo-
 # [ ] port for readline
 
+# [ ] add a -m|master ( Grid master IP ) for mgmt ports
+#     conf master <ip>
+
 # [ ] exit , bye , quit 
 
-# [ ] modify host
-# [ ] modify zone
+# [x] modify host
+# [x] modify zone
+
 # [ ] add nameserver
 # [ ] remove nameserver
 
@@ -6878,9 +7178,9 @@ my %COMMANDS = (
 
 # [ ] show license
 # [ ] join member ( drop session, reconnect )
-# [ ] show failover
-# [ ] show filter xxx
-# [ ] show grid xxx dhcp
+# [x] show failover
+# [x] show filter xxx
+# [x] show grid xxx dhcp
 # [x] show grid xxx
 # [x] show zone nsgroup
 # [x] show grid xxx member
@@ -7035,7 +7335,10 @@ my %COMMANDS = (
 
 # uploads
     'upload' => { 
-           words => "expert_dhcp_conf=<file>",  },
+           words => "database=<file> expert_dhcp_conf=<file>",  },
+
+    'upload database <file>' => { 
+           func => "cli_upload_database", },
 
     'upload expert_dhcp_conf <file>' => { 
            words => "member=<ip>",
@@ -7185,11 +7488,23 @@ my %COMMANDS = (
            words => "<cr> default_ttl=<num>|recursion|nsgroup=<name> acl",
            func => "cli_mod_dns", },
 
+# - NS groups -
+# configure grid foo dns add nsgroup foo
+# configure zone add nsgroup foo
+
     'configure grid <name> dns add nsgroup <name>' => { 
            words =>
            "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
-           func => "cli_add_grid_nsgroup", },
+           func => "cli_add_nsgroup", },
+    'configure zone add nsgroup <name>' => { 
+           words =>
+           "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
+           func => "cli_add_nsgroup", },
 
+    'configure zone delete nsgroup <name>' => { 
+           func => "cli_del_nsgroup", },
+
+# - Grid DNS acls -
     'configure grid <name> dns add acl' => { 
            words => "allow deny", },
 
@@ -7228,14 +7543,14 @@ my %COMMANDS = (
            words => "add delete modify <zone>", },
 
     'configure zone delete' => { 
-           words => "<zone>|view=<name>|shared_record_group=<name>", },
+           words => "<zone>|nsgroup=<name>|view=<name>|shared_record_group=<name>", },
     'configure zone delete <zone>' => { 
            words => "<cr>
                     view=<name>",
            func => "cli_delete_zone", },
 
     'configure zone add' => { 
-           words => "<zone>|view=<name>|shared_record_group=<name>", },
+           words => "<zone>|nsgroup=<name>|view=<name>|shared_record_group=<name>", },
     'configure zone modify' => { 
            words => "<zone>|view=<name>", },
 
@@ -7330,7 +7645,7 @@ my %COMMANDS = (
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> view=<name>|shared_record_group=<name>|comment=<comment>|disabled|view=<name>", 
+           words => "<cr> shared_record_group=<name>|comment=<comment>|disabled|view=<name>", 
            func => "cli_add_a_rec", },
 
     'configure zone <zone> add aaaa' => { 
@@ -7397,7 +7712,12 @@ my %COMMANDS = (
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "<n.n.n.n/mm> macfilter=<name> shared=<name> fixed", },
+           words => "<n.n.n.n/mm> failover=<name> macfilter=<name> shared=<name> fixed", },
+
+# - Failover -
+    'configure network add failover <name>' => { 
+           words => "<cr> primary=<ip>|secondary=<ip>|set=<name=value>", 
+           func => "cli_add_failover", },
 
 # - macfilters -
     'configure network add macfilter <name>' => { 
@@ -7587,6 +7907,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.32  2008/02/15 22:29:51  horne
+# BugId: 8205
+# Reviewer(s): Geoff, Chris B
+# Description: SRV records, nsgroups and member mgmt
+#
 # Revision 3.31  2008/02/04 21:31:25  horne
 # BugId: 8205
 # Reviewer(s): Chris B
