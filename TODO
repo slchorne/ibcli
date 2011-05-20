@@ -1,15 +1,10 @@
 missing features :
 
-[ ] move network
-    conf net move xxx member=<yyy>|failover=<name>
-    - unset the range membership
-    - remove
-
 [ ] Network Views
     [ ] report the view name
     [ ] show the name in a list of networks
 
-[ ] modify network shokes with neteork views
+[ ] modify network searches with network views
     [ ] test if the 'search' returns more than 1 network.
 
 [ ] modify a fixed address
@@ -17,6 +12,11 @@ missing features :
 [ ] Creating a network template in a scripted manner
 
 -----------
+
+[x] move network
+    conf net move xxx member=<yyy>|failover=<name>
+    - unset the range membership
+    - remove
 
 [x] cli v1.2
 
