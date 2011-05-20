@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.10 2006/07/19 15:35:59 horne Exp $ ;
-my $REV = q$Revision: 3.10 $;
-# $Date: 2006/07/19 15:35:59 $
+my $ID  = q$Id: ibcli,v 3.11 2006/07/27 20:21:01 horne Exp $ ;
+my $REV = q$Revision: 3.11 $;
+# $Date: 2006/07/27 20:21:01 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,8 +318,8 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.10 $
-there were previous versions that were even worse, this one is pretty bad,
+$Revision: 3.11 $.
+There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
 So why do this, what is this CLI for ? Well there were a few primary
@@ -346,7 +346,7 @@ but not know enough to write PERL.
 
 =item Customers wanted it
 
-    Need I say more ?
+Need I say more ?
 
 =back 
 
@@ -585,22 +585,29 @@ sub expand_line {
     &debug_cli (3,"linex input [$line]");
 
     # protect stuff in quotes by inserting '%20s'
-    # do this for all args in the string...
+    # do this for all comments in the arg line
 
-    my @cargs = $line =~ /"([^"]*)"?/g;
-    foreach my $ori_comment ( @cargs ) {
-#         (my $new_comment = $ori_comment) =~ s/\[|\]|\(|\)/!/g;
-        (my $new_comment = $ori_comment) =~ s/\[|\(/!/g;
-        $new_comment =~ s/\]|\)/!!/g;
+    my @commentargs = $line =~ /"([^"]*)"?/g;
+    foreach my $ori_comment ( @commentargs ) {
 
-        ( my $pcomment = $new_comment ) =~ s/\s/%20s/g;
-        $ori_comment =~ s/\(/\\(/g;
-        $ori_comment =~ s/\)/\\)/g;
-        $ori_comment =~ s/\[/\\[/g;
-        $ori_comment =~ s/\]/\\]/g;
+        # make a copy of the string for encoding
+        my $enc_comment = $ori_comment ;
+
+        # now URL encode it
+        $enc_comment =~ s/(\W)/sprintf ("%%%02X", ord ($1))/ge ;
+
+        # protect the original string for our regex
+        $ori_comment =~ s/(\W)/\\$1/g;
+
+        # and re-write the line by swapping the comment chunk
+        # with a URLencoded version
         if ($ori_comment) {
-            $line =~ s/$ori_comment/$pcomment/;
+#             $line =~ s/$ori_comment/$enc_comment/;
+            $line =~ s/"$ori_comment"/"$enc_comment"/;
         }
+
+        &debug_cli (3,"linex comment [$ori_comment][$enc_comment]");
+
     }
 
     &debug_cli (3,"linex cinput [$line]");
@@ -620,6 +627,7 @@ sub expand_line {
        &debug_cli (3,"linex partial m[$matchline]");
 
        # hide special chars (stops us exiting)
+       # [ ] GDH redundant with url encoding ??
        $thisarg =~ s/\[|\]|\(|\)/!/g;
 
        # we now have the short word, 
@@ -948,7 +956,6 @@ sub expand_word {
     # by not making the regex match anything
     # ( this catches words like '<ip>' )
     $inword =~ s/^</!/;
-#     $inword =~ s/\[|\]|\(|\)/!/;
 
     # we need to create a version of inword that is regex friendly
     # so special chars have to be protected
@@ -1083,6 +1090,8 @@ sub do_func {
           # call by indirection
           @ret_objects = $SESSION->$method ( @data ) ;
 
+          
+          &debug_cli (2,"obj out -----------");
           print Dumper ( \@ret_objects ) if $DEBUG >= 2 ;
 
           # get errors
@@ -1171,6 +1180,7 @@ sub cli_add_zone {
     my ($zone)     = $line =~/zone add (\S+)/ ;
     my ($import)   = $line =~/ import (\S+)/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
+    my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
     my ($nsgroup)  = $line =~/ nsgroup (\S+)/ ;
     my ($email)    = $line =~/ email (\S+)/ ;
 
@@ -1225,7 +1235,17 @@ sub cli_add_zone {
     }
     # or normal nameservers ?
     else {
-    if ( $pri ) {
+    if ( $stealth_pri ) {
+       # member primary
+       my $pri_ns = Infoblox::DNS::Member->new ( 
+                        'stealth' => "TRUE" ,
+                        'ipv4addr' => $stealth_pri, );
+
+       $obj->primary( $pri_ns ) ;
+
+       &debug_cli (2,"addz z($zone) mem-p($pri)");
+    }
+    elsif ( $pri ) {
        # member primary
        my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $pri, );
        $obj->primary( $pri_ns ) ;
@@ -1380,6 +1400,12 @@ sub cli_add_host {
     my ( $zone )     = $line =~/zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/add host (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    my ( $disable ) = $line =~/add host \S+.* \b(disabled)\b/ ;
+
+    my @aliases  = $line =~/ alias (\S+)/g ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
 
     $host =~ s/"//g;
     my $name ;
@@ -1388,16 +1414,19 @@ sub cli_add_host {
 
     my @ips = split(',', $ip) ;
 
-    &debug_cli(1,"addh n($name) n($ip) c($comment)");
+    &debug_cli(1,"addh n($name) n($ip) d($disable) c($comment)");
 
     # create the object
     my $obj = Infoblox::DNS::Host->new (
                   "name" => $name,
-#                   "ipv4addrs" => [ $ip ],
                   "ipv4addrs" => \@ips,
     );
 
     if ( $comment ) { $obj->comment ( $comment ) }
+
+    if ( $disable ) { $obj->disable ( "TRUE" ) }
+
+    if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
     # addit
     &do_func("add",$obj);
@@ -1444,6 +1473,9 @@ sub cli_add_a_rec {
     my ( $zone )     = $line =~/zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
 
     my $obj = Infoblox::DNS::Record::A->new (
                   "name" => "$host.$zone",
@@ -1497,6 +1529,9 @@ sub cli_add_mx {
     my ( $zone )     = $line =~/zone (\S+)/ ;
     my ( $host , $pref , $dest ) = $line =~/ mx (\S+) (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
 
     $host =~ s/"//g;
     if ( $host ) { $host = "$host.$zone"; }
@@ -1560,6 +1595,9 @@ sub cli_add_bulk {
     my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
     &debug_cli(1,"addbh z($zone) p($prefix) n($fip,$lip) c($comment)");
 
     my $obj = Infoblox::DNS::BulkHost->new (
@@ -1617,6 +1655,9 @@ sub cli_add_cname {
     my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
     &debug_cli(1,"addcn z($zone) a($alias) cn($cname) c($comment)");
 
     my $obj = Infoblox::DNS::Record::CNAME->new (
@@ -1673,6 +1714,9 @@ sub cli_add_ptr {
     my ( $zone )     = $line =~/zone (\S+)/ ;
     my ( $ip , $host ) = $line =~/ ptr_record (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
 
     &debug_cli(1,"addptr n($zone) ip($ip) h($host) c($comment)");
 
@@ -1754,9 +1798,8 @@ sub cli_add_network {
     my @options  = $line =~/ option (\S+)/g ;
     my @members  = $line =~/ member (\S+)/g ;
 
-    # rewrite the comment
-    $comment =~ s/\!\!/\)/g;
-    $comment =~ s/\!/\(/g;
+    # de-urlencode the comment string
+    $comment = &decode_comment ( $comment ) ;
 
     &debug_cli (1,"addnet n($network) p($parent) m(@members) o(@options) c($comment)");
 
@@ -1869,16 +1912,21 @@ sub cli_add_shared {
     # 
     my ( $line ) = @_ ;
 
-    print "AS[$line]\n";
-
     # get the args from the line
     # the shared network name could be quoted and have spaces
     # what we have to do here is some nested matches from $REcomm
     $line =~/ add shared ($REcomm)/ ;
     my $name = $+ ;
 
+    # de-urlencode the name string
+    $name = &decode_comment ( $name ) ;
+
     $line =~/ comment "?([^"]+)"?/ ;
     my $comment = $+ ;
+
+    # de-urlencode the comment string
+    $comment = &decode_comment ( $comment ) ;
+
 
     my @children  = $line =~/ child_network (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
@@ -2049,6 +2097,9 @@ sub cli_add_fixed_address {
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my @options  = $line =~/ option (\S+)/g ;
 
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
     &debug_cli(1,"addfix n($network) ip($ip) mac($mac) o(@options) c($comment)");
 
     my $obj = Infoblox::DHCP::FixedAddr->new (
@@ -2152,6 +2203,9 @@ sub cli_add_dhcp_range {
     my ( $failover )  = $line =~/ failover (\S+)/ ;
     my ( $member )  = $line =~/ member (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
 
     # [ ] exclusions
     my @exclude  = $line =~/ exclude (\S+)/g ;
@@ -2333,6 +2387,9 @@ sub cli_add_macfilteraddr {
     my ( $mac ) = $line =~/ macaddress (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
 
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
     &debug_cli (1,"addmaddr f($name) m($mac) c($comment)");
 
     my $obj = Infoblox::DHCP::MAC->new (
@@ -2384,11 +2441,7 @@ sub cli_show_grid {
     # get the args from the line
     ( my $gridname)  = $line =~/show grid (\S+)/ ;
 
-    my ( $show_mems , $member ) = $line =~/(member) (\S+)/ ;
-
-    # do we need to get members ?
-
-    # else get the grid
+    # get the grid
     my %opthash = (
           "object" => "Infoblox::Cluster",
           "name" => $gridname ,
@@ -2506,6 +2559,48 @@ sub cli_mod_grid {
 }
 
 # global member settings
+
+=head2 Show global Member settings
+
+Get a list of all grid members
+
+   show grid Infoblox member
+
+Get specific member details
+
+   show grid Infoblox member 45.0.12.20
+   
+
+=cut
+
+
+sub cli_show_member {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/show grid (\S+)/ ;
+
+    my ( $show_mems , $member ) = $line =~/(member) (\S+)/ ;
+
+    # get all grid members
+    my %opthash = (
+          "object" => "Infoblox::Cluster::Member",
+          "name" => $gridname ,
+#           "cluster" => $gridname ,
+    );
+
+    if ( $member ) {
+        # then be specific
+        $opthash{'name'} = $member ;
+    }
+
+    my ( $grid ) = &do_func("get", %opthash );
+
+    if ( $grid ) {
+        &dump_object ( $grid ) ;
+    }
+
+}
 
 =head2 configure Member settings
 
@@ -2907,9 +3002,13 @@ sub cli_show_network {
     
 }
 
-=head2 Showing networks
+=head2 Showing ranges
+
+Show all ranges in a network
 
    show network 161.245.254.128/25 range
+
+Show just a specific range
 
    show network 161.245.254.128/25 range 161.245.254.130
 
@@ -2974,28 +3073,76 @@ sub cli_show_range {
     
 }
 
-=head2 Showing leases
+=head2 Showing fixed addresses
 
-Show a lease
+Show all fixed addresses in a network
 
-    show lease ip 1.1.1.1
-    show lease mac aa:aa:aa
+   show network 161.245.254.128/25 fixed
 
-=cut
+Show just a specific fixed address
 
-# [ ] get a lease with a regex...
-
-=head2 Showing records
-
-Show a host
-
-    show host test.foo.com
+   show network 161.245.254.128/25 fixed 161.245.254.130
 
 =cut
 
-=head2 Showing ranges
+sub cli_show_fixed {
+    #
 
-=cut
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $net ) = $line =~/ network (\S+)/ ;
+    my ( $fixed ) = $line =~/ fixed (\S+)/ ;
+
+    &debug_cli(2,"showr n($net) r($fixed)");
+
+#     # To get get ALL fixed
+#     my %opthash = (
+#            "object" => "Infoblox::DHCP::fixed", 
+#            "start_addr" => ".*",
+#     );
+
+    # get all fixed in a network ( 3.2r9 ? )
+    my %opthash = (
+           "object" => "Infoblox::DHCP::FixedAddr", 
+           "network" => $net,
+           "ipv4addr" => ".*",
+    );
+
+    # if we want to be specific, we get an actual fixed
+    if ( $fixed ) {
+        %opthash = (
+           "object" => "Infoblox::DHCP::FixedAddr", 
+#            "network" => $net,
+           "ipv4addr" => $fixed,
+#            "ip_address" => $fixed,
+        );
+    }
+
+    # get what we need
+    my @fixobjs = &do_func("search", %opthash );
+
+    # dump the fixed or all the list
+    if ( $fixed ) {
+        &dump_object ( shift @fixobjs ) ;
+    }
+    else {
+
+        # display all
+        my @fixedlist ;
+        foreach my $nobj (@fixobjs) {
+            my $net = $nobj->network();
+#             my $fip = $nobj->start_addr();
+#             my $lip = $nobj->end_addr();
+#             push @fixedlist , "  $net : $fip - $lip\n";
+        }
+
+        # now print them (sorted)
+        print sort @fixedlist ; 
+
+    }
+    
+}
 
 #
 # SERVER CONNECTION STUFF.....
@@ -3013,10 +3160,10 @@ Select a server to talk to
     10.0.1.20 >
 
 Supply the username and or password
-   
-    server ? > conf ser 10.0.1.230 user admin pass infoblox
+
+    server ? > conf server 10.0.1.230 user admin pass infoblox
     admin@10.0.1.20 >
-        
+
 =cut
 
 sub cli_add_server {
@@ -3072,6 +3219,7 @@ sub cli_add_server {
     show server message
 
 =cut
+
 sub cli_show_server {
 
     my ( $line ) = @_ ;
@@ -3158,6 +3306,13 @@ sub cli_download {
 #
 ###########################################
 
+sub decode_comment {
+    # urldecode a comment string
+    my ( $string ) = @_ ;
+    $string =~ s/%(..)/chr ( hex($1) )/ge;
+    return ( $string ) ;
+}
+
 sub dump_object {
     # pretty print an object
     my ( $obj ) = @_ ;
@@ -3174,13 +3329,15 @@ sub dump_object {
 
         # look for sub objects
         if ( $key eq "primary" 
+             or $key eq "member"
            ) {
             # get the name
             my $sobj = $obj->{$key} ;
             $data = $sobj->{'name'};
         }
         # arrays by 'ipv4addr'
-        elsif ( $key eq "syslog_server" or $key eq "match_members" ) {
+        elsif ( $key eq "syslog_server"
+             or $key eq "match_members" ) {
             my @values ;
             # find all the names only
             foreach my $sobj ( @{ $obj->{$key} } ) {
@@ -3198,6 +3355,7 @@ sub dump_object {
              or $key eq "match_clients" 
              or $key eq "match_client_keys" 
              or $key eq "ntp_authentication_key" 
+             or $key eq "trap_receiver"
              ) {
 
             my @values = @{ $obj->{$key} } ;
@@ -3235,20 +3393,34 @@ sub dump_object {
 #             $data = join " " , @values ;
               
         }
-        elsif ( $key eq "secondaries") {
+        # nested sub objects
+        elsif ( $key eq "secondaries"
+             or $key eq "members"
+            ) {
             my @values ;
-            # find all the names only
+            # find all the sub objects
             foreach my $sobj ( @{ $obj->{$key} } ) {
                 my $name = $sobj->{'name'};
                 my $ip = $sobj->{'ipv4addr'};
-                push @values , "$name,$ip" ;
-                printf ( "%30s : %s,%s\n", $key , $name,$ip ) ;
+                printf ( "%30s : %s(%s)\n", $key , $name,$ip ) ;
             }
+        }
+        # nested DHCP options
+        elsif ( $key eq "options"
+            ) {
+            # find all sub objects
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+                my $name = $sobj->{'type'};
+                my $val = $sobj->{'value'};
 
-#             # remember it
-#             $data = "@values";
-#             $data = join " " , @values ;
-              
+                # perhaps it is something else ?
+                if (! $val) {$val = $sobj->{'seconds'} };
+                if (! $val) {$val = $sobj->{'name'} };
+                if (! $val) {$val = $sobj->{'ipv4addr'} };
+                if (! $val) {$val = join ( "," , @{ $sobj->{'ipv4addrs'} } ) };
+
+                printf ( "%35s : %s = %s\n", $key , $name,$val ) ;
+            }
         }
         else {
             $data = $obj->{$key} ;
@@ -3848,8 +4020,10 @@ my %COMMANDS = (
 # [ ] show grid xxx member
 # [ ] show grid xxx member yyyy
 # [x] show views
+# [ ] show host xxx
+# [ ] show range nnn
 # [x] show network
-# [ ] show network xxx
+# [x] show network xxx
 #     list options and ranges
 # [ ] show network xxx stats
 #     Infoblox::DHCP::Statistics
@@ -3857,6 +4031,8 @@ my %COMMANDS = (
 #     Infoblox::DHCP::Range
 #     Infoblox::DHCP::ExclusionRange
 #     Infoblox::DHCP::FilterRule
+# [ ] show network xxx fixed
+# [ ] show network xxx fixed yyy
 # [ ] show zone (fqdn)
 # [ ] show host (fqdn)
 # [ ] show license
@@ -3869,11 +4045,11 @@ my %COMMANDS = (
 
     'show grid <name> member' => { 
            words => "<cr> <name>",  
-           func => "cli_show_grid", },
+           func => "cli_show_member", },
 
     'show grid <name> member <name>' => { 
 #            words => "<name>",  
-           func => "cli_show_grid", },
+           func => "cli_show_member", },
 
     'show views' => { 
            words => "<cr> <name>",  
@@ -3891,14 +4067,24 @@ my %COMMANDS = (
            words => "<cr> <n.n.n.n/mm>",  
            func => "cli_show_network", },
     'show network <n.n.n.n/mm>' => { 
-           words => "<cr> range",  
+           words => "<cr> range fixed",  
            func => "cli_show_network", },
+
+    'show network <n.n.n.n/mm> fixed' => { 
+           words => "<cr> <ip> <mac>",  
+           func => "cli_show_fixed", },
+    'show network <n.n.n.n/mm> fixed <ip>' => { 
+           func => "cli_show_fixed", },
+    'show network <n.n.n.n/mm> fixed <mac>' => { 
+           func => "cli_show_fixed", },
+
     'show network <n.n.n.n/mm> range' => { 
            words => "<cr> <ip>",  
            func => "cli_show_range", },
     'show network <n.n.n.n/mm> range <ip>' => { 
            func => "cli_show_range", },
 
+# - leases -
     'show lease' => { 
            words => "<ip> <mac>", },
 #            func => "cli_show_lease", },
@@ -4000,7 +4186,8 @@ my %COMMANDS = (
            words => "nsgroup=<name> acl", },
 
     'configure grid <name> add dns nsgroup <name>' => { 
-           words => "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>", 
+           words =>
+           "stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_grid_nsgroup", },
 
     'configure grid <name> add dns acl' => { 
@@ -4029,7 +4216,7 @@ my %COMMANDS = (
            words => "<zone>", },
     'configure zone add <zone>' => { 
            words => "<cr>
-           view=<name>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
+           view=<name>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -4086,10 +4273,10 @@ my %COMMANDS = (
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
-           words => "<cr> comment=<comment>", 
+           words => "<cr> comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
-    'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
-           func => "cli_add_host", },
+#     'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
+#            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
@@ -4265,7 +4452,7 @@ sub set_debug {
   configure debug <level>
 
 The higher the debug level, the more junk gets spat to the tty. You
-probably don't want anything higher than (2) unless you are debugginh the
+probably don't want anything higher than (2) unless you are debugging the
 completion control parser.
 
 =cut
@@ -4288,6 +4475,14 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.11  2006/07/27 20:21:01  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: added url encoding for comments
+# added stealth primaries
+# added disabled hosts
+# more show grid comands
+#
 # Revision 3.10  2006/07/19 15:35:59  horne
 # BugId: 8205
 # Reviewer(s): Geoff
