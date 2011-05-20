@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 1.13 2004/02/13 20:11:21 horne Exp $
+#   $Id: ibcli,v 1.14 2004/06/16 20:19:46 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 1.13 $
-$Date: 2004/02/13 20:11:21 $
+$Revision: 1.14 $
+$Date: 2004/06/16 20:19:46 $
 ';
 $REV =~ s/\$//g;
 
@@ -297,7 +297,7 @@ while (<>) {
 sub do_exit {
     $LINE = "exit" ;
     if ( $CONNECTED ) { 
-       &commit ;
+#        &commit ;
        &disconnect ;
     }
 
@@ -494,14 +494,15 @@ sub network_commands {
                 "add" => 'add_network',
                 "delete" => 'remove_network',
                 "remove" => 'remove_network',
-                "" => 'mod_network_commands',
+                "global" => 'mod_global_dhcp',
+                "" => 'set_network_commands',
         ) ;
    &shift_arg($arg,%commands);
 }
 
 # PARSER : set network <n.n.n.n/mm> xxx
-sub mod_network_commands {
-   &debug (4,"sub = mod_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
+sub set_network_commands {
+   &debug (4,"sub = set_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
@@ -509,6 +510,7 @@ sub mod_network_commands {
                 "add" => 'add_to_network_commands',
                 "remove" => 'delete_from_network_commands',
                 "delete" => 'delete_from_network_commands',
+                "modify" => 'modify_network',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -520,6 +522,8 @@ sub add_to_network_commands {
    my $arg  = shift @WORDS ;
    my %commands = ( 
                 "address" => 'add_network_ptr',
+                "ptr" => 'add_network_ptr',
+                "fixed" => 'add_fixed_address',
                 "network" => 'add_sub_network',
                 "range" => 'add_dhdprange',
                 "dhcprange" => 'add_dhdprange',
@@ -600,7 +604,7 @@ sub NOT_READY {
 #
 sub do_ib_func {
     my ($function) = @_ ;
-    &debug (3,"do_ib_func [$function]");
+    &debug (1,"do_ib_func [$function]");
 
     if ( $MAKE ) {
        print "$function ;\n" ;
@@ -738,16 +742,16 @@ sub import_to_zone {
 }
 
 sub add_host {
-    my ( $zone , $host , $ip ) = @_ ;
+    my ( $zone , $host , $ip , $comment ) = @_ ;
     if ( (! $host ) or ( ! $ip ) ) {
        &missing_arg("<host> <ip>")  ;
        return ;
     }
     my $name="$host.$zone";
 
-    &debug (2,"addh n($name) n($ip) ");
+    &debug (2,"addh n($name) n($ip) c($comment)");
 
-    my $function = "ib_insert_host(\"$name\",\"$ip\")";
+    my $function = "ib_insert_host(\"$name\",\"$ip\",\"$comment\")";
     &do_ib_func($function);
 
 }
@@ -891,8 +895,99 @@ sub remove_zone {
 
 }
 
+sub mod_global_dhcp {
+    my ( $opt , $val , @extra ) = @_ ;
+    if ( (! $val ) or ( ! $opt ) ) {
+       &missing_arg("<option> <value>")  ;
+       return ;
+    }
+    # protect against array indirection
+    my $custom= "@extra";
+
+    # clean some options
+    $val=~s/["']*//g ;
+    $custom=~s/["']*//g ;
+
+    &debug (2,"modglob o($opt) v($val) c($custom)");
+
+    # ib_modify_global_dhcp_options
+    #         ("10.34.8.0","255.255.252.0","router","10.34.8.1");
+    # OR
+    # ib_modify_global_dhcp_options
+    #         ("10.54.0.0","255.255.252.0","custom_option",
+    #           "netbios-name-servers","","10.23.60.20");
+    my $comm="ib_modify_global_dhcp_options(";
+
+    my $func="$comm,\"$opt\",\"$val\")";
+    if ( $opt eq "custom" ) {
+       $func="$comm\"custom_option\",\"$val\",\"\",\"$custom\")";
+    }
+       
+
+    &do_ib_func($func);
+
+}
+
+sub modify_network {
+    my ( $parent , $opt , $val , @extra ) = @_ ;
+    if ( (! $val ) or ( ! $opt ) ) {
+       &missing_arg("<option> <value>")  ;
+       return ;
+    }
+    my ($net,$cidr) = split(/\//,$parent) ;
+    my $mask = &cidrfind($cidr) ;
+
+    # some custom options look like arrays..
+    my $custom = "@extra";
+
+    # clean some options
+    $val=~s/["']*//g ;
+    $custom=~s/["']*//g ;
+
+    &debug (2,"modnet n($net) m($mask) o($opt) v($val) c($custom)");
+
+    # ib_modify_network_dhcp_options
+    #         ("10.34.8.0","255.255.252.0","router","10.34.8.1");
+    # OR
+    # ib_modify_network_dhcp_options
+    #         ("10.54.0.0","255.255.252.0","custom_option",
+    #           "netbios-name-servers","","10.23.60.20");
+    my $comm="ib_modify_network_dhcp_options(\"$net\",\"$mask\"";
+
+    my $func="$comm,\"$opt\",\"$val\")";
+    if ( $opt eq "custom" ) {
+       $func="$comm,\"custom_option\",\"$val\",\"\",\"$custom\")";
+    }
+       
+
+    &do_ib_func($func);
+
+}
+
+sub add_fixed_address {
+    my ( $parent , $mac , $ip , $comment ) = @_ ;
+    if ( (! $ip ) or ( ! $mac ) ) {
+       &missing_arg("<mac> <ip>")  ;
+       return ;
+    }
+    my ($net,$cidr) = split(/\//,$parent) ;
+    my $mask = &cidrfind($cidr) ;
+
+    &debug (2,"addnp n($net) m($mask) mac($mac) ip($ip) c($comment)");
+
+    # ib_insert_fixed_address(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
+    my $comm="ib_insert_fixed_address(\"$net\",\"$mask\"";
+    my $func="$comm,\"$mac\",\"$ip\")";
+
+    if ($comment) {
+       $func="$comm,\"$mac\",\"$ip\",\"comment\",\"$comment\")";
+    }
+    &do_ib_func($func);
+
+}
+
 sub add_network_ptr {
-    my ( $parent , $ip , $host ) = @_ ;
+    my ( $parent , $ip , $host , $comment ) = @_ ;
     if ( (! $host ) or ( ! $ip ) ) {
        &missing_arg("<ip> <host>")  ;
        return ;
@@ -903,7 +998,8 @@ sub add_network_ptr {
     &debug (2,"addnp n($net) m($mask) ip($ip) h($host)");
 
     # ib_insert_oneway_ptr(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
-    my $func="ib_insert_oneway_ptr(\"$net\",\"$mask\",\"$ip\",\"$host\")";
+    my $comm="ib_insert_oneway_ptr(\"$net\",\"$mask\"";
+    my $func="$comm,\"$ip\",\"$host\",\"$comment\")";
     &do_ib_func($func);
 
 }
@@ -919,7 +1015,7 @@ sub add_dhdprange {
 
     &debug (2,"addrng n($net) m($mask) ip($fip) h($lip)");
 
-    # ib_insert_oneway_ptr(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
+    # ib_insert_dhcp_range(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
     my $func="ib_insert_dhcp_range(\"$net\",\"$mask\",\"$fip\",\"$lip\")";
     &do_ib_func($func);
 
@@ -935,7 +1031,7 @@ sub add_network {
     # [ I've used this twice now, can i make it a sub ?? ]
     #
     if ( $type ) {
-       my @opts = ( "authoritative","delegated","secondary");
+       my @opts = ( "nonauthoritative","authoritative","delegated","secondary");
        my %optlist = abbrev ( @opts ) ;
        $etype = $optlist{ lc($type) } ;
 
@@ -983,7 +1079,7 @@ sub add_sub_network {
     # [ I've used this thrice now, can i make it a sub ?? ]
     #
     if ( $type ) {
-       my @opts = ( "authoritative",,"delegated","secondary");
+       my @opts = ( "nonauthoritative","authoritative","delegated","secondary");
        my %optlist = abbrev ( @opts ) ;
        $etype = $optlist{ lc($type) } ;
 
@@ -1007,7 +1103,7 @@ sub add_sub_network {
     # add net now requires a bogus parent
     # not that this will add it at the root level. you need to
     # use add subnet for anything else
-    my $func="ib_insert_network(\"$net\",\"$mask\",\"$pnet\",\"$pmask\")";
+    my $func="ib_insert_network(\"$net\",\"$mask\",\"$pnet\",\"$pmask\",\"$etype\")";
     &do_ib_func($func);
 
 }
@@ -1022,8 +1118,8 @@ sub split_network {
     my $pmask = &cidrfind($pcidr);
     my $bitshift = $ncidr - $pcidr ;
 
-    &debug (2,"split net [$pnet] [$pcidr] [$ncidr] ($bitshift)\n");
-    &debug (1,"splitting network [$pnet , $pmask] to add [$bitshift] bits");
+    &debug (3,"split net [$pnet] [$pcidr] [$ncidr] ($bitshift)\n");
+    &debug (2,"splitting network [$pnet , $pmask] to add [$bitshift] bits");
 
     # check for optional args...
     my $etype ;
@@ -1283,7 +1379,7 @@ sub connect {
 
 sub disconnect {
     if ( $CONNECTED ) {
-       &commit ;
+#        &commit ;
        &err_print ( "SERVER :: disconnecting");
        ib_close_connection();
        $CONNECTED = 0 ;
@@ -1507,6 +1603,15 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.14  2004/06/16 20:19:46  horne
+# added comments to ptrs
+# added modify global dhcp opts
+#   conf dhcp global
+# added fixed addresses
+# added modify network options
+#   conf net x.x.x.x/mm modify opt value
+# added non-auth networks
+#
 # Revision 1.13  2004/02/13 20:11:21  horne
 # added the command lister
 #
