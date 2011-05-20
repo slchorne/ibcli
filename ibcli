@@ -46,14 +46,21 @@
 #
 ###############################################################################
 
+#### work out where i am
+# these 3 varables can then be used to find config files
+# and keep the code portable
+
+use FindBin qw($Bin $Script);
+my ($BASE,$NAME)=($Bin,$Script) ;
+
 sub show_version {
-    #   $Id: ibcli,v 1.10 2003/10/16 21:41:25 horne Exp $
+    #   $Id: ibcli,v 1.11 2003/11/06 07:31:28 horne Exp $
     my $REV = '
-    $Revision: 1.10 $
-    $Date: 2003/10/16 21:41:25 $
+    $Revision: 1.11 $
+    $Date: 2003/11/06 07:31:28 $
     ';
     $REV =~ s/\$//g;
-    print "$REV\n";
+    print "\n    $BASE/$NAME $REV\n";
 
     exit ;
 }
@@ -66,17 +73,10 @@ no strict "refs" ;
 use Getopt::Long ;
 use Text::Abbrev ;
 
-
-
-# include infoblox
+# include infoblox , find the path ???
+# this is done at compile time so we need to use a method...
+use lib "$FindBin::Bin";
 use InfoBloxDNS ;
-
-#### work out where i am
-# these 3 varables can then be used to find config files
-# and keep the code portable
-
-use FindBin qw($Bin $Script);
-my ($BASE,$NAME)=($Bin,$Script) ;
 
 ######################
 #
@@ -90,6 +90,7 @@ my $SERVER_ID ;
 my $SERVER_PASS ;
 my $CONNECTED ;
 my $CONFIG ;
+my $MAKE ;
 
 my $GOOD_COMMAND ;
 my $LINE ;
@@ -128,22 +129,31 @@ my $PROMPT ;
 # -s <server>
 # -p <password>
 # -d <debug level>
+# -m make a script
+
+my $S_PASS ;
+my $S_ID ;
 
 GetOptions(
-      "s=s" => \$SERVER_ID , 
-      "p=s" => \$SERVER_PASS ,
+      "s=s" => \$S_ID , 
+      "p=s" => \$S_PASS ,
       "f=s" => \$CONFIG ,
       "d=s" => \$DEBUG ,
+      "m+" => \$MAKE ,
       "v|V"   => \&show_version ,
    );
 
    #
 
-# check if we need to do any initial conections
-if ( $SERVER_ID ) { &add_server($SERVER_ID) }
-else              { $PROMPT = "no server > " ; }
+# are we in mode ?
+if ( $MAKE ) { &script_header }
 
-if ( $SERVER_PASS ) { &add_pass($SERVER_PASS) }
+# check if we need to do any initial conections
+# temp vars to avoid a clobbering problem
+if ( $S_ID ) { &add_server($S_ID) }
+else         { $PROMPT = "no server > " ; }
+
+if ( $S_PASS ) { &add_pass($S_PASS) }
 
 #
 # are we interactive or in batch mode ?
@@ -228,6 +238,7 @@ while (<>) {
                 'connect' => 'connect',
                 'disconnect' => 'disconnect',
                 'download' => 'download_commands',
+                'upload' => 'upload_commands',
                 'set' => 'set_commands' ,
                 'configure' => 'set_commands' ,
                 'show' => 'show_commands' ,
@@ -262,6 +273,8 @@ sub do_exit {
        &commit ;
        &disconnect ;
     }
+
+    if ( $MAKE ) { &script_footer }
 
     exit ;
 }
@@ -335,6 +348,16 @@ sub download_commands {
    my %commands = ( 
                 "database" => 'get_database',
                 "logs" => 'get_logs',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : upload xxx
+sub upload_commands {
+   &debug (4,"sub = download_commands");
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                "database" => 'put_database',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -443,6 +466,7 @@ sub mod_zone {
                 "add" => 'add_to_zone',
                 "delete" => 'remove_from_zone',
                 "remove" => 'remove_from_zone',
+                "import" => 'import_to_zone',
         ) ;
    &shift_arg($arg,%commands);
 
@@ -495,11 +519,18 @@ sub do_ib_func {
     my ($function) = @_ ;
     &debug (3,"do_ib_func [$function]");
 
-    if ( $CONNECTED ) {
-       eval $function ;
+    if ( $MAKE ) {
+       print "$function ;\n\n" ;
     }
     else {
-       &err_print("CANNOT EXECUTE - no connection is in place");
+
+       if ( $CONNECTED ) {
+          eval $function ;
+       }
+       else {
+          &err_print("CANNOT EXECUTE - no connection is in place");
+       }
+
     }
 }
 
@@ -514,9 +545,13 @@ sub get_logs {
     #
     # download the logs to the current dir
     #
-    my $dest ;
-    chomp($dest = `pwd`);
-    $dest="$dest/IB_files";
+    my ( $dest ) = @_ ;
+#     chomp($dest = `pwd`);
+#     $dest="$dest/IB_files";
+    if ( ! $dest ) {
+       &missing_arg("<dir>")  ;
+       return ;
+    }
 
     &err_print("DOWNLOADING ALL LOGS data to $dest ...");
     if ( ! -d $dest ) { mkdir($dest,0755); }
@@ -532,9 +567,57 @@ sub get_database {
     #
     # download the database to the current dir
     #
-    my $dest ;
-    chomp($dest = `pwd`);
-    $dest="$dest/IB_files";
+    my ( $dest ) = @_ ;
+#     chomp($dest = `pwd`);
+#     $dest="$dest/IB_files";
+    if ( ! $dest ) {
+       &missing_arg("<dir>")  ;
+       return ;
+    }
+
+    &err_print("DOWNLOADING ALL DATABASE data to $dest ...");
+    if ( ! -d $dest ) { mkdir($dest,0755); }
+
+    my $function = "ib_export_database(\"$dest\")";
+    &do_ib_func($function);
+
+    &err_print("DONE ");
+
+}
+
+sub put_database {
+    #
+    # upload the database from the spec'd dir
+    #
+    my ( $dest ) = @_ ;
+    if ( ! $dest ) {
+       &missing_arg("<dir>")  ;
+       return ;
+    }
+
+    &err_print("UPLOADING ALL DATABASE data from $dest ...");
+    if ( ! -d $dest ) { 
+       &err_print("NO such location");
+       return ;
+    }
+
+    my $function = "ib_import_database(\"$dest\")";
+    &do_ib_func($function);
+
+    &err_print("DONE ");
+
+}
+sub get_database {
+    #
+    # download the database to the current dir
+    #
+    my ( $dest ) = @_ ;
+#     chomp($dest = `pwd`);
+#     $dest="$dest/IB_files";
+    if ( ! $dest ) {
+       &missing_arg("<dir>")  ;
+       return ;
+    }
 
     &err_print("DOWNLOADING ALL DATABASE data to $dest ...");
     if ( ! -d $dest ) { mkdir($dest,0755); }
@@ -555,6 +638,20 @@ sub erase_data {
     &do_ib_func($function);
 
     &err_print("DONE ");
+}
+
+sub import_to_zone {
+    my ( $zone , $ip , $opt ) = @_ ;
+    if ( ! $ip ) {
+       &missing_arg("<ip> [noptr]")  ;
+       return ;
+    }
+
+    &debug (2,"importing z($zone) ip($ip) ");
+
+    my $function = "ib_import_zone(\"$zone\",\"$ip\",\"$opt\")";
+    &do_ib_func($function);
+
 }
 
 sub add_host {
@@ -666,7 +763,7 @@ sub remove_cname {
 }
 
 sub add_zone {
-    my ( $zone , $type ) = @_ ;
+    my ( $zone , $type , @type_opts) = @_ ;
 
     if ( ! $zone ) { &missing_arg("<zone>") ; return }
     my $etype ;
@@ -686,9 +783,17 @@ sub add_zone {
     }
     else { ( $etype = "authoritative" ) ; }
 
-    &debug (2,"addz n($zone) a($etype) ");
+    # format the type opts
+    my $opt_str ;
+    if ( @type_opts ) {
+       foreach my $oo ( @type_opts ) {
+               $opt_str .= ",\"$oo\"";
+       }
+    }
+    &debug (2,"addz n($zone) a($etype) oo($opt_str)");
 
-    my $function = "ib_insert_zone(\"$zone\",\"$etype\")";
+
+    my $function = "ib_insert_zone(\"$zone\",\"$etype\"$opt_str)";
     &do_ib_func($function);
 
 }
@@ -968,8 +1073,8 @@ sub err_print {
        print "@_\n" ;
     }
     else {
-#        print "@_\n" ;
-#        print "ERROR: @_ : $LINE\n";
+       # comment if making..
+       if ( $MAKE ) { print "# " }
        print "@_ : $LINE\n";
     }
 }
@@ -1080,27 +1185,31 @@ sub connect {
     # make a connection
     # unless we have both server and password,  die
 
-    if ( $SERVER_ID && $SERVER_PASS ) {
-       if ( $CONNECTED ) {
-          &err_print("SERVER :: already connected");
-          return ;
-       }
+    if ( ! $MAKE ) {
 
-       &debug (1,"connecting to server [$SERVER_ID] [$SERVER_PASS]");
+      if ( $SERVER_ID && $SERVER_PASS ) {
+         if ( $CONNECTED ) {
+            &err_print("SERVER :: already connected");
+            return ;
+         }
 
-       &err_print("SERVER :: connecting");
+         &debug (1,"connecting to server [$SERVER_ID] [$SERVER_PASS]");
 
-       ib_open_connection($SERVER_ID,$SERVER_PASS) ;
+         &err_print("SERVER :: connecting");
 
-       $PROMPT = "$SERVER_ID > " ;
-       $CONN_STRING = "*" ;
+         ib_open_connection($SERVER_ID,$SERVER_PASS) ;
 
-       $CONNECTED = 1 ;
+         $PROMPT = "$SERVER_ID > " ;
+         $CONN_STRING = "*" ;
+   
+         $CONNECTED = 1 ;
 
-    }
-    else {
-       &err_print ("CANNOT CONNECT :: no server or password supplied");
-       &debug (3,"NOOP - incomplete details for server connection");
+
+      }
+      else {
+         &err_print ("CANNOT CONNECT :: no server or password supplied");
+         &debug (3,"NOOP - incomplete details for server connection");
+      }
     }
 
 }
@@ -1250,6 +1359,28 @@ sub do_dig {
 
 }
 
+sub script_header {
+
+    print "#!/usr/bin/perl
+#
+# AUTOGENERATED from $NAME 
+#
+use InfoBloxDNS ;
+ib_open_connection(\$SERVER_ID,\$SERVER_PASS);
+
+\n";
+}
+
+sub script_footer {
+
+    print "
+ib_close_connection();
+
+exit ; \n";
+
+}
+
+
 ############################################3
 
 sub cidrfind {
@@ -1293,8 +1424,10 @@ sub debug {
     # we print the data
     my $level = shift @_ ;
 
+
     if ($level <= $DEBUG) {
-           print "($level) DEBUG: @_\n";
+        if ( $MAKE ) { print "# " ; }
+        print "($level) DEBUG: @_\n";
     }
 
 }
@@ -1302,6 +1435,14 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.11  2003/11/06 07:31:28  horne
+# server and password now live on the same commandline
+# upload and download database
+# import zone
+# conf zone add now takes additional options
+#
+# the software now writes its own code
+#
 # Revision 1.10  2003/10/16 21:41:25  horne
 # un hardcoede dig
 # changed password syntax
