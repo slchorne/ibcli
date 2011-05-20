@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.44 2009/09/24 19:56:23 horne Exp $ ;
-my $REV = q$Revision: 3.44 $;
-# $Date: 2009/09/24 19:56:23 $
+my $ID  = q$Id: ibcli,v 3.45 2010/02/08 21:01:30 horne Exp $ ;
+my $REV = q$Revision: 3.45 $;
+# $Date: 2010/02/08 21:01:30 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2009
@@ -406,7 +406,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.44 $.
+$Revision: 3.45 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -482,6 +482,9 @@ It should run 'as is' from a uniz machine.
 If you have a windows OS then you will have a few hurdles to cross:
 
 =over
+
+#TODO some sort of testing
+
 
 =item * Rename the script to 'ibcli.pl'. 
 
@@ -633,10 +636,13 @@ sub cli_history {
 }
 
 sub print_help { 
-    # [ ] contextual help
-    cmpctl();
+    #TODO [ ] contextual help
 
     if ( $USE_EL ) {
+
+        # [ ] I'm not sure why I call this here...
+        cmpctl();
+
         my ( $context ) = $el->line ;
         chomp $context;
         $context =~ s/\s*$//;
@@ -1276,9 +1282,13 @@ sub do_func {
             foreach my $field ( keys %{ $exts } ) {
                 # get and url/utf re-code the value
                 my $val = $exts->{$field};
+
+                # but be careful with LIST values..
+                unless ( $val =~ /ARRAY/ ) {
                    $val = decode_comment( $val ) ;
-                # save the value
-                $exts->{$field} = $val;
+                    # save the value
+                    $exts->{$field} = $val;
+                }
             }
             # save the new EA data
             $obj->extensible_attributes ( $exts ) ;
@@ -1372,6 +1382,7 @@ sub cli_add_view {
     # get and de-urlencode the comment string
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
+    $view = &decode_comment ( $view ) ;
 
     &debug_cli(1,"addv v($view) c($comment)");
 
@@ -3592,6 +3603,28 @@ sub cli_delete_network {
 
 }
 
+=head2 Remove a network Template
+
+   conf template del network my_template
+
+=cut
+
+sub cli_del_network_template {
+    my ( $line ) = @_ ;
+
+    my ( $name ) = $line =~/ delete network (\S+)/ ;
+
+    &debug_cli(2,"delnett n($name)");
+
+    my $obj = Infoblox::DHCP::NetworkTemplate->new (
+                  "name" => $name ,
+    );
+
+    # addit
+    &do_func("remove",$obj);
+
+}
+
 =head2 Move Networks
 
 Move a network to a different member, or move a network onto members to
@@ -4287,11 +4320,121 @@ sub cli_add_fixed_address {
 
     }
 
+#     print Dumper ( $obj ) ;
+
     # addit
     &do_func($type,$obj);
 
 }
 
+=head2 Add a fixed address Template
+
+   conf template add fixed <name> offset <value> ...
+   conf template add fixed router-a offset 1
+
+Add a fixed address with comments
+
+   conf template add fixed ... comment "use this for routers"
+
+=head2 Modify a fixed address
+
+You can also modify existing addresses with the same syntax
+
+   conf template modify fixed ...
+
+=cut
+
+sub cli_add_fixed_template {
+    my ( $line ) = @_ ;
+
+    my ( $type , $name ) = $line =~/ (add|modify) fixed (\S+)/ ;
+    my ( $comment ) = $line =~/ comment (\S+)/ ;
+    my ( $offset ) = $line =~/ offset (\S+)/;
+    my @settings  = $line =~/ set (\S+)/g ;
+    my @options  = $line =~/ option (\S+)/g ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
+    &debug_cli(1,"addfixt n($name) of($offset) o(@options) c($comment)");
+
+    my $obj ;
+    # get or add ?
+    if ( $type eq "modify" ) {
+
+
+        # do we have a valid IP address, or are we a roaming host ?
+        my %opthash = (
+            "object" => "Infoblox::DHCP::FixedAddrTemplate",
+            "name" => $name ,
+        );
+
+        ( $obj ) = &do_func("get", %opthash ) ;
+
+        unless ( $obj ) {
+            print "  Error : $name : No fixed template found\n";
+            return ;
+        }
+
+    }
+    else {
+        $obj = Infoblox::DHCP::FixedAddrTemplate->new (
+              "name" => $name ,
+              number_of_addresses => 1,
+        );
+    }
+
+    if ( $comment ) { $obj->comment ( $comment ) }
+    if ( $offset ) { $obj->offset ( $offset ) }
+
+    # options
+    if ( @options ) {
+
+       my @opt_list ;
+       foreach my $optval ( @options ) {
+          # set some custom options;
+          # split on the ','
+          my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addfix o($opt) v($val)");
+   
+          my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
+
+          # only add options we recognise
+          if ( $opt_obj ) {
+            push @opt_list , $opt_obj ;
+          }
+
+       }
+
+       $obj->options ( \@opt_list ) ;
+
+    }
+    
+    # now add IPAM info
+    my @ipam  = $line =~/ info (\S+)/g ;
+    $obj = add_ipam( $obj , @ipam ) ;
+
+    # settings - these are additional fields that the API supports
+    if ( @settings ) {
+
+       foreach my $setval ( @settings ) {
+          # set some custom options;
+          # split on the ','
+          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addfix s($set) v($val)");
+   
+          # and set this on the object
+          $obj->$set ( $val ) ;
+       }
+
+    }
+
+    # addit
+    &do_func($type,$obj);
+
+}
 =head2 Remove a fixed address
 
 For some clever reason, you don't really need to specify the parent
@@ -4302,7 +4445,7 @@ sane (In reality, any bogus string for the network name will work)
 
 =cut
 
-# [ ] remove fixed does not work
+# remove fixed does not work
 sub cli_del_fixed_address {
     my ( $line ) = @_ ;
 
@@ -4322,6 +4465,23 @@ sub cli_del_fixed_address {
                   "network" => $network ,
                   "ipv4addr" => $ip ,
                   "mac" => $mac ,
+    );
+
+    # addit
+    &do_func("remove",$obj);
+
+}
+
+# remove fixed does not work
+sub cli_del_fixed_template {
+    my ( $line ) = @_ ;
+
+    my ( $name ) = $line =~/ delete fixed (\S+)/ ;
+
+    &debug_cli(2,"delfixt n($name)");
+
+    my $obj = Infoblox::DHCP::FixedAddrTemplate->new (
+                  "name" => $name ,
     );
 
     # addit
@@ -5857,6 +6017,10 @@ sub cli_mod_member {
             $memobj->node2_ha ($h2) ;
             $memobj->router_ID ( $harid ) ;
         }
+        elsif ( $address ) {
+            # do we reset HA settings ?
+            $memobj->type ("IDnode" ) ;
+        }
 
         # push the changes, if we were ok
         &do_func("modify",$memobj);
@@ -6246,7 +6410,13 @@ sub cli_add_grid_dns_acl {
     my ( $perm , $type , $ip) = $line =~/ (allow|deny) (\S+) (\S+)/g ;
 
     # build the ACL lust
-    my $acl = "allow_$type" ;
+    my $acl;
+    if ($type eq "recursion") {
+      $acl = "recursive_query_list";
+    }
+    else {
+      $acl = "allow_$type" ;
+    }
 
     # convert the ACL list into an array
     my @iplist ;
@@ -6794,6 +6964,7 @@ sub cli_show_host {
     my ( $fqdn ) = $line =~/ host (\S+)/ ;
     my ( $view ) = $line =~/ view (\S+)/ ;
     my ( $ip ) = $line =~/ ipv4addr (\S+)/ ;
+    my ( $mac ) = $line =~/ mac (\S+)/ ;
 
     &debug_cli(2,"showh n($fqdn) v($view) i($ip)");
 
@@ -6805,7 +6976,11 @@ sub cli_show_host {
     if ( $ip ) {
         $opthash{'ipv4addr'} = $ip ;
     }
+    elsif ( $mac ) {
+        $opthash{'mac'} = $mac ;
+    }
     elsif ( $fqdn ) {
+        # this must be the LAST test
         $opthash{'name'} = $fqdn ;
     }
 
@@ -6839,6 +7014,7 @@ sub cli_show_record {
         mx => "Infoblox::DNS::Record::MX",
         txt => "Infoblox::DNS::Record::TXT",
         aaaa => "Infoblox::DNS::Record::AAAA",
+        srv => "Infoblox::DNS::Record::SRV",
         bulkhost => "Infoblox::DNS::BulkHost",
     } ;
 
@@ -6958,8 +7134,17 @@ sub cli_show_network {
            "object" => "Infoblox::DHCP::Network", 
            "network" => $search,
     );
-
     my @nets = &do_func("search", %opthash );
+
+    if ( require_api ( "4.3r4-0" ) ) {
+        # and all the containers
+        my %opthash = (
+            "object" => "Infoblox::DHCP::NetworkContainer", 
+            "network" => $search,
+        );
+        my @parents = &do_func("search", %opthash );
+        push @nets , @parents ;
+    }
 
     # dump the network(s) or just the list
     if ( $net or $details ) {
@@ -7009,9 +7194,9 @@ sub cli_show_network {
 
 =head2 Showing networks templates
 
-   show network template
+   show template network
 
-   show network template <name>
+   show template network <name>
 
 =cut
 
@@ -7022,7 +7207,7 @@ sub cli_show_network_template {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $name ) = $line =~/ template (\S+)/ ;
+    my ( $name ) = $line =~/ network (\S+)/ ;
 
     &debug_cli(2,"shownt t($name)");
 
@@ -7516,6 +7701,59 @@ sub cli_show_fixed {
     
 }
 
+=head2 Showing fixed addresses templates
+
+Show all fixed addresses in a network
+
+   show template fixed
+
+Show just a specific fixed address
+
+   show template fixed <name>
+
+=cut
+
+sub cli_show_fixed_template {
+    #
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $fixed ) = $line =~/ fixed (\S+)/ ;
+
+    &debug_cli(2,"showtf r($fixed)");
+
+    my $name = ".*";
+    if ( $fixed ) { $name = $fixed }
+
+    my %opthash = (
+           "object" => "Infoblox::DHCP::FixedAddrTemplate", 
+           name => $name,
+    );
+
+    # get what we need
+    my @fixobjs = &do_func("search", %opthash );
+
+    # dump the fixed or all the list
+    if ( $fixed ) {
+        &dump_object ( @fixobjs ) ;
+    }
+    else {
+
+        # display all
+        my @fixedlist ;
+        foreach my $nobj (@fixobjs) {
+            my $name = $nobj->name();
+            my $comment = $nobj->comment();
+            push @fixedlist , "  $name : $comment\n";
+        }
+
+        # now print them (sorted)
+        print sort @fixedlist ; 
+
+    }
+    
+}
 =head2 Showing MAC filters
 
 Show all macfilter lists
@@ -7750,7 +7988,7 @@ sub cli_show_admin {
                 "name" => $search ,
             );
     }
-    if ( $type eq "role" ) {
+    elsif ( $type eq "role" ) {
             %opthash = (
                 "object" => "Infoblox::Grid::Admin::Role",
                 "name" => $search ,
@@ -7940,9 +8178,11 @@ sub cli_restart {
 #     $opthash{'when'}=0;
     my %opthash = (
           "service" => $service ,
-#           "when" => "0",
-          "when" => "now",
     );
+
+    unless ( require_api ( "5.0r0-0" ) ) {
+       $opthash{'when'}="now";
+    }
 
     if ( $member ) {
        $opthash{'member'}=$member;
@@ -8678,7 +8918,11 @@ sub dump_data {
         next if $key =~ /FUNCTION/;
         next if $key =~ /CHANGED/;
         next if $key =~ /RETURN_FIELDS/;
-        next if ! $obj->{$key} ;
+
+        # and undef
+        unless ( $obj->{$key} eq "0" ) {
+            next if ! $obj->{$key} ;
+        }
 
         my $data ;
 
@@ -8697,7 +8941,7 @@ sub dump_data {
 
             # find out if we have an array or not
             # (this is the case for external primaries)
-            if ( ref($sobj) == 'ARRAY' ) {
+            if ( ref($sobj) eq 'ARRAY' ) {
                 $sobj = @{ $sobj } [0]
             }
 
@@ -8997,12 +9241,13 @@ sub add_ipam {
     # and add code for 4.3rx or higher and EA attributes
 
     # we use a hash because the EAs may not always exist
-    my %exts ;
+    my $exts = {};
 
     # get the current EA's if there are any
     if ( require_api ( "4.3r2-0" ) ) {
         if ( $obj->extensible_attributes() ) {
-            %exts = %{ $obj->extensible_attributes() };
+#             %exts = %{ $obj->extensible_attributes() };
+            $exts = $obj->extensible_attributes();
         }
     }
 
@@ -9014,6 +9259,9 @@ sub add_ipam {
         # decode a quoted string
         my $cvalue = &decode_comment ( $value ) ;
 
+        # and decode the attribute name
+        my $name = &decode_comment ( $name ) ;
+
         # and strip the quotes
         $cvalue =~ s/^"//;
         $cvalue =~ s/"$//;
@@ -9023,7 +9271,23 @@ sub add_ipam {
         if ( require_api ( "4.3r2-0" ) ) {
             # if we are running 4.3, we need to use EA attributes
             # add them to the hash
-            $exts{$name} = $cvalue ;
+
+            # if they are a list context, we have to convert them
+            if ( $cvalue =~ /\[(.*)\]/ ) {
+                my $vals = $1 ;
+                my @a = split ( /\s*\,\s*/ , $vals ) ;
+#                 $cvalue = \@a ;
+                print "a[@a]\n";
+                $exts->{$name} = \@a ;
+            }
+            else {
+                $exts->{$name} = $cvalue ;
+            }
+
+#             print Dumper ( $exts ) ;
+
+
+#             $exts{$name} = $cvalue ;
 #             $obj->extensible_attributes()->{$name} = $value ;
             
         }
@@ -9037,8 +9301,8 @@ sub add_ipam {
     }
 
     # add the EA hash if required
-    if ( require_api ( "4.3r2-0" ) and %exts ) {
-        $obj->extensible_attributes( \%exts ) ;
+    if ( require_api ( "4.3r2-0" ) and %{ $exts } ) {
+        $obj->extensible_attributes( $exts ) ;
     }
 
     return ( $obj ) ;
@@ -9873,7 +10137,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "record time file server grid admin views zone host network range radius debug",  },
+           words => "template record time file server grid admin views zone host network range radius debug",  },
 
     'help' => { 
            words => "all",
@@ -10015,7 +10279,7 @@ my %COMMANDS = (
 
     'show host' => { 
 #            words => "<name>|ipv4addr=<ip>|view=<name>",  },
-           words => "<cr> <name>|ipv4addr=<ip>|view=<name>",
+           words => "<cr> <name>|mac=<mac>|ipv4addr=<ip>|view=<name>",
            func => "cli_show_host", },
 #     'show host <name>' => { 
 #            words => "<cr> view=<name>",  
@@ -10026,7 +10290,7 @@ my %COMMANDS = (
 
 # show DNS records
     'show record' => { 
-           words => "cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
+           words => "srv=<name>|cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
            func => "cli_show_record", },
 
     'show zone' => { 
@@ -10048,16 +10312,28 @@ my %COMMANDS = (
     'show zone shared_record_group <name>' => { 
            func => "cli_show_zone", },
 
-# show networks
-    'show network' => { 
-           words => "<cr> views details <n.n.n.n/mm> template ranges statistics lease options failover fixed filter",  
-           func => "cli_show_network", },
+    
+# show templates
+    
+    'show template' => { 
+           words => "fixed network",  },
 
-    'show network template' => { 
+    'show template fixed' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_fixed_template", },
+    'show template fixed <name>' => { 
+           func => "cli_show_fixed_template", },
+
+    'show template network' => { 
            words => "<cr> <name>",  
            func => "cli_show_network_template", },
-    'show network template <name>' => { 
+    'show template network <name>' => { 
            func => "cli_show_network_template", },
+
+# show networks
+    'show network' => { 
+           words => "<cr> views details <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           func => "cli_show_network", },
 
     'show network details' => { 
            func => "cli_show_network", },
@@ -10160,13 +10436,16 @@ my %COMMANDS = (
 
 # downloads
     'download' => { 
-           words => "support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
+           words => "lease_history=<file>|support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
 
     'download database' => { 
            words => "<file>",  },
     'download database <file>' => { 
            func => "cli_download_database", },
 
+    # they all call the same generic function
+    'download lease_history <file>' => { 
+           func => "cli_download_log", },
     'download merge_log <file>' => { 
            func => "cli_download_log", },
     'download support_bundle <file>' => { 
@@ -10195,7 +10474,7 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "admin debug master=<ip> file server zone network radius grid member" , },
+           words => "admin debug master=<ip> file server template zone network radius grid member" , },
 
     'configure master <ip>' => { 
            func => "cli_add_master", },
@@ -10383,7 +10662,7 @@ my %COMMANDS = (
            words => "allow deny", },
 
     'configure grid <name> dns add acl allow' => { 
-           words => "transfer=<n.n.n.n/mm>|update=<value>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           words => "recursion=<n.n.n.n>|transfer=<n.n.n.n/mm>|update=<value>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
            func => "cli_add_grid_dns_acl", },
     'configure grid <name> dns add acl deny' => { 
            words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
@@ -10664,6 +10943,25 @@ my %COMMANDS = (
            words => "<cr> view=<name>|comment=<comment>|ttl=<num>",
            func => "cli_add_ptr", },
 
+# template objects
+    'configure template' => { 
+           words => "add modify delete", },
+    'configure template add' => { 
+           words => "fixed=<name>", },
+    'configure template delete' => { 
+           words => "network=<name> fixed=<name>", },
+    'configure template modify' => { 
+           words => "fixed=<name>", },
+
+    'configure template add fixed <name>' => { 
+           words => "<cr> offset=<value>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           func => "cli_add_fixed_template", },
+    'configure template delete network <name>' => { 
+           func => "cli_del_network_template", },
+    'configure template delete fixed <name>' => { 
+           func => "cli_del_fixed_template", },
+
+# network objects
     'configure network' => { 
            words => "move=<n.n.n.n/mm> add modify delete <n.n.n.n/mm> filter=<name>", },
 
@@ -10950,6 +11248,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.45  2010/02/08 21:01:30  horne
+# *** empty log message ***
+#
 # Revision 3.44  2009/09/24 19:56:23  horne
 #
 # lots of features
