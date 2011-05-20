@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.37 2008/08/05 01:20:32 horne Exp $ ;
-my $REV = q$Revision: 3.37 $;
-# $Date: 2008/08/05 01:20:32 $
+my $ID  = q$Id: ibcli,v 3.38 2008/10/16 09:15:44 horne Exp $ ;
+my $REV = q$Revision: 3.38 $;
+# $Date: 2008/10/16 09:15:44 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -398,7 +398,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.37 $.
+$Revision: 3.38 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1513,6 +1513,12 @@ sub cli_add_zone {
             "object" => "Infoblox::DNS::Zone", 
             "name" => $zone
         );
+        # check the view
+        if ( @views ) { 
+            my $view = $views[0] ;
+            $opthash{'view'} = $view 
+        }
+
         my @zones = &do_func("get", %opthash );
 
         if ( $#zones > 0 ) {
@@ -1756,7 +1762,7 @@ sub cli_add_zone {
         $obj->views ( \@view_objs ) ;
     }
 
-    # do we add it to a shared record group ?
+    # do we add it a shared record group ?
     if ( @shared_groups ) {
         $obj->shared_record_groups ( \@shared_groups ) ;
     }
@@ -2082,7 +2088,7 @@ sub cli_add_host {
     my ( $vname )     = $line =~/ view (\S+)/ ;
     my ( $mac )     = $line =~/mac (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    my ( $disable ) = $line =~/add host \S+.* \b(disabled)\b/ ;
+    my ( $disable ) = $line =~/ host \S+.*\b(disabled)\b/ ;
     my ( $ttl )     = $line =~/ttl (\d+)/ ;
 
     my @settings  = $line =~/ set (\S+)/g ;
@@ -2119,13 +2125,13 @@ sub cli_add_host {
         if ( $#hosts > 0 ) {
             # we found too many
             my $list = &dump_summ ( "name" , @hosts );
-            print "  More than 1 host found : $list\n";
+            print "  Error : $name : More than 1 host found : $list\n";
             # exit here
             return
         }
         elsif ( ! @hosts ) {
             # we found too few
-            print "  No host found\n";
+            print "  Error : $name : No host found\n";
             # exit here
             return
         }
@@ -2268,6 +2274,7 @@ sub cli_del_host {
     # get the args from the line
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host ) = $line =~/host (\S+)/ ;
+    my ( $vname )     = $line =~/ view (\S+)/ ;
 
     $host =~ s/"//g;
     $zone =~ s/"//g;
@@ -2284,7 +2291,12 @@ sub cli_del_host {
                   "name" => "$name",
     );
 
-    # addit
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
+    }
+
+    # scrubit
     &do_func("remove",$obj);
 
 }
@@ -2800,6 +2812,18 @@ sub cli_add_txt {
     $comment = &decode_comment ( $comment ) ;
     $txt = &decode_comment ( $txt ) ;
 
+    # there is a 'bug/feature' in the api and individual words
+    # get quotes indvidually. To stop this, you have to wrap
+    # the string in single quotes
+
+#     This example make it multiple strings:
+#            text    => 'v=spf1 mx ip4:193.15.4.5 ~all',
+# 
+#     This example makes it single string:
+#            text    => '"v=spf1 mx ip4:193.15.4.5 ~all"',
+
+    $txt = "\"$txt\"";
+
     &debug_cli(1,"addtxt z($zone) n($name) t($txt) c($comment)");
 
     my $obj = Infoblox::DNS::Record::TXT->new (
@@ -2937,6 +2961,10 @@ Add a network with options
 
    conf network add 1.1.1.0/24 option 82="some data"
 
+Add a network with vendor class options (class.option)
+
+   conf network add 1.1.1.0/24 option SunW.bootsvr="some data"
+
 Add a network with comments (comments must come last)
 
    conf network add 1.1.1.0/24 comment "comment string"
@@ -2960,7 +2988,7 @@ sub cli_add_network {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $network ) = $line =~/ network add (\S+)/ ;
+    my ( $type , $network ) = $line =~/ network (add|modify) (\S+)/ ;
     my ( $netmask ) = $line =~/ netmask (\S+)/ ;
     my ( $parent )  = $line =~/ parent (\S+)/ ;
     my ( $template )  = $line =~/ template (\S+)/ ;
@@ -2985,13 +3013,35 @@ sub cli_add_network {
         $network = "$network/$cidr";
     }
 
-    # create the object
-    my $net = Infoblox::DHCP::Network->new (
+    # add/get the network
+    my $net ;
+    if ( $type eq "modify" ) {
+        
+        # get the current network
+        my %opthash = (
+            "object" => "Infoblox::DHCP::Network", 
+            "network" => $network
+        );
+
+        ( $net ) = &do_func("get", %opthash );
+
+        # check errors
+        if ( ! $net ) {
+            print "  network $network not found\n";
+            return ;
+        }
+
+    }
+    else {
+
+        # create the object
+        $net = Infoblox::DHCP::Network->new (
                    "network" => $network ,
                    "comment" => $comment ,
 #                    "network_container" => $parent ,
                    "auto_create_reversezone" => "FALSE"
                 );
+    }
 
     # parenting ?
     # fixed in 4.1r3
@@ -3674,7 +3724,7 @@ sub cli_add_dhcp_range {
     # get the args from the line
     my ( $network ) = $line =~/ network (\S+)/ ;
     my ( $netmask ) = $line =~/ netmask (\S+)/ ;
-    my ( $fip , $lip )  = $line =~/ add range (\S+) (\S+)/ ;
+    my ( $type , $fip , $lip )  = $line =~/ (add|modify) range (\S+) (\S+)/ ;
     my ( $failover )  = $line =~/ failover (\S+)/ ;
     my ( $member )  = $line =~/ member (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
@@ -3697,8 +3747,29 @@ sub cli_add_dhcp_range {
         $network = "$network/$cidr";
     }
 
+    my $obj ;
+    if ( $type eq "modify" ) {
+        
+        # get the current network
+        my %opthash = (
+            "object" => "Infoblox::DHCP::Range", 
+            "network" => $network ,
+            "start_addr" => $fip ,
+            "end_addr" => $lip ,
+        );
+
+        ( $obj ) = &do_func("get", %opthash );
+
+        # check errors
+        if ( ! $obj ) {
+            print "  range $fip-$lip not found\n";
+            return ;
+        }
+
+    }
+    else {
     # create the object
-    my $obj = Infoblox::DHCP::Range->new (
+        $obj = Infoblox::DHCP::Range->new (
                    "network" => $network ,
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
@@ -3706,6 +3777,7 @@ sub cli_add_dhcp_range {
 #                    "options" => \@opt_list ,
 #                    "member" => $member ,
                 );
+    }
 
     # add the optional extras
     if ( $comment ) { $obj->comment ( $comment ) }
@@ -3956,6 +4028,10 @@ Add a device type with new custom labels
 
    configure grid add device_type <name> label <orig>=<new-name>
 
+Add a device type with multiple custom labels
+
+   ... device_type <name> label <orig2>=<new-name2> label <orig2>=<new-name2>
+
 =cut
 
 sub cli_add_device_types {
@@ -3964,6 +4040,9 @@ sub cli_add_device_types {
     # get the args from the line
     my ( $dev ) = $line =~/ device_type (\S+)/ ;
     my @labels  = $line =~/ label (\S+)/g ;
+
+    # remove '%20' crud from dev types with spaces in them
+    $dev = &decode_comment ( $dev ) ;
 
     &debug_cli (1,"adddev d($dev) l(@labels)");
 
@@ -5112,15 +5191,6 @@ sub cli_show_grid_dhcp {
         &dump_object ( $grid ) ;
     }
 
-}
-
-=head2 modify a network
-
-TBD
-
-=cut
-
-sub cli_mod_network {
 }
 
 # End -- API ---
@@ -6413,7 +6483,7 @@ sub cli_download_database {
 =head2 Restore the database
 
 This will always force a restore and KEEP the current IP settings
-(the API and GUI has other options, but I can't see why you'de need them)
+(the API and GUI has other options, but I can't see why you'd need them)
 
     upload database <file>
 
@@ -6428,6 +6498,7 @@ sub cli_upload_database {
     my %opthash = (
           "type" => "backup",
           "force" => "true",
+          "path" => $dest,
           "keep_grid_ip" => "true",
     );
 
@@ -7036,8 +7107,10 @@ sub dump_data {
     # nasty hack to insert the hostname into a fixed address
     if ( $obj->{__type} =~ /Infoblox.DHCP.FixedAddr/ ) {
         # get the name (fixed hosts do not have '/' in them)
-        unless ( $obj->__key() =~ /\// ) {
-            my $name = $obj->__key();
+#         unless ( $obj->__key() =~ /\// ) {
+#             my $name = $obj->__key();
+        unless ( $obj->{'__key'} =~ /\// ) {
+            my $name = $obj->{'__key'} ;
 
             # and clean it up, reverse the parts etc
             $name =~ s/.$REip$//;
@@ -7182,7 +7255,8 @@ sub dump_data {
               
         }
         # hash arrays by key 'name'
-        elsif ( $key eq "zone_association" ) {
+        elsif ( $key eq "zone_association" 
+              ) {
             my @values ;
             # find all the names only
             foreach my $sobj ( @{ $obj->{$key} } ) {
@@ -7196,7 +7270,9 @@ sub dump_data {
             $data = "@values";
         }
         # views , by name
-        elsif ( $key eq "views" ) {
+        elsif ( $key eq "views" 
+             or $key eq "nsgroups"
+            ) {
             my @values ;
             # find all the names only
             foreach my $sobj ( @{ $obj->{$key} } ) {
@@ -7225,6 +7301,9 @@ sub dump_data {
                 }
                 if ( $sobj->{'__type'} =~ /Infoblox.DNS.Nameserver/ ) {
                     $type = "external secondary"
+                }
+                if ( $key eq "delegate_to" ) {
+                    $type = "Delegate to"
                 }
 
                 my $name = $sobj->{'name'};
@@ -7289,10 +7368,8 @@ sub make_dhcp_option {
     $val =~ s/"//g;
     $val = &decode_comment ( $val ) ;
 
-    # we have to convert all options to both a name and a number
-    # this will save us pain in the long run
-
-    # strip the vendor from the option name
+    # strip the vendor class from the option name
+    # we will add it back in once we've cleaned up the option
     my $class ;
     if ( $opt =~ /(.*)\.(.*)/ ) {
         $class = $1 ;
@@ -7304,9 +7381,6 @@ sub make_dhcp_option {
     my ( $onum , $oname ) = &get_custom_options ( $DEBUG , $opt ) ;
 
     debug_cli(4,"mkdh: took option o($opt) > ($onum)($oname)=($val)");
-
-    # then conditionally check the object and see if it it is special
-    # or just an ordinary option
 
     # this loop is the god, it renames a value and its type
     # it is also a list of what options we handle specifically
@@ -7326,6 +7400,12 @@ sub make_dhcp_option {
                     "value" => $val,
                  );
     }
+
+    # then conditionally check the object and see if it it is special
+    # or just an ordinary option
+    # we have to convert all options to both a name and a number
+    # this will save us pain in the long run
+    # but we finally did this in 4.2r1.
 
     elsif ( $oname eq "routers" ) {
        $option = Infoblox::DHCP::Option->new (
@@ -7378,7 +7458,7 @@ sub make_dhcp_option {
       print "  Error : unknown DHCP option [$opt]\n";
     }
 
-    # lastly hack in the vendor class
+    # lastly hack back in the vendor class
     if ( $class ) {
         $option->vendor_class ( $class ) ;
     }
@@ -8454,10 +8534,10 @@ my %COMMANDS = (
     'configure grid add device_type' => { 
            words => "<name>" },
     'configure grid add device_type <name>' => { 
-           words => "label=<name=value>" ,
+           words => "<cr>|label=<name=value>" ,
            func => "cli_add_device_types", },
-    'configure grid device_type add label <name=value>' => { 
-           func => "cli_add_device_types", },
+#     'configure grid device_type add label <name=value>' => { 
+#            func => "cli_add_device_types", },
 
 # - grid -
     'configure grid <name>' => { 
@@ -8670,6 +8750,7 @@ my %COMMANDS = (
     'configure zone <zone> delete host' => { 
            words => "<name>", },
     'configure zone <zone> delete host <name>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_host", },
 
     'configure zone <zone> delete a_record' => { 
@@ -8718,7 +8799,7 @@ my %COMMANDS = (
            func => "cli_del_ptr", },
 
     'configure zone <zone> modify host <name>' => { 
-           words => "<cr> <ip,ip>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
+           words => "<cr> <ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
 
     'configure zone <zone> add host' => { 
@@ -8793,7 +8874,7 @@ my %COMMANDS = (
            func => "cli_add_ptr", },
 
     'configure network' => { 
-           words => "add delete <n.n.n.n/mm> filter=<name>", },
+           words => "add modify delete <n.n.n.n/mm> filter=<name>", },
 
     'configure network delete' => { 
            words => "<n.n.n.n/mm> fixed=<ip> macfilter=<name> shared=<name>", },
@@ -8805,6 +8886,8 @@ my %COMMANDS = (
 
     'configure network add' => { 
            words => "<n.n.n.n/mm> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
+    'configure network modify' => { 
+           words => "<n.n.n.n/mm>", },
 
 # - optiondef -
     'configure network add optiondef <name>' => { 
@@ -8853,6 +8936,9 @@ my %COMMANDS = (
     'configure network add <n.n.n.n/mm>' => { 
            words => "<cr> template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
+    'configure network modify <n.n.n.n/mm>' => { 
+           words => "<cr> template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
+           func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
            words => "split add delete modify join=</cidr>", },
@@ -8862,7 +8948,7 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> delete' => { 
            words => "permission network fixed range",  },
     'configure network <n.n.n.n/mm> modify' => { 
-           words => "permission",  },
+           words => "range permission",  },
 
     'configure network <n.n.n.n/mm> split' => { 
            words => "</cidr>",  },
@@ -8919,6 +9005,11 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
+           words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
+           func => "cli_add_dhcp_range", },
+    'configure network <n.n.n.n/mm> modify range' => { 
+           words => "<ip>=<ip>",  },
+    'configure network <n.n.n.n/mm> modify range <ip> <ip>' => { 
            words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
@@ -9035,6 +9126,13 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.38  2008/10/16 09:15:44  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: Modify networks, hosts, ranges
+# patches to device types
+# upload database now works
+#
 # Revision 3.37  2008/08/05 01:20:32  horne
 # BugId: 8205
 # Reviewer(s): Geoff
