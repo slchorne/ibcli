@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.11 2006/07/27 20:21:01 horne Exp $ ;
-my $REV = q$Revision: 3.11 $;
-# $Date: 2006/07/27 20:21:01 $
+my $ID  = q$Id: ibcli,v 3.12 2006/07/30 23:37:21 horne Exp $ ;
+my $REV = q$Revision: 3.12 $;
+# $Date: 2006/07/30 23:37:21 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.11 $.
+$Revision: 3.12 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1391,6 +1391,10 @@ sub cli_delete_zone {
 
    conf zone foo.com add host test 1.2.3.4 comment "this is a comment"
 
+Don't know the zones ? Then just leave it NULL
+
+   conf zone "" add host test.foo.com 1.2.3.4
+
 =cut
 
 sub cli_add_host {
@@ -1401,6 +1405,7 @@ sub cli_add_host {
     my ( $host , $ip ) = $line =~/add host (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     my ( $disable ) = $line =~/add host \S+.* \b(disabled)\b/ ;
+    my ( $ttl )     = $line =~/ttl (\d+)/ ;
 
     my @aliases  = $line =~/ alias (\S+)/g ;
 
@@ -1408,8 +1413,13 @@ sub cli_add_host {
     $comment = &decode_comment ( $comment ) ;
 
     $host =~ s/"//g;
+    $zone =~ s/"//g;
+
     my $name ;
-    if ( $host ) { $name = "$host.$zone"; }
+#     my $name = join ( "." , ( $host , $zone ) ) ;
+# 
+    if ( $host and $zone ) { $name = "$host.$zone"; }
+    elsif ( $host and ! $zone ) { $name = "$host"; }
     else { $name = $zone }
 
     my @ips = split(',', $ip) ;
@@ -1425,6 +1435,8 @@ sub cli_add_host {
     if ( $comment ) { $obj->comment ( $comment ) }
 
     if ( $disable ) { $obj->disable ( "TRUE" ) }
+
+    if ( $ttl ) { $obj->ttl ( $ttl ) }
 
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
@@ -2207,7 +2219,7 @@ sub cli_add_dhcp_range {
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
 
-    # [ ] exclusions
+    # exclusions
     my @exclude  = $line =~/ exclude (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
 
@@ -2606,9 +2618,16 @@ sub cli_show_member {
 
 Enable or Disable the NTP service
 
-   configure member 1.2.3.20 enable ntp
-   configure member 1.2.3.20 disable ntp
+   configure grid Infoblox modify member 1.2.3.20 enable ntp
+   configure grid Infoblox modify member 1.2.3.20 disable ntp
 
+Change the IP address
+
+    conf grid Infoblox modify member infoblox.localdomain ipaddress 10.64.128.40/24
+
+Make this an HA pair
+
+    conf grid blox modify member foo.com hapair 10.64.128.41,10.64.128.42,10.64.128.43,10.64.128.44 routerid 40
 =cut
 
 
@@ -2616,12 +2635,23 @@ sub cli_mod_member {
 
     my ( $line ) = @_ ;
     # get the args from the line
-    ( my $member)  = $line =~/configure member (\S+)/ ;
+    ( my $member)  = $line =~/modify member (\S+)/ ;
+
+    my ($address)    = $line =~/ ipaddress (\S+)/ ;
+    my ($gateway)    = $line =~/ gateway (\S+)/ ;
+    my ($haaddr)    = $line =~/ hapair (\S+)/ ;
+    my ($harid)    = $line =~/ routerid (\S+)/ ;
 
     # find some booleans
     my $use_ntp ;
     $line =~/enable ntp$/ and $use_ntp = "TRUE" ;
     $line =~/disable ntp$/ and $use_ntp = "FALSE" ;
+
+    # break ip into ip and mask
+    my ( $ip , $cidr ) = split ( /\// , $address ) ;
+    my $mask = &cidrtomask( $cidr ) ;
+
+    &debug_cli (2,"modme ip($ip) m($mask) gw($gateway) ha($haaddr)");
 
     # first get the member
     my %opthash = (
@@ -2630,12 +2660,26 @@ sub cli_mod_member {
     );
     my ( $memobj ) = &do_func("get", %opthash );
 
-    &debug_cli (2,"modme ntp($use_ntp)");
-
     # make some changes, if we have a grid
     if ( $memobj ) {
 
         if ( $use_ntp ) { $memobj->enable_ntp ( $use_ntp ) }
+
+        if ( $address ) { 
+            $memobj->mask ( $mask ) ;
+            $memobj->ipv4addr ( $ip) 
+        }
+
+        # make this an hapair
+        if ( $haaddr ) { 
+            my ( $l1,$h1,$l2,$h2 ) = split ( /,/ , $haaddr ) ;
+            $memobj->type ("HApair" ) ;
+            $memobj->node1_lan ($l1) ;
+            $memobj->node1_ha ($h1) ;
+            $memobj->node2_lan ($l2) ;
+            $memobj->node2_ha ($h2) ;
+            $memobj->router_ID ( $harid ) ;
+        }
 
         # push the changes, if we were ok
         &do_func("modify",$memobj);
@@ -2654,9 +2698,6 @@ DNS ACLs
    conf grid <name> add dns acl zone-transfer x.x.x.x/nn
 
 =cut
-
-# [ ] broken until i get syntax to set the Grid name
-
 
 
 =head2 add global DHCP settings
@@ -2766,7 +2807,7 @@ Show just 1 zone
 
 sub cli_show_zone {
     #
-    # [ ] show needs some cleanup
+    # show needs some cleanup
 
     my ( $line ) = @_ ;
 
@@ -2889,6 +2930,33 @@ sub cli_show_view {
         &dump_object ( $view ) ;
 
     }
+
+}
+
+=head2 Showing hosts
+
+    show host www.foo.com
+
+=cut
+
+
+sub cli_show_host {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $fqdn ) = $line =~/ host (\S+)/ ;
+
+    &debug_cli(2,"showh n($fqdn)");
+
+    # get the host 
+    my %opthash = (
+           "object" => "Infoblox::DNS::Host", 
+           "name" => $fqdn
+    );
+    
+    my ( $host ) = &do_func("get", %opthash );
+    
+    &dump_object ( $host ) ;
 
 }
 
@@ -3024,6 +3092,9 @@ sub cli_show_range {
     my ( $net ) = $line =~/ network (\S+)/ ;
     my ( $range ) = $line =~/ range (\S+)/ ;
 
+    # handle a wildcard case
+    if ( ! $range ) { $range = ".*" }
+
     &debug_cli(2,"showr n($net) r($range)");
 
 #     # To get get ALL ranges
@@ -3032,21 +3103,21 @@ sub cli_show_range {
 #            "start_addr" => ".*",
 #     );
 
-    # get all ranges in a network ( 3.2r9 ? )
+    # just get a range
     my %opthash = (
-           "object" => "Infoblox::DHCP::Range", 
-           "network" => $net,
-           "start_addr" => ".*",
+        "object" => "Infoblox::DHCP::Range", 
+        "start_addr" => $range,
     );
-
-    # if we want to be specific, we get an actual range
-    if ( $range ) {
+    # otherwise...
+    if ( $net ) {
+        # get all ranges in a network ( 3.2r9 ? )
         %opthash = (
-           "object" => "Infoblox::DHCP::Range", 
-           "network" => $net,
-           "start_addr" => $range,
+            "object" => "Infoblox::DHCP::Range", 
+            "network" => $net,
+            "start_addr" => $range,
         );
     }
+
 
     # get what we need
     my @ranges = &do_func("search", %opthash );
@@ -3335,7 +3406,24 @@ sub dump_object {
             my $sobj = $obj->{$key} ;
             $data = $sobj->{'name'};
         }
-        # arrays by 'ipv4addr'
+        # arrays by just a value
+        elsif ( $key eq "ntp_access_list" 
+             or $key eq "match_clients" 
+             or $key eq "match_client_keys" 
+             or $key eq "ntp_authentication_key" 
+             or $key eq "trap_receiver"
+             or $key eq "ipv4addrs"
+             or $key eq "aliases"
+             ) {
+
+            my @values = @{ $obj->{$key} } ;
+
+            # remember it
+            $data = "@values";
+#             $data = join " " , @values ;
+              
+        }
+        # hash arrays by key 'ipv4addr'
         elsif ( $key eq "syslog_server"
              or $key eq "match_members" ) {
             my @values ;
@@ -3350,22 +3438,7 @@ sub dump_object {
             $data = join " " , @values ;
               
         }
-        # arrays by just a value
-        elsif ( $key eq "ntp_access_list" 
-             or $key eq "match_clients" 
-             or $key eq "match_client_keys" 
-             or $key eq "ntp_authentication_key" 
-             or $key eq "trap_receiver"
-             ) {
-
-            my @values = @{ $obj->{$key} } ;
-
-            # remember it
-            $data = "@values";
-            $data = join " " , @values ;
-              
-        }
-        # arrays by 'address'
+        # hash arrays by key 'address'
         elsif ( $key eq "ntp_server" ) {
             my @values ;
             # find all the names only
@@ -3815,6 +3888,46 @@ sub get_custom_options {
 }
 
 
+sub cidrtomask {
+    my ($cidr) = @_ ;
+    my %clook = (
+         '0' => 0 ,
+         '1' => '128.0.0.0' ,
+         '2' => '192.0.0.0' ,
+         '3' => '224.0.0.0' ,
+         '4' => '240.0.0.0' ,
+         '5' => '248.0.0.0' ,
+         '6' => '252.0.0.0' ,
+         '7' => '254.0.0.0' ,
+         '8' => '255.0.0.0' ,
+         '9' => '255.128.0.0' ,
+         '10' => '255.192.0.0' ,
+         '11' => '255.224.0.0' ,
+         '12' => '255.240.0.0' ,
+         '13' => '255.248.0.0' ,
+         '14' => '255.252.0.0' ,
+         '15' => '255.254.0.0' ,
+         '16' => '255.255.0.0' ,
+         '17' => '255.255.128.0' ,
+         '18' => '255.255.192.0' ,
+         '19' => '255.255.224.0' ,
+         '20' => '255.255.240.0' ,
+         '21' => '255.255.248.0' ,
+         '22' => '255.255.252.0' ,
+         '23' => '255.255.254.0' ,
+         '24' => '255.255.255.0' ,
+         '25' => '255.255.255.128' ,
+         '26' => '255.255.255.192' ,
+         '27' => '255.255.255.224' ,
+         '28' => '255.255.255.240' ,
+         '29' => '255.255.255.248' ,
+         '30' => '255.255.255.252' ,
+         '31' => '255.255.255.254' ,
+         '32' => '255.255.255.255' ,
+     );
+
+    return ( $clook{$cidr} ) ;
+}
 
 
 sub by_ip {
@@ -3995,7 +4108,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "server grid=<name> views lease zone network debug",  },
+           words => "server grid=<name> views lease zone host network range debug",  },
 
     'help' => { 
            words => "all",
@@ -4014,14 +4127,16 @@ my %COMMANDS = (
            func => "debug_commands", },
 
 # -gdhshow-
+# [ ] show license
+# [ ] show failover
+# [ ] show filter xxx
 # [x] show grid xxx
 # [ ] show grid xxx dns nsgroup
 # [ ] show grid xxx dhcp
 # [ ] show grid xxx member
 # [ ] show grid xxx member yyyy
 # [x] show views
-# [ ] show host xxx
-# [ ] show range nnn
+# [x] show range nnn
 # [x] show network
 # [x] show network xxx
 #     list options and ranges
@@ -4029,15 +4144,12 @@ my %COMMANDS = (
 #     Infoblox::DHCP::Statistics
 # [ ] show network xxx range yyy
 #     Infoblox::DHCP::Range
-#     Infoblox::DHCP::ExclusionRange
-#     Infoblox::DHCP::FilterRule
-# [ ] show network xxx fixed
-# [ ] show network xxx fixed yyy
-# [ ] show zone (fqdn)
-# [ ] show host (fqdn)
-# [ ] show license
-# [ ] show failover
-# [ ] show filter xxx
+#     [ ] Infoblox::DHCP::ExclusionRange
+#     [ ] Infoblox::DHCP::FilterRule
+# [x] show network xxx fixed
+# [x] show network xxx fixed yyy
+# [x] show zone (fqdn)
+# [x] show host (fqdn)
 
     'show grid <name>' => { 
            words => "<cr> member",  
@@ -4058,6 +4170,11 @@ my %COMMANDS = (
     'show views <name>' => { 
            words => "<cr>",  
            func => "cli_show_view", },
+
+    'show host' => { 
+           words => "<name>",  },
+    'show host <name>' => { 
+           func => "cli_show_host", },
 
     'show zone' => { 
            words => "<cr> <zone>|forward|reverse|view=<name>",  
@@ -4082,6 +4199,13 @@ my %COMMANDS = (
            words => "<cr> <ip>",  
            func => "cli_show_range", },
     'show network <n.n.n.n/mm> range <ip>' => { 
+           func => "cli_show_range", },
+
+    # alternate form of show range
+    'show range' => { 
+           words => "<cr> <ip>",
+           func => "cli_show_range", },
+    'show range <ip>' => { 
            func => "cli_show_range", },
 
 # - leases -
@@ -4139,25 +4263,10 @@ my %COMMANDS = (
 
 # --
 
-    'configure member' => { 
-           words => "<name>", },
-
     'configure grid' => { 
            words => "<name>", },
 
-# [ ] conf member <name> enable ntp
-
-# - member -
-    'configure member <name>' => { 
-           words => "disable enable", },
-
-    'configure member <name> disable' => { 
-           words => "ntp|dns|dhcp",
-           func => "cli_mod_member", },
-
-    'configure member <name> enable' => { 
-           words => "ntp|dns|dhcp",
-           func => "cli_mod_member", },
+# [ ] conf grid <name> modify member <name> enable ntp
 
 # - grid -
     'configure grid <name>' => { 
@@ -4172,7 +4281,7 @@ my %COMMANDS = (
            func => "cli_mod_grid", },
 
     'configure grid <name> modify' => { 
-           words => "grid_name=<name>|session_timeout=<value>|vpn_port=<value>|shared_secret=<value>",
+           words => "member grid_name=<name>|session_timeout=<value>|vpn_port=<value>|shared_secret=<value>",
            func => "cli_mod_grid", },
 
     'configure grid <name> delete' => { 
@@ -4204,6 +4313,26 @@ my %COMMANDS = (
            words => "option=<name=value>|typeoption=<name=value>",
            func => "cli_add_grid_dhcp", },
 
+# - grid member -
+    'configure grid <name> modify member' => { 
+           words => "<name>", },
+
+    'configure grid <name> modify member <name>' => { 
+           words => "ipaddress=<n.n.n.n/mm> disable enable", },
+
+    'configure grid <name> modify member <name> ipaddress <n.n.n.n/mm>' => { 
+           words => "hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
+           func => "cli_mod_member", },
+
+    'configure grid <name> modify member <name> disable' => { 
+           words => "ntp|dns|dhcp",
+           func => "cli_mod_member", },
+
+    'configure grid <name> modify member <name> enable' => { 
+           words => "ntp|dns|dhcp",
+           func => "cli_mod_member", },
+
+# - zone -
     'configure zone' => { 
            words => "add delete <zone>", },
 
@@ -4273,7 +4402,7 @@ my %COMMANDS = (
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
-           words => "<cr> comment=<comment>|alias=<name>|disabled", 
+           words => "<cr> ttl=<num>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
 #     'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
 #            func => "cli_add_host", },
@@ -4475,6 +4604,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.12  2006/07/30 23:37:21  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: you can now set the IP of any membber ( and HA )
+#
 # Revision 3.11  2006/07/27 20:21:01  horne
 # BugId: 8205
 # Reviewer(s): Geoff
