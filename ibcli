@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.6 2006/06/01 01:58:47 horne Exp $ ;
-my $REV = q$Revision: 3.6 $;
-# $Date: 2006/06/01 01:58:47 $
+my $ID  = q$Id: ibcli,v 3.7 2006/06/05 17:40:34 horne Exp $ ;
+my $REV = q$Revision: 3.7 $;
+# $Date: 2006/06/05 17:40:34 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -83,7 +83,7 @@ $Data::Dumper::Sortkeys = 1 ;
 #
 
             # quoted comments
-my $REcomm = '("[^"]*")|\S+' ;
+my $REcomm = '("([^"]+)")|(\S+)' ;
             # zones
 my $REzone = '(\w|\-|\.)+';
             # a complete IP address
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.6 $
+$Revision: 3.7 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -585,10 +585,14 @@ sub expand_line {
     &debug_cli (3,"linex input [$line]");
 
     # protect stuff in quotes by inserting '%20s'
-    my ( $comment ) = $line =~ /"([^"]*)"?/;
-    ( my $pcomment = $comment ) =~ s/\s/%20s/g;
-    if ($comment) {
-        $line =~ s/$comment/$pcomment/;
+    # do this for all args in the string...
+
+    my @cargs = $line =~ /"([^"]*)"?/g;
+    foreach my $comment ( @cargs ) {
+        ( my $pcomment = $comment ) =~ s/\s/%20s/g;
+        if ($comment) {
+            $line =~ s/$comment/$pcomment/;
+        }
     }
 
     &debug_cli (3,"linex cinput [$line]");
@@ -656,7 +660,7 @@ sub expand_line {
           # the bad word will be at the end of $expanded
           ( my $good = $line ) =~ s/(.*)$thisarg.*$/$1/;
 
-          # and unclean comments
+          # and unclean protected strings
           $good =~ s/%20s/ /g ;
 
           # and use this to put a marker at the right place
@@ -1687,6 +1691,10 @@ sub cli_del_ptr {
 
    conf network add 1.1.1.0/24
 
+Add a network witwith a reverse zone
+
+   conf network add 1.1.1.0/24 addreverse
+
 Add a network with members
 
    conf network add 1.1.1.0/24 member 1.1.1.2,1.1.1.4
@@ -1801,6 +1809,119 @@ sub cli_delete_network {
 
     my $net = Infoblox::DHCP::Network->new (
                    "network" => $network ,
+                );
+
+    &do_func("remove",$net);
+
+}
+
+=head2 Add a shared network
+
+   conf network add shared my_shared child_network 1.1.1.0/24 child 1.1.2.0/24
+
+Add a network with options
+
+   conf network add shared foo option 82,"some data"
+
+Add a network with comments (comments must come last)
+
+   conf network add shared comment "comment string"
+
+=cut
+
+# direct options :
+# [-] lease_time , domain_name , etc etc
+# let the serverside handle this or i will end up hardcoding keywords
+# in too many places
+
+sub cli_add_shared {
+    # essentially all options are passed as name value pairs
+    # 
+    my ( $line ) = @_ ;
+
+    print "AS[$line]\n";
+
+    # get the args from the line
+    # the shared network name could be quoted and have spaces
+    # what we have to do here is some nested matches from $REcomm
+    $line =~/ add shared ($REcomm)/ ;
+    my $name = $+ ;
+
+    $line =~/ comment "?([^"]+)"?/ ;
+    my $comment = $+ ;
+
+    my @children  = $line =~/ child_network (\S+)/g ;
+    my @options  = $line =~/ option (\S+)/g ;
+
+    # members are assigned at the network level
+#     my @members  = $line =~/ member (\S+)/g ;
+
+    &debug_cli (1,"addsha s($name) n(@children) o(@options) c($comment)");
+
+    # children :
+    my @netlist ;
+    if ( @children ) {
+       foreach my $net ( @children ) {
+          # split on ',' get all the IPs
+          &debug_cli(2,"addsha chi($net)");
+          push @netlist, Infoblox::DHCP::Network->new("network"=>$net);
+       }
+       # and add them to the object
+#        $net->networks ( \@netlist ) ;
+    }
+
+    # create the network object :
+    my $net = Infoblox::DHCP::SharedNetwork->new (
+                   "name" => $name ,
+                   "comment" => $comment ,
+                   "networks" => \@netlist ,
+                );
+
+    # options
+    if ( @options ) {
+
+       my @opt_list ;
+       foreach my $optval ( @options ) {
+          # set some custom options;
+          # split on the '='
+          my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addnet o($opt) v($val)");
+   
+          my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
+
+          # only add options we recognise
+          if ( $opt_obj ) {
+            push @opt_list , $opt_obj ;
+          }
+
+       }
+
+       $net->options ( \@opt_list ) ;
+
+    }
+
+    # add the network 
+    &do_func("add",$net);
+
+}
+
+=head2 Remove a shared network
+
+   conf network del shared my_shared
+
+=cut
+
+sub cli_delete_shared {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ delete shared (\S+)/ ;
+
+    &debug_cli(1,"delsha n($name)");
+
+    my $net = Infoblox::DHCP::sharedNetwork->new (
+                   "name" => $name ,
                 );
 
     &do_func("remove",$net);
@@ -2773,7 +2894,7 @@ sub make_dhcp_option {
                     "ipv4addr" => $val,
                  )
     }
-    elsif ( $oname eq "lease-time" ) {
+    elsif ( $oname =~ /^lease*/ ) {
        $option = Infoblox::DHCP::Option->new (
                     "type" => "lease-time",
                     "seconds" => $val,
@@ -2849,6 +2970,7 @@ sub get_custom_options {
          "font-servers" => "Option  48: font-servers",
          "x-display-manager" => "Option  49: x-display-manager",
          "dhcp-requested-address" => "Option  50: dhcp-requested-address",
+         "lease" => "Option  51: lease-time",
          "lease-time" => "Option  51: lease-time",
          "default-lease-time" => "Option  51: lease-time",
          "max-lease-time" => "Option  51: lease-time",
@@ -3493,7 +3615,10 @@ my %COMMANDS = (
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "<n.n.n.n/mm>", },
+           words => "<n.n.n.n/mm> shared=<name>", },
+    'configure network add shared <name>' => { 
+           words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
+           func => "cli_add_shared", },
     'configure network add <n.n.n.n/mm>' => { 
            words => "<cr> addreverse|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_network", },
@@ -3616,6 +3741,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.7  2006/06/05 17:40:34  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: added more features, shared networks, comments
+#
 # Revision 3.6  2006/06/01 01:58:47  horne
 # BugId: 8205
 # Reviewer(s): Kevin
