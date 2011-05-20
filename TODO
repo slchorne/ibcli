@@ -1,5 +1,23 @@
 missing features :
 
+[ ] move network
+    conf net move xxx member=<yyy>|failover=<name>
+    - unset the range membership
+    - remove
+
+[ ] Network Views
+    [ ] report the view name
+    [ ] show the name in a list of networks
+
+[ ] modify network shokes with neteork views
+    [ ] test if the 'search' returns more than 1 network.
+
+[ ] modify a fixed address
+
+[ ] Creating a network template in a scripted manner
+
+-----------
+
 [x] cli v1.2
 
     [x] read config files
@@ -131,86 +149,17 @@ missing features :
             [-] changing servers will dump the stack
         [-] 'commit' processes the stack (and dumps it)
 
-[ ] cli v2.x
 
     [x] perldoc this crap
 
     [x] Data::Dumper
 
-    [ ] output clean error messages
-        [ ] drop errors on fail , slient on success
-
-    [ ] comments
-        [ ] perldoc
-
-    [ ] specify members
-        [ ] member 1.2.3.4,1.2.3.5,1.2.3.6
-        [ ] conf zone add foo primary <member> members <members>
-        [ ] conf zone add foo external primary <blah>
-        [ ] conf zone add foo external scondary <blah>
-            [ ] or any combo of the above
-
-    [ ] conf dns restart delay x
-    [ ] conf dhcp restart delay x
-        [ ] !! check this against the ARB doc
-
-    [ ] adding extra arguments, pass the function lists or name value pairs
-        option value
-        option value,value,value
-        [ ] multi vars need an explicit option type
-        option name=value,name=value,name=value,name=value
-
-    [ ] more commands
-
-        [ ] conf net 1.1.0.0/16 add net 1.1.1.0/20
-
-        [ ] set zone import <zone> <remoteserver> <forwardonly>
-        [ ] download database
-            ib_export_database(<dir>);
-        [ ] upload database
-            ib_upload_database(<dir>);
-        [ ] download logs
-            ib_export_logs(<dir>);
-        [ ] set system clone <remoteserver> <password>
-
-        [ ] set zone add <zone> forward <forwarder ip> <forwarder IP> ..
-
-        [ ] set zone add <zone> secondary <data...>
-            [ ] check for secondary options
-
-        [ ] conf zone <zone> add mx mail.foo.com <pref> 
-        [ ] conf zone <zone> add mx mail.foo.com <pref> wildcard
-            ( adds MX for ANY host in the zone)
-            ib_insert_zone_mail_exchanger
-            ib_remove_zone_mail_exchanger
-
-        [ ] conf zone <zone> add host <name> <1.2.3.4> mx <2.2.2.2>
-        [ ] conf zone <zone> del host <name> mx <2.2.2.2>
-            ib_insert_host_mail_exchanger
-            ib_remove_host_mail_exchanger
-
-        [ ] conf zone <zone> add srv ???
-            ib_insert_srv
-            ib_remove_srv
-
-    [ ] conf system version <N>
-        show system version
-
+    [ ] Stack control ?
         [ ] show stack 
             displays the pending commits
 
         [ ] conf stack del <num> 
             delete a stack item
-
-    [ ] fix dig stuff
-        [ ] reverse map the IP address to do a dig correctly.
-        [ ] -x lookups don't return a record just an auth ?
-               you need an EXACT MATCH - grr
-                    
-    [ ] use readline to get line editor and uparrow (and history)
-        [ ] completion control
-        [ ] use 'editline'
-        [ ] http://search.cpan.org/~phinyx/Term-EditLine-0.05/EditLine.pod
 
 [ ] cli v2.2
 
@@ -218,45 +167,10 @@ missing features :
 
         [ ] set system import <directory>
 
-[ ] RADIUS commands
-    [ ] conf radius <global stuff>
-
-    [x] conf server dns <ip> <password>    [ DEFAULT ]
-        conf server radius <ip> <username> <password>
-
-        [x] check type to see if it is an IP,name or type ?
-        [x] put config data into a 3.0 version hash
-
-    [x] conf realm add <realm> <Arg> <arg> <arg>
-        [x] stick args in a hash as AVPs
-        [x] conf realm add <realm> realm_type [ standard | ttls ]
-        [x] conf realm add <realm> <arg> <value> ...
-
-    [x] conf realm <realm> add attribute <type> <name> <value>
-
-    [x] conf realm <realm> add user <uid> password  <passwd>
-    [x] conf realm <realm> modify user <id> add attribute <type> <name> <value>
-    [x] conf realm <realm> modify user <id> del attribute <type> <name> <value>
-
-    [x] conf realm delete <realm>
-    [x] conf realm <realm> delete user <user>
-    [x] conf realm <realm> delete attrib <type> <name> <value>
-
-    [ ] output error messages
-        [ ] clean broken error messages
-            ( PROPERTY NAME="message" VALUE="..." )
-
-[ ] Serial interface/ssh commands
-
-  REQUIRED
+[ ] Grid commands
 
     [ ] enable dns|dhcp|ldap|radius
     [ ] disable ...
-
-    [ ] debug [process] on          # turn on debugging of the process
-        debug [process] 2           # set the debug level of the process
-        debug [process] coredump    # get process to drop core
-        debug shell                 # drop into a root shell !
 
     [x] help
         syntax should always be 'help <command>'
@@ -269,76 +183,43 @@ missing features :
     [x] reboot
     [x] shutdown
 
-    [ ] set system default
+CLI commands
+
+    [x] set system default
         reset to factory defaults
 
     [x] ping (-n)
 
     [x] traceroute (-n)
 
-    [ ] show version
-
-    [ ] show services
-        show current status of the box servers (BIND,DHCPD,RADIUSd)
-
-    [ ] show ha
-        shows HA status for this box
-
-    [ ] show cpu
-        This should not be "top"
-        calls : system("vmsat");
-    [ ] show cpu <interval> <count>
+    [x] show cpu <interval> <count>
         calls : system("vmsat x y");
         
-    [ ] show interface eth0
+    [x] show interface eth0
         calls : system("ifconfig eth0");
-    [ ] show interface all
+    [x] show interface all
         calls : system("ifconfig -a");
 
-    [ ] configure interface eth0 speed auto duplex none
+    [x] configure interface eth0 speed auto duplex none
         Set port and speed
 
-    [ ] dig
-        [ ] dig host <type>
-        [ ] dig -x number
-        [ ] dig @host host <type>
-        [ ] dig @host -x host
-
-    [x] show temperature
-
-  OPTIONAL
-
-    [ ] show log
-        calls : system("less /var/log/messages");
-
-    [x] show log tail
-        calls : system("tail /var/log/messages");
-
-    [x] show log tail 30
-        calls : system("tail -30 /var/log/messages");
-
-    [ ] show log /regex/
-        calls : system("less /var/log/messages | grep 'regex' ");
-        # actually use perl RE somehow so the the /xxx/ implies a regex
-          perl -n -e 'print if /regex/' /var/log/messages
-
-    [ ] show connections
+    [x] show connections
         calls : system("netstat --inet");
-    [ ] show connections numerical
+    [x] show connections numerical
         calls : system("netstat -n --inet");
 
-    [ ] show disk
+    [x] show disk
         pump 'df' through a grep to clean stuff
 
-    [ ] show diagnostics
+    [x] show diagnostics
         gets version info
         gets interface info
         gets vmstat info
         gets whatever else we need
 
-    [ ] show counters
+    [x] show counters
         show counters <param>
         conf counters reset
 
-    [ ] Show arp
+    [x] Show arp
 
