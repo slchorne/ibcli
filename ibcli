@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.41 2009/02/20 04:54:36 horne Exp $ ;
-my $REV = q$Revision: 3.41 $;
-# $Date: 2009/02/20 04:54:36 $
+my $ID  = q$Id: ibcli,v 3.42 2009/03/12 02:15:30 horne Exp $ ;
+my $REV = q$Revision: 3.42 $;
+# $Date: 2009/03/12 02:15:30 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2009
@@ -71,6 +71,7 @@ use lib "lib" ;
 
 use Text::Abbrev ;
 use Getopt::Long;
+use Encode;
 use Infoblox;
 
 # globals
@@ -253,6 +254,7 @@ if ( $M_ID ) {
 # [ ] broken in later revs of code
 my $host = Infoblox::DNS::Host->new ("name" => "name");
 my $CLIENT_REV = $host->{__version} ;
+unless ( $CLIENT_REV ) { $CLIENT_REV = "4.3.2.0" } ;
 
 # main loop
 
@@ -402,22 +404,23 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.41 $.
+$Revision: 3.42 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
+
+The Ibcli is a simple command line tool that lets you do some (mostly)
+powerful things.  It leverages the Infoblox api but provides a wrapper to
+the more complex (and detailed) API calls that uses more simple command
+line type calls.
+
+I also lets you create batch scripts that can configure an Infoblox SDB
+with actually writing any perl.
+
 
 So why do this, what is this CLI for ? Well there were a few primary
 reasons:
 
 =over
-
-The Ibcli is a simple command line tool that lets you do some (mostly) powerful things. It
-leverages the Infoblox api but provides a wrapper to the more complex (and detailed) API calls that
-uses more simple command line type calls.
-
-I also lets you create batch scripts that can configure an Infoblox SDB with actually writing any
-perl.
-
 
 =item Quick changes are now easy,
 
@@ -1240,39 +1243,85 @@ sub do_func {
     # assume we are passed a single object
     #
     my ( $method , @data ) = @_ ;
-#     &debug_cli(1,"do_func ($method)");
 
-    # format the data for pretty printing
-    if ( $DEBUG >= 2 ) {
-        &debug_cli (2,"session method = ($method)");
-        print Dumper ( \@data ) ;
+    &debug_cli (2,"session method = ($method)");
+
+    # if we are doing an add or a modify, we should be passing a single
+    # object, and if so we need to do some post processing cleanup
+    my $obj = $data[0] ;
+    if ( ref($obj) ) {
+
+        # this is an object and not a search
+
+        # we can;t call the method coz it isn't there on
+        # some objects, so we test if the method is there, then
+        # do something with it
+
+        if ( exists $obj->{comment} ) {
+            # clean up the comment
+            my $c = $obj->comment();
+            $c = decode_comment( $c ) ;
+
+            # and save it
+            $obj->comment( $c ) 
+        }
+
+        if ( exists $obj->{extensible_attributes} ) {
+            # url and utf encode these as well
+            # we can use a ref to re-set the values directly
+            my $exts = $obj->extensible_attributes();
+            foreach my $field ( keys %{ $exts } ) {
+                # get an re-cose the value
+                my $val = $exts->{$field};
+                   $val = decode_comment( $val ) ;
+                # save the value
+                $exts->{$field} = $val;
+            }
+            # save the new EA data
+            $obj->extensible_attributes ( $exts ) ;
+        }
+
+        # re-save the object
+        $data[0] = $obj ;
+
+        # and debug
+        if ( $DEBUG >= 3 ) {
+            print Dumper ( $obj ) ;
+        }
     }
+    else {
+        # must be a search
+        if ( $DEBUG >= 2 ) {
+            print Dumper ( \@data ) ;
+        }
+    }
+
 
     my @ret_objects ;
 
-       # actually try and run it
-       if ( $ONLINE ) {
-
-          # call by indirection
-          @ret_objects = $SESSION->$method ( @data ) ;
-
-          
-          &debug_cli (3,"obj out -----------");
-          print Dumper ( \@ret_objects ) if $DEBUG >= 3 ;
-
-          # get errors
-          my $result = $SESSION->status_code();
-          my $response = $SESSION->status_detail();
-
-          if ( $result > 0 ) {
-             # We got error...
-             $response =~ s/\s*\n\s*(Code:.*)//;
-             print "  Error : API returned : $response ($result)\n";
-          }
-       }
-       else {
-          print "  CANNOT EXECUTE - no connection is in place\n";
-       }
+    # actually try and run it
+    if ( $ONLINE ) {
+    
+        # call by indirection
+        @ret_objects = $SESSION->$method ( @data ) ;
+    
+       
+        &debug_cli (3,"obj out -----------");
+        print Dumper ( \@ret_objects ) if $DEBUG >= 3 ;
+    
+        # get errors
+        my $result = $SESSION->status_code();
+        my $response = $SESSION->status_detail();
+        
+        if ( $result > 0 ) {
+            # We got error...
+            $response =~ s/\s*\n\s*(Code:.*)//;
+            print "  Error : API returned : $response ($result)\n";
+        }
+    }
+    else {
+        print "  CANNOT EXECUTE - no connection is in place\n";
+    }
 
     return ( @ret_objects ) ;
 }
@@ -2312,7 +2361,7 @@ sub cli_add_host {
         if ( require_api ( "4.3r2-0" ) ) {
             # if we are running 4.3, we need to use EA attributes
             # add them to the hash
-            $exts{$name} = $value ;
+            $exts{$name} = $cvalue ;
             
         }
         else {
@@ -2415,6 +2464,7 @@ sub cli_add_a_rec {
     my ( $shared )     = $line =~/shared_record_group (\S+)/ ;
     my ( $disable ) = $line =~/add a_record \S+.* \b(disabled)\b/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    my ( $ttl )     = $line =~/ ttl (\d+)/ ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -2437,6 +2487,8 @@ sub cli_add_a_rec {
                   "shared_record_group" => "$shared",
         );
     }
+
+    if ( $ttl ) { $obj->ttl ( $ttl ) }
 
     if ( $disable ) { $obj->disable ( "TRUE" ) }
 
@@ -2833,6 +2885,7 @@ sub cli_add_cname {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    my ( $ttl )     = $line =~/ ttl (\d+)/ ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -2845,6 +2898,8 @@ sub cli_add_cname {
                     "name" => "$name",
                     "canonical" => "$cname",
     );
+
+    if ( $ttl ) { $obj->ttl ( $ttl ) }
 
     # views
     my ( $vname )     = $line =~/ view (\S+)/ ;
@@ -2994,6 +3049,7 @@ sub cli_add_ptr {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $ip , $host ) = $line =~/ ptr_record (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    my ( $ttl )     = $line =~/ ttl (\d+)/ ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -3013,6 +3069,8 @@ sub cli_add_ptr {
     }
 
     if ( $comment ) { $obj->comment ( $comment ) }
+
+    if ( $ttl ) { $obj->ttl ( $ttl ) }
 
     # addit
     &do_func("add",$obj);
@@ -4405,14 +4463,14 @@ sub cli_add_attribute {
     # get the args from the line
     my ( $attr ) = $line =~/ attribute (\S+)/ ;
     my ( $type ) = $line =~/ type (\S+)/ ;
-    my ( $required ) = $line =~/ required (\S+)/ ;
-    my ( $multi ) = $line =~/ multi (\S+)/ ;
+    my ( $required ) = $line =~/ required\b/ ;
+    my ( $multi ) = $line =~/ multiple\b/ ;
     my @values  = $line =~/ value (\S+)/g ;
 
     # remove '%20' crud from dev types with spaces in them
     $attr = &decode_comment ( $attr ) ;
 
-    &debug_cli (1,"addattr d($attr) t($type) v[@values]");
+    &debug_cli (1,"addattr d($attr) m($multi) r($required) t($type) v[@values]");
 
     # create the new device_type
     my ( $dobj ) = Infoblox::Grid::ExtensibleAttributeDef->new(
@@ -4420,10 +4478,10 @@ sub cli_add_attribute {
     );
 
     if ( $multi ) {
-        $dobj->multiple ( TRUE ) ;
+        $dobj->multiple ('true') ;
     }
     if ( $required ) {
-        $dobj->required ( TRUE ) ;
+        $dobj->required ('true') ;
     }
     if ( $type ) {
         $dobj->type ( $type ) ;
@@ -4431,9 +4489,22 @@ sub cli_add_attribute {
 
     # set any values
     if ( $type =~ /list/ ) {
-        $dobj->list_values( \@values ) ;
+
+        # there is a new API call to create list values.
+
+        my @vlist ;
+        foreach my $v ( @values ) {
+            my $lval = Infoblox::Grid::ExtensibleAttributeDef::ListValue->new(
+                        value  => $v,
+                    );
+            push @vlist , $lval ;
+        }
+
+        print Dumper ( \@vlist ) ;
+        $dobj->list_values( \@vlist ) ;
     }
     else {
+        # just add the first value
         $dobj->default_value( $values[0] ) ;
     }
 
@@ -7734,6 +7805,9 @@ sub decode_comment {
     # also undo quotes in inside the comment
     $string =~ s/''/"/g;
 
+    # lastly utf encode the string
+    $string = encode ( "utf8", $string );
+
     debug_cli(2,"dec comment ($string) ");
     return ( $string ) ;
 }
@@ -9259,7 +9333,7 @@ my %COMMANDS = (
     'configure grid add attribute' => { 
            words => "<name>" },
     'configure grid add attribute <name>' => { 
-           words => "<cr>|value=<value>|required|multple|type=<value>" ,
+           words => "<cr>|value=<value>|required|multiple|type=<value>" ,  # sbe fixed typo in multpl - still having issues with type list and value
            func => "cli_add_attribute", },
 # - grid -
     'configure grid <name>' => { 
@@ -9534,14 +9608,13 @@ my %COMMANDS = (
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
-           # CBUIJS: Added option=
            words => "<cr> template=<name>|view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|option=<name=value>", 
            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> shared_record_group=<name>|comment=<comment>|disabled|view=<name>", 
+           words => "<cr> shared_record_group=<name>|comment=<comment>|ttl=<num>|disabled|view=<name>",
            func => "cli_add_a_rec", },
 
     'configure zone <zone> add aaaa' => { 
@@ -9565,7 +9638,7 @@ my %COMMANDS = (
     'configure zone <zone> add cname <name>' => { 
            words => "<canonical>", },
     'configure zone <zone> add cname <name> <canonical>' => { 
-           words => "<cr> view=<name>|comment=<comment>", 
+           words => "<cr> view=<name>|comment=<comment>|ttl=<num>",
            func => "cli_add_cname", },
 
     'configure zone <zone> add txt' => { 
@@ -9599,7 +9672,7 @@ my %COMMANDS = (
     'configure zone <zone> add ptr_record <ip>' => { 
            words => "<name>", },
     'configure zone <zone> add ptr_record <ip> <name>' => { 
-           words => "<cr> view=<name>|comment=<comment>", 
+           words => "<cr> view=<name>|comment=<comment>|ttl=<num>",
            func => "cli_add_ptr", },
 
     'configure network' => { 
@@ -9876,6 +9949,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.42  2009/03/12 02:15:30  horne
+# Added UTF 8 support for EA and comments
+# TTL support for PTR, CNAME and A
+# corrected bugs in creating Ex Arrtibs
+#
 # Revision 3.41  2009/02/20 04:54:36  horne
 #
 # modified fixed addresses
