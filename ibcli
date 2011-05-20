@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.38 2008/10/16 09:15:44 horne Exp $ ;
-my $REV = q$Revision: 3.38 $;
-# $Date: 2008/10/16 09:15:44 $
+my $ID  = q$Id: ibcli,v 3.39 2008/12/11 22:16:49 horne Exp $ ;
+my $REV = q$Revision: 3.39 $;
+# $Date: 2008/12/11 22:16:49 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -39,7 +39,7 @@ my $REV = q$Revision: 3.38 $;
 #    SELLER REQUESTS THAT ALL PAGERS AND MOBILE PHONES BE TURNED OFF BEFORE
 #    ENTRY.
 #
-# 4: IF AN OUTDOOR PERFORMANCE IS CANCELLED DUE TO ADVERSE WEATHER OR ANy
+# 4: IF AN OUTDOOR PERFORMANCE IS CANCELLED DUE TO ADVERSE WEATHER OR ANY
 #    OTHER CAUSE REASONABLY BEYOND THE SELLERS CONTROL, THERE IS NO RIGHT 
 #    TO A REFUND OR EXCHANGE, AND THE SELLER IS NOT OBLIGED TO ARRANGE A 
 #    SUBSTITUTE SERVICE, EVENT OR PERFORMANCE
@@ -282,7 +282,7 @@ if ( -f $conf ) {
 if ( $EXEC ) {
 
     $PROMPT = "" ;
-    print "$EXEC\n";
+#     print "$EXEC\n";
     &process_line ( $EXEC ) ;
     exit ;
 }
@@ -298,7 +298,11 @@ if ( @ARGV ) {
 
 
         # skip comments, blanks
-        next if /^\s*#/;
+#         next if /^\s*#/;
+        if ( /^\s*#/ ) {
+            print ;
+            next ;
+        }
         next if /^$/;
     
 #         $PROMPT = "read line $.:" ;
@@ -351,7 +355,7 @@ print "
     }
     else {
         # no editline (winders) go old skool
-        print "Warning : Can't find Term::EditLine, feature disabled\n";
+        print "Warning : Can't find Term::EditLine, TAB completion is disabled\n";
         # unbuffer IO
         $| = 1 ;
         print "$PROMPT";
@@ -398,7 +402,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.38 $.
+$Revision: 3.39 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -651,14 +655,14 @@ sub process_line {
     # [ ] protect special chars
     $line =~ s/\*/\\\*/g;
 
-    # [ ] replace the line with any aliases
-    foreach my $amatch ( keys %ALIASES ) {
-        if ( $line =~ /^$amatch/ ) {
-            # replace the alias with the real string
-            my $arep = $ALIASES{$amatch} ;
-            $line =~ s/^$amatch/$arep/;
-        }
-    }
+#     # [ ] replace the line with any aliases
+#     foreach my $amatch ( keys %ALIASES ) {
+#         if ( $line =~ /^$amatch/ ) {
+#             # replace the alias with the real string
+#             my $arep = $ALIASES{$amatch} ;
+#             $line =~ s/^$amatch/$arep/;
+#         }
+#     }
 
 
     &debug_cli (1,"");
@@ -758,7 +762,7 @@ sub expand_line {
     my $error ;
     foreach my $thisarg ( split ( /\s+/ , $line ) ) {
 
-       &debug_cli (3,"linex -------");
+       &debug_cli (3,"linex ----START arg-----");
 
        my $origarg  = $thisarg ;
 
@@ -1247,6 +1251,7 @@ sub do_func {
 
           if ( $result > 0 ) {
              # We got error...
+             $response =~ s/\s*\n\s*(Code:.*)//;
              print "  Error : API returned : $response ($result)\n";
           }
        }
@@ -1481,6 +1486,7 @@ sub cli_add_zone {
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
     my (@forwarders) = $line =~/ forward_to (\S+)/g ;
     my (@delegates) = $line =~/ delegate_to (\S+)/g ;
+    my (@stubs) = $line =~/ stub_from (\S+)/g ;
     my (@sec)     = $line =~/ secondary (\S+)/g ;
     my (@stealth_sec)     = $line =~/ stealth_secondary (\S+)/g ;
     my (@mems)     = $line =~/ member (\S+)/g ;
@@ -1589,13 +1595,12 @@ sub cli_add_zone {
                              "ipv4addr" => $fwd_ip ,
                              );
 
-          &debug_cli (2,"addz z($zone) fwd($fwd_ip)");
+          &debug_cli (1,"addz z($zone) fwd($fwd_ip)");
        }
 
-       $obj->forward_to( \@fwd_svrs ) ;
-       # [x] and add the right members...
+        $obj->forward_to( \@fwd_svrs ) ;
 
-        # find secondaries
+        # [x] and add the right members...
         my @memlist ;
         foreach my $mem ( @mems ) {
             # normaal members
@@ -1603,7 +1608,7 @@ sub cli_add_zone {
 #                              "name" => $value ,
                              "ipv4addr" => $mem ,
                              );
-            &debug_cli (2,"addz z($zone) mem($mem)");
+            &debug_cli (1,"addz z($zone) mem($mem)");
         }
         $obj->members ( \@memlist ) ;
 
@@ -1617,7 +1622,7 @@ sub cli_add_zone {
           # get the name , ip pair
           my ( $nsname , $ip ) = split ( /,/ , $ns ) ;
 
-          &debug_cli (2,"addz z($zone) deleg($nsname)($ip)");
+          &debug_cli (1,"addz z($zone) deleg($nsname)($ip)");
 
           push @del_svrs , Infoblox::DNS::Nameserver->new(
                             'name' => $nsname, 
@@ -1626,6 +1631,36 @@ sub cli_add_zone {
        }
 
        $obj->delegate_to ( \@del_svrs ) ;
+    }
+    elsif ( @stubs ) {
+
+       my @stu_svrs ;
+       foreach my $ns ( @stubs ) {
+
+          # get the name , ip pair
+          my ( $nsname , $ip ) = split ( /,/ , $ns ) ;
+
+          &debug_cli (1,"addz z($zone) stub($nsname)($ip)");
+
+          push @stu_svrs , Infoblox::DNS::Nameserver->new(
+                            'name' => $nsname, 
+                            'ipv4addr' => $ip, 
+                             );
+       }
+
+       $obj->stub_from ( \@stu_svrs ) ;
+
+        # [x] and add the right members...
+        my @memlist ;
+        foreach my $mem ( @mems ) {
+            # normal members
+            push @memlist , Infoblox::DNS::Member->new(
+#                              "name" => $value ,
+                             "ipv4addr" => $mem ,
+                             );
+            &debug_cli (1,"addz z($zone) mem($mem)");
+        }
+        $obj->stub_members ( \@memlist ) ;
     }
 
     # using ns groups ?
@@ -2055,6 +2090,10 @@ mac address with ':<mac>' to the ipaddress
 
    conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03,1.2.3.5
 
+To add hosts with fixed addresses, and a fixed addr template
+
+   conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03 template mytemp
+
 Add hosts with aliases (CNAMES)
 
    conf zone foo.com add host test 1.2.3.4 alias www alias ftp
@@ -2089,7 +2128,8 @@ sub cli_add_host {
     my ( $mac )     = $line =~/mac (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     my ( $disable ) = $line =~/ host \S+.*\b(disabled)\b/ ;
-    my ( $ttl )     = $line =~/ttl (\d+)/ ;
+    my ( $ttl )     = $line =~/ ttl (\d+)/ ;
+    my ( $template )     = $line =~/ template (\d+)/ ;
 
     my @settings  = $line =~/ set (\S+)/g ;
     my @aliases  = $line =~/ alias (\S+)/g ;
@@ -2180,6 +2220,9 @@ sub cli_add_host {
 
             }
 
+            # fixed addr templates
+            if ( $template ) { $obj->template ( $template ) }
+
             # CBUIJS: Added to have DHCP options
             # options
             if ( @options ) {
@@ -2237,12 +2280,11 @@ sub cli_add_host {
     # [ ] make this a function for modify
 
     # now add IPAM info
+    # and add code for 4.3rx or higher and EA attributes
+    my %exts ;
     foreach my $info ( @ipam ) {
         # break this onto name = value pairs
         my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
-
-        # convert the names to lowercase...
-        $name = lc ( $name ) ;
 
         # decode a quoted string
         my $cvalue = &decode_comment ( $value ) ;
@@ -2253,8 +2295,24 @@ sub cli_add_host {
 
         &debug_cli(3,"addh info($name) =($cvalue) [$value]");
 
-        # and set these directly
-        $obj->$name ( $cvalue );
+        if ( require_api ( "4.3r2-0" ) ) {
+            # if we are running 4.3, we need to use EA attributes
+            # add them to the hash
+            $exts{$name} = $value ;
+            
+        }
+        else {
+            # convert the names to lowercase...
+            $name = lc ( $name ) ;
+
+            # and set these directly
+            $obj->$name ( $cvalue );
+        }
+    }
+
+    # add the EA hash if required
+    if ( require_api ( "4.3r2-0" ) and %exts ) {
+        $obj->extensible_attributes( \%exts ) ;
     }
 
     # addit ( the method is defined in $type );
@@ -2320,7 +2378,6 @@ sub cli_add_a_rec {
     # get the args from the line
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/ a_record (\S+) (\S+)/ ;
-    my ( $view )     = $line =~/ view (\S+)/ ;
     my ( $shared )     = $line =~/shared_record_group (\S+)/ ;
     my ( $disable ) = $line =~/add a_record \S+.* \b(disabled)\b/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
@@ -2354,15 +2411,10 @@ sub cli_add_a_rec {
         );
     }
 
-    # views
-    my ( $vname )     = $line =~/ view (\S+)/ ;
-    if ( $vname ) {
-        my $view = Infoblox::DNS::View->new ( name => $vname, );
-        $obj->views ( [ $view ] ) ;
-    }
-
     if ( $disable ) { $obj->disable ( "TRUE" ) }
 
+    # views
+    my ( $view ) = $line =~/ view (\S+)/ ;
     if ( $view ) {
         my $view = Infoblox::DNS::View->new ( name => $view, );
         $obj->views ( [ $view ] ) ;
@@ -2394,6 +2446,13 @@ sub cli_del_a_rec {
                   "name" => "$host.$zone",
                   "ipv4addr" => "$ip",
     );
+
+    # views
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
+        $obj->views ( [ $view ] ) ;
+    }
 
     &debug_cli(1,"del_a n($host) n($ip) ");
 
@@ -2485,6 +2544,13 @@ sub cli_del_aaaa {
                   "ipv6addr" => "$ip",
     );
 
+    # views
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
+        $obj->views ( [ $view ] ) ;
+    }
+
     &debug_cli(1,"del_4a n($host) n($ip) ");
 
     # addit
@@ -2572,6 +2638,13 @@ sub cli_del_mx {
                     "pref" => $pref ,
                     "exchanger" => $dest ,
     );
+
+    # views
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
+        $obj->views ( [ $view ] ) ;
+    }
 
     &debug_cli(1,"del_mx n($host) n($pref) ");
 
@@ -2789,6 +2862,13 @@ sub cli_del_cname {
                   "canonical" => "$cname",
     );
 
+    # views
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
+        $obj->views ( [ $view ] ) ;
+    }
+
     # addit
     &do_func("remove",$obj);
 
@@ -2867,6 +2947,13 @@ sub cli_del_txt {
                   "text" => "$txt",
     );
 
+    # views
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
+        $obj->views ( [ $view ] ) ;
+    }
+
     # addit
     &do_func("remove",$obj);
 
@@ -2934,6 +3021,13 @@ sub cli_del_ptr {
                   "ptrdname" => "$host",
     );
 
+    # views
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
+        $obj->views ( [ $view ] ) ;
+    }
+
     # addit
     &do_func("remove",$obj);
 
@@ -2974,6 +3068,18 @@ must match a method in the API)
 
    conf network add 1.1.1.0/24 set <method=value>
    conf network add 1.1.1.0/24 set enable_ddns=FALSE
+
+=head2 Modifying Networks
+
+You cannot renumber a network, only modify the contents of it.
+
+   conf network modify 1.1.1.0/24 set <method=value>
+
+   conf network modify 1.1.1.0/24 option 82="some data"
+
+if you change things like options arrays, ALL the existing values will be
+replaced by the new list. 'modify' does not append to existing lists, it
+does a complete replacement of it.
 
 =cut
 
@@ -3068,14 +3174,17 @@ sub cli_add_network {
 
     # members :
     if ( @members ) {
-       my @memsvrs ;
-       foreach my $memval ( @members ) {
-          # split on ',' get all the IPs
-          &debug_cli(2,"addnet mem($memval)");
-          push @memsvrs, Infoblox::DHCP::Member->new("ipv4addr"=>$memval);
-       }
-       # and add them to the object
-       $net->members ( \@memsvrs ) ;
+        my @memsvrs ;
+        foreach my $memval ( @members ) {
+            # special hack for NO members
+            next if ($memval =~ /0.0.0.0/);
+
+            # split on ',' get all the IPs
+            &debug_cli(2,"addnet mem($memval)");
+            push @memsvrs, Infoblox::DHCP::Member->new("ipv4addr"=>$memval);
+        }
+        # and add them to the object
+        $net->members ( \@memsvrs ) ;
     }
     elsif ( $MASTER_IP ) {
        # just add the grid master
@@ -3128,7 +3237,7 @@ sub cli_add_network {
     }
 
     # add the network 
-    &do_func("add",$net);
+    &do_func($type,$net);
 
 }
 
@@ -3547,6 +3656,10 @@ sub cli_add_failover {
 
    conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 
 
+Add a fixed address with a Fixed Address Template
+
+   conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 template mytemp
+
 Add a fixed address with comments
 
    conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 comment "comment string"
@@ -3559,6 +3672,7 @@ sub cli_add_fixed_address {
     my ( $network ) = $line =~/configure network ($REcidr)/ ;
     my ( $ip , $mac ) = $line =~/ add fixed (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+    my ( $template ) = $line =~/ template "?([^"]+)"?/ ;
     my @settings  = $line =~/ set (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
     my @ipam  = $line =~/ info (\S+)/g ;
@@ -3585,6 +3699,7 @@ sub cli_add_fixed_address {
     }
 
     if ( $comment ) { $obj->comment ( $comment ) }
+    if ( $template ) { $obj->template ( $template ) }
 
     # options
     if ( @options ) {
@@ -3713,6 +3828,18 @@ You can also add exclusions
 You can also add filters to a range (multiples are allowed)
 
    conf net 10.1.1.1/24 add range 10... macfilter <name>=<permission>
+
+=head2 Modifying Ranges
+
+You cannot renumber a range, only modify the contents of it.
+
+   conf network 1.1.1.0/24 modify range 10.. set <method=value>
+
+   conf network 1.1.1.0/24 modify range 10.. option 82="some data"
+
+if you change things like options arrays, ALL the existing values will be
+replaced by the new list. 'modify' does not append to existing lists, it
+does a complete replacement of it.
 
 =cut
 
@@ -3867,7 +3994,7 @@ sub cli_add_dhcp_range {
     }
 
     # add the range
-    &do_func("add",$obj);
+    &do_func($type,$obj);
 
 }
 
@@ -4032,7 +4159,71 @@ Add a device type with multiple custom labels
 
    ... device_type <name> label <orig2>=<new-name2> label <orig2>=<new-name2>
 
+For 4.3 or later you have to add and define Extensible attributes
+
+   configure grid add attribute <name>
+
+Set Values and type
+
+   configure grid add attribute <name> value <value> [ value <value ]
+
+   configure grid add attribute <name> type <type> 
+
+create a list of elements
+
+   configure grid add attribute <name> type list value one value two
+
+Set the attribute to be a multiple or a required item
+
+   configure grid add attribute <name> required
+
+   configure grid add attribute <name> multiple
+
 =cut
+
+sub cli_add_attribute {
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $attr ) = $line =~/ attribute (\S+)/ ;
+    my ( $type ) = $line =~/ type (\S+)/ ;
+    my ( $required ) = $line =~/ required (\S+)/ ;
+    my ( $multi ) = $line =~/ multi (\S+)/ ;
+    my @values  = $line =~/ value (\S+)/g ;
+
+    # remove '%20' crud from dev types with spaces in them
+    $attr = &decode_comment ( $attr ) ;
+
+    &debug_cli (1,"addattr d($attr) t($type) v[@values]");
+
+    # create the new device_type
+    my ( $dobj ) = Infoblox::Grid::ExtensibleAttributeDef->new(
+        name => $attr,
+    );
+
+    if ( $multi ) {
+        $dobj->multiple ( TRUE ) ;
+    }
+    if ( $required ) {
+        $dobj->required ( TRUE ) ;
+    }
+    if ( $type ) {
+        $dobj->type ( $type ) ;
+    }
+
+    # set any values
+    if ( $type =~ /list/ ) {
+        $dobj->list_values( \@values ) ;
+    }
+    else {
+        $dobj->default_value( $values[0] ) ;
+    }
+
+    # add it !
+    &do_func("add",$dobj);
+
+}
 
 sub cli_add_device_types {
     my ( $line ) = @_ ;
@@ -4836,6 +5027,17 @@ Add a member as an HA pair
       hapair 192.168.1.101,192.168.1.102,192.168.1.103,192.168.1.104 \
       routerid 100
 
+Members can have a LOT of options...
+
+To add a mgmt port :
+
+     mgmt_ip 5.195.156.52/25 mgmt_gate 5.195.156.1
+
+To add mgmt ports to HA pairs ( 'hapair' must be defined ) :
+
+    mgmt_ip 5.195.156.52/25 mgmt_gate 5.195.156.1 mgmt_ip_2 5.195.156.53/25
+
+
 =cut
 
 sub cli_add_member {
@@ -4850,6 +5052,10 @@ sub cli_add_member {
     my ($haaddr)    = $line =~/ hapair (\S+)/ ;
     my ($harid)    = $line =~/ routerid (\S+)/ ;
 
+    my ($mgmtip)    = $line =~/ mgmt_ip (\S+)/ ;
+    my ($mgmtip2)    = $line =~/ mgmt_ip_2 (\S+)/ ;
+    my ($mgate)    = $line =~/ mgmt_gateway (\S+)/ ;
+
     # get and de-urlencode the comment string
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
@@ -4858,7 +5064,13 @@ sub cli_add_member {
     my ( $ip , $cidr ) = split ( /\// , $vip ) ;
     my $mask = &cidr_to_mask( $cidr ) ;
 
+    my ( $mip , $mcidr ) = split ( /\// , $mgmtip ) ;
+    my $mmask = &cidr_to_mask( $mcidr ) ;
+    my ( $mip2 , $mcidr2 ) = split ( /\// , $mgmtip2 ) ;
+    my $mmask2 = &cidr_to_mask( $mcidr ) ;
+
     &debug_cli (2,"addme ip($ip) m($mask) gw($gateway) ha($haaddr)");
+    &debug_cli (2,"addme mip($mip) mm($mmask) mgw($mgate) m2($mgmtip2)");
 
     # create the object
     my $memobj = Infoblox::Grid::Member->new(
@@ -4885,6 +5097,32 @@ sub cli_add_member {
             $memobj->node2_lan ($l2) ;
             $memobj->node2_ha ($h2) ;
             $memobj->router_ID ( $harid ) ;
+        }
+
+        if ( $mip and $mcidr and $mgate ) {
+            if ( $haaddr ) { 
+                # set ALL the mgmt port info
+                $memobj->mgmt_lan ($mip) ;
+                $memobj->mgmt_gateway ($mgate) ;
+                $memobj->mgmt_mask ($mmask) ;
+                $memobj->mgmt_port ('true') ;
+
+                $memobj->node1_mgmt_lan ($mip) ;
+                $memobj->node1_mgmt_gateway ($mgate) ;
+                $memobj->node1_mgmt_mask ($mmask) ;
+                $memobj->node1_mgmt_port ('true') ;
+
+                $memobj->node2_mgmt_lan ($mip2) ;
+                $memobj->node2_mgmt_gateway ($mgate) ;
+                $memobj->node2_mgmt_mask ($mmask) ;
+                $memobj->node2_mgmt_port ('true') ;
+            }
+            else {
+                $memobj->mgmt_lan ($mip) ;
+                $memobj->mgmt_gateway ($mgate) ;
+                $memobj->mgmt_mask ($mmask) ;
+                $memobj->mgmt_port ('true') ;
+            }
         }
 
         # push the changes, if we were ok
@@ -5048,14 +5286,39 @@ sub cli_add_grid_dns_acl {
 
 =head2 add global DHCP option definitions
 
+Create a Vendor space
+
+  conf network add space <name>
+
+  conf network add space SUNW
+
 Create a DHCP network option
 
   conf network add optiondef <name> code <num> type <type>
 
   conf network add optiondef voip 150 type string
 
+If you want to add them to vendor spaces..
+
+  conf network add optiondef server 150 type string space SUNW
+  conf network add optiondef boot 270 type string space Cisco-ap
+
 =cut
 
+sub cli_add_option_space {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    my ( $name ) = $line =~/add space (\S+)/ ;
+    
+    my $def = Infoblox::DHCP::OptionSpace->new(
+                    name  => $name,
+                    );
+
+    # Submit for adding
+    &do_func("add",$def);
+
+}
 sub cli_add_option_def {
 
     # [ ] can't add 'array of IP address'
@@ -5075,13 +5338,17 @@ sub cli_add_option_def {
     my ( $name ) = $line =~/add optiondef (\S+)/ ;
     my ( $num ) = $line =~/ code (\S+)/ ;
     my ( $type ) = $line =~/ type (\S+)/ ;
+    my ( $space ) = $line =~/ space (\S+)/ ;
 
+    
     my $def = Infoblox::DHCP::OptionDefinition->new(
     #               space => "SUNW",
                     name  => $name,
                     code  => $num,
                     type  => $type,
                     );
+
+    if ( $space ) { $def->space( $space ) };
     # Submit for adding
     &do_func("add",$def);
 
@@ -5483,7 +5750,16 @@ sub cli_show_record {
         }
     
         my @records = &do_func("search", %opthash );
-        &dump_object ( @records ) ;
+
+        # and do the search again for shared records
+        $otype=~s/::Record/::SharedRecord/;
+        $opthash{'object'} = $otype;
+
+        my @srecords = &do_func("search", %opthash );
+
+        # report everything
+        &dump_object ( @records , @srecords ) ;
+
     }
 }
 
@@ -6331,7 +6607,7 @@ sub cli_add_master {
     # get the args from the line
     ( my $master)  = $line =~/configure master (\S+)/ ;
 
-    print "Using Grid Master [$master]\n";
+#     print "Using Grid Master [$master]\n";
 
     # set the global
     $MASTER_IP = $master ;
@@ -7028,8 +7304,8 @@ sub require_api {
     # my $host = Infoblox::DNS::Host->new ("name" => "name",);
     # my $CLIENT_REV = $host->{__version} ;
 
-    my ( $req )  = @_ ;
-    my $oreq = $req ;
+    my ( $needed )  = @_ ;
+    my $oreq = $needed ;
     
     my $rev = $CLIENT_REV ;
     if ( $SESSION ) {
@@ -7041,17 +7317,17 @@ sub require_api {
     $rev =~ s/(r\d+-\d+).*/$1/;
     $rev =~ s/\D/\./g;
 
-    $req =~ s/(r\d+-\d+).*/$1/;
-    $req =~ s/\D/\./g;
+    $needed =~ s/(r\d+-\d+).*/$1/;
+    $needed =~ s/\D/\./g;
 
     # then just compare it
-    if ( abs_ip ( $req ) >= abs_ip ( $rev ) ) {
-        debug_cli(1,"version too low : req($req) srev($rev)");
-#         print "Server version ($oreq) is required for this feature\n";
+#     if ( abs_ip ( $needed ) >= abs_ip ( $rev ) ) {
+    if ( abs_ip ( $rev ) < abs_ip ( $needed ) ) {
+        debug_cli(1,"version too low : need($needed) server($rev)");
         return ( 0 ) ;
     }
     else {
-        debug_cli(1,"version OK : req($req) srev($rev)");
+        debug_cli(1,"version OK : server($needed) server($rev)");
         return ( 1 ) ;
     }
     
@@ -7177,6 +7453,18 @@ sub dump_data {
 #             $data = join " " , @values ;
               
         }
+        # extensible attributes
+        elsif ( $key eq "extensible_attributes" ) {
+            my @values;
+            foreach my $field ( keys %{ $obj->{$key} } ) {
+                my $val = $obj->{$key}{$field};
+                push @values , "$field=$val";
+            }
+
+            # remember it
+            $data = "@values";
+        }
+
         # host ipaddress can have nested fixed addresses, arrg
         elsif ( $key eq "ipv4addrs" ) {
             my @values;
@@ -7289,6 +7577,8 @@ sub dump_data {
         elsif ( $key eq "secondaries"
              or $key eq "members"
              or $key eq "delegate_to"
+             or $key eq "stub_from"
+             or $key eq "stub_members"
             ) {
             my @values ;
             # find all the sub objects
@@ -7303,7 +7593,13 @@ sub dump_data {
                     $type = "external secondary"
                 }
                 if ( $key eq "delegate_to" ) {
-                    $type = "Delegate to"
+                    $type = "delegate to"
+                }
+                if ( $key eq "stub_from" ) {
+                    $type = "stub from"
+                }
+                if ( $key eq "stub_members" ) {
+                    $type = "stub members"
                 }
 
                 my $name = $sobj->{'name'};
@@ -8530,15 +8826,19 @@ my %COMMANDS = (
 # add device types :
 # configure grid add device_type <name> label <orig>=<new-name>
     'configure grid add' => { 
-           words => "device_type" },
+           words => " attribute device_type" },
+
     'configure grid add device_type' => { 
            words => "<name>" },
     'configure grid add device_type <name>' => { 
            words => "<cr>|label=<name=value>" ,
            func => "cli_add_device_types", },
-#     'configure grid device_type add label <name=value>' => { 
-#            func => "cli_add_device_types", },
 
+    'configure grid add attribute' => { 
+           words => "<name>" },
+    'configure grid add attribute <name>' => { 
+           words => "<cr>|value=<value>|required|multple|type=<value>" ,
+           func => "cli_add_attribute", },
 # - grid -
     'configure grid <name>' => { 
            words => "dns dhcp disable enable add delete modify", },
@@ -8563,11 +8863,11 @@ my %COMMANDS = (
            words => "member=<name> ntp_server=<ip>|lcd_input|remote_console_access|support_access",
            func => "cli_mod_grid", },
 
+#     'configure grid <name> add member <name>' => {
+#            words => "ipaddress=<n.n.n.n/mm>", },
+#     'configure grid <name> add member <name> ipaddress <n.n.n.n/mm>' => {
     'configure grid <name> add member <name>' => {
-           words => "ipaddress=<n.n.n.n/mm>", },
-
-    'configure grid <name> add member <name> ipaddress <n.n.n.n/mm>' => {
-           words => "<cr> comment=<comment>|hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
+           words => "<cr> ipaddress=<n.n.n.n/mm>|mgmt_ip_2=<n.n.n.n/mm>|mgmt_ip=<n.n.n.n/mm>|mgmt_gateway=<ip>|comment=<comment>|hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
            func => "cli_add_member", },
 
     'configure grid <name> delete member <name>' => {
@@ -8615,7 +8915,7 @@ my %COMMANDS = (
            func => "cli_add_grid_dns_acl", },
 
     'configure grid <name> dhcp add' => { 
-           words => "option=<name=value>|typeoption=<name=value>",
+           words => "option=<name=value>|space=<name>|typeoption=<name=value>",
            func => "cli_add_option_def", },
 
 # - grid member -
@@ -8671,12 +8971,12 @@ my %COMMANDS = (
 
     'configure zone modify <zone>' => { 
            words => "<cr>
-           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone add <zone>' => { 
            words => "<cr>
-           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -8756,11 +9056,13 @@ my %COMMANDS = (
     'configure zone <zone> delete a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> delete a_record <name> <ip>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_a_rec", },
 
     'configure zone <zone> delete aaaa' => { 
            words => "<name>=<ipv6>", },
     'configure zone <zone> delete aaaa <name> <ipv6>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_aaaa", },
 
     'configure zone <zone> delete bulkhost' => { 
@@ -8770,6 +9072,7 @@ my %COMMANDS = (
     'configure zone <zone> delete bulkhost <name> <ip>' => { 
            words => "<ip>", },
     'configure zone <zone> delete bulkhost <name> <ip> <ip>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_bulk", },
 
     'configure zone <zone> delete cname' => { 
@@ -8777,6 +9080,7 @@ my %COMMANDS = (
     'configure zone <zone> delete cname <name>' => { 
            words => "<canonical>", },
     'configure zone <zone> delete cname <name> <canonical>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_cname", },
 
     'configure zone <zone> delete txt' => { 
@@ -8789,6 +9093,7 @@ my %COMMANDS = (
     'configure zone <zone> delete mx <name>' => { 
            words => "<priority>=<name>", },
     'configure zone <zone> delete mx <name> <priority> <name>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_mx", },
 
     'configure zone <zone> delete ptr_record' => { 
@@ -8796,17 +9101,18 @@ my %COMMANDS = (
     'configure zone <zone> delete ptr_record <ip>' => { 
            words => "<name>", },
     'configure zone <zone> delete ptr_record <ip> <name>' => { 
+           words => "<cr>|view=<name>",
            func => "cli_del_ptr", },
 
     'configure zone <zone> modify host <name>' => { 
-           words => "<cr> <ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
+           words => "<cr> template=<name>|<ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
 
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
            # CBUIJS: Added option=
-           words => "<cr> view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|option=<name=value>", 
+           words => "<cr> template=<name>|view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|option=<name=value>", 
            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
@@ -8885,11 +9191,14 @@ my %COMMANDS = (
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "<n.n.n.n/mm> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
+           words => "<n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
     'configure network modify' => { 
            words => "<n.n.n.n/mm>", },
 
 # - optiondef -
+    'configure network add space <name>' => { 
+           func => "cli_add_option_space", },
+
     'configure network add optiondef <name>' => { 
            words => "code=<num>", },
     'configure network add optiondef <name> code <num>' => { 
@@ -8900,6 +9209,7 @@ my %COMMANDS = (
 # integer, or 32-bit signed integer.
 
     'configure network add optiondef <name> code <num> type <value>' => { 
+           words => "<cr>|space=<name>", 
            func => "cli_add_option_def", },
 
 #            words => "<cr> code=<num>|type=<value>", 
@@ -8988,14 +9298,14 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
-           words => "<cr> comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     #  - fixed without parent
     'configure network add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network add fixed <ip> <mac>' => { 
-           words => "<cr> comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     'configure network delete fixed <ip>' => { 
@@ -9126,6 +9436,16 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.39  2008/12/11 22:16:49  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: Stub zone support
+# fixed address with templates
+# extensible attributes
+# views for RR sets
+# mgmt ports for members
+# adding options spaces and options for those spaces
+#
 # Revision 3.38  2008/10/16 09:15:44  horne
 # BugId: 8205
 # Reviewer(s): Geoff
