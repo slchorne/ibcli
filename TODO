@@ -1,0 +1,344 @@
+missing features :
+
+[x] cli v1.2
+
+    [x] read config files
+        [x] don't sput prompts
+        [x] die on errors ?
+        [x] -f config 
+
+    [x] connect on commandline :
+        [x] -s <system>
+        [x] -p password
+        [x] -d <debug>
+        [x] -V (get version)
+
+    [x] show version
+
+    [x] verify all scripting commands are accessable
+
+    [x] show a '*' for pending comitts
+
+    [x] set a value = 'configure xxx'
+        [x] set zone add foo.com
+        [x] set zone add foo.com auth
+        [x] set zone delete foo.com
+        [-] set zone foo.com add nameserver 1.2.3.4
+        [x] set zone foo.com add host 1.2.3.4
+        [x] set zone foo.com add bulkhost 1.2.3.4
+        [x] set zone foo.com add cname 1.2.3.4
+        [x] set zone foo.com delete host 1.2.3.4
+        [x] set zone foo.com delete bulkhost 1.2.3.4
+        [x] set zone foo.com delete cname 1.2.3.4
+
+        [x] set network add 1.2.3.4/16
+        [x] set network delete 1.2.3.4/16
+        ---
+        [x] set network 1.2.3.4 add network 1.2.3.4/nn
+        [x] set network 1.2.3.4 add address 1.2.3.4 test.foo.com
+        [x] set network 1.2.3.4 del address 1.2.3.4
+        [x] set network 1.2.3.4 split /24
+        [x] set network 1.2.3.4 split /24 all
+        [x] set network 1.2.3.4 split /24 required
+
+    [x] get a value = 'show xxx'
+
+    [x] to get values, don't interrogate the database, just do a AXFR
+        using dig. this will let you know what is current and what needs
+        to be comitted. 
+        [x] A GET will only get anything comitted.
+            get zone
+            get zone MX
+            get zone NS
+            get zone detailed
+
+        [x] get host
+            dig +opts @server <host> A
+
+        [-] get blah [verbose]
+            dig +multiline +nostat +nocmd \
+                @<server> <zone> <type>
+        [x] terse mode
+            dig +noquestion +noauthority +noadditional +nocomments \
+                +multiline +nostat +nocmd \
+                @<server> <zone> <type>
+
+        [x] DON'T do recursive digs (+norecurse)
+
+        [x] need to prettyprint an AXFR
+            [x] get zone all
+            [x] get zone soa
+            [x] get zone mx
+            [x] get network 1.2.3.4/cidr 
+        [-] get dig to to an 'LS' of the zone files
+            [-] Can't dp it.
+            
+    [x] set system default
+        (ib_erase_dns_data)
+
+[x] cli v1.8
+
+    [x] un hardcode 'dig' (use 'dig' not '/usr/bin/dig')
+
+    [x] conf server <ip> <password>
+        [x] if not specified, blank is ok
+            [x] need to undef the password...
+        [x] still use 'conf server pass <passwd> to
+            explicitly set the password
+        When connected to a DNS One, and then you disconnect, and then connect
+        to a non-DNS One, the ibcli craps out as it can't connect. When
+        you disc from one DNS One, and connect to another with a
+        different scripting password, you also have issues.
+
+    [x] more commands
+
+        [x] download logs
+            ib_export_logs
+
+        [x] conf zone <zone> import <ipaddress> noptr
+            ib_import_zone( zone , IP , true | false )
+            if set to true noptr applies (default is false)
+
+        [x] set zone add foo.com delegated svr IP svr IP ...
+        [x] set zone add foo.com auth dns_server blah.com dns_server foo.com 
+            add a server with additional NS records
+
+        [x] conf dhcp 1.2.3.4/16 add range <startip> <endip>
+            [x] conf network 1.2.3.4/16 add dhcprange <startip> <endip>
+        [x] conf dhcp 1.2.3.4/16 del range <startip> <endip>
+
+        [x] conf dhcp 1.2.3.4/16 add address <ip> <MAC> <options>
+        [x] conf dhcp 1.2.3.4/16 del fixed <ip>
+
+        [x] conf dhcp 1.2.3.4/16 modify options <options>
+
+        [x] conf network global <option> <value>
+            ib_modify_global_dhcp_options(
+              "dhcp_class",  "remote_class3", "true", "ccc", "true", "ddd"
+            );
+
+            if you don't want to define remote id, then is should be:
+            ib_modify_global_dhcp_options(
+              "dhcp_class",  "remote_class3", "true", "ccc", "false"
+            );
+
+    [-] push all the GOOD commands into a stack
+        [-] create a -q (queue) option that just adds to the stack
+            USE this for the shell based CLI version
+            [-] stack to a $HOME/.ibcli_stack
+                [-] prepend the IP address of the server for sanity
+                [-] if there is stack, show a '*'
+            [-] changing servers will dump the stack
+        [-] 'commit' processes the stack (and dumps it)
+
+[ ] cli v2.x
+
+    [x] perldoc this crap
+
+    [x] Data::Dumper
+
+    [ ] output clean error messages
+        [ ] drop errors on fail , slient on success
+
+    [ ] comments
+        [ ] perldoc
+
+    [ ] specify members
+        [ ] member 1.2.3.4,1.2.3.5,1.2.3.6
+        [ ] conf zone add foo primary <member> members <members>
+        [ ] conf zone add foo external primary <blah>
+        [ ] conf zone add foo external scondary <blah>
+            [ ] or any combo of the above
+
+    [ ] conf dns restart delay x
+    [ ] conf dhcp restart delay x
+        [ ] !! check this against the ARB doc
+
+    [ ] adding extra arguments, pass the function lists or name value pairs
+        option value
+        option value,value,value
+        [ ] multi vars need an explicit option type
+        option name=value,name=value,name=value,name=value
+
+    [ ] more commands
+
+        [ ] conf net 1.1.0.0/16 add net 1.1.1.0/20
+
+        [ ] set zone import <zone> <remoteserver> <forwardonly>
+        [ ] download database
+            ib_export_database(<dir>);
+        [ ] upload database
+            ib_upload_database(<dir>);
+        [ ] download logs
+            ib_export_logs(<dir>);
+        [ ] set system clone <remoteserver> <password>
+
+        [ ] set zone add <zone> forward <forwarder ip> <forwarder IP> ..
+
+        [ ] set zone add <zone> secondary <data...>
+            [ ] check for secondary options
+
+        [ ] conf zone <zone> add mx mail.foo.com <pref> 
+        [ ] conf zone <zone> add mx mail.foo.com <pref> wildcard
+            ( adds MX for ANY host in the zone)
+            ib_insert_zone_mail_exchanger
+            ib_remove_zone_mail_exchanger
+
+        [ ] conf zone <zone> add host <name> <1.2.3.4> mx <2.2.2.2>
+        [ ] conf zone <zone> del host <name> mx <2.2.2.2>
+            ib_insert_host_mail_exchanger
+            ib_remove_host_mail_exchanger
+
+        [ ] conf zone <zone> add srv ???
+            ib_insert_srv
+            ib_remove_srv
+
+    [ ] conf system version <N>
+        show system version
+
+        [ ] show stack 
+            displays the pending commits
+
+        [ ] conf stack del <num> 
+            delete a stack item
+
+    [ ] fix dig stuff
+        [ ] reverse map the IP address to do a dig correctly.
+        [ ] -x lookups don't return a record just an auth ?
+               you need an EXACT MATCH - grr
+                    
+    [ ] use readline to get line editor and uparrow (and history)
+        [ ] completion control
+        [ ] use 'editline'
+        [ ] http://search.cpan.org/~phinyx/Term-EditLine-0.05/EditLine.pod
+
+[ ] cli v2.2
+
+    [ ] more commands
+
+        [ ] set system import <directory>
+
+[ ] RADIUS commands
+    [ ] conf radius <global stuff>
+
+    [x] conf server dns <ip> <password>    [ DEFAULT ]
+        conf server radius <ip> <username> <password>
+
+        [x] check type to see if it is an IP,name or type ?
+        [x] put config data into a 3.0 version hash
+
+    [x] conf realm add <realm> <Arg> <arg> <arg>
+        [x] stick args in a hash as AVPs
+        [x] conf realm add <realm> realm_type [ standard | ttls ]
+        [x] conf realm add <realm> <arg> <value> ...
+
+    [x] conf realm <realm> add attribute <type> <name> <value>
+
+    [x] conf realm <realm> add user <uid> password  <passwd>
+    [x] conf realm <realm> modify user <id> add attribute <type> <name> <value>
+    [x] conf realm <realm> modify user <id> del attribute <type> <name> <value>
+
+    [x] conf realm delete <realm>
+    [x] conf realm <realm> delete user <user>
+    [x] conf realm <realm> delete attrib <type> <name> <value>
+
+    [ ] output error messages
+        [ ] clean broken error messages
+            ( PROPERTY NAME="message" VALUE="..." )
+
+[ ] Serial interface/ssh commands
+
+  REQUIRED
+
+    [ ] enable dns|dhcp|ldap|radius
+    [ ] disable ...
+
+    [ ] debug [process] on          # turn on debugging of the process
+        debug [process] 2           # set the debug level of the process
+        debug [process] coredump    # get process to drop core
+        debug shell                 # drop into a root shell !
+
+    [x] help
+        syntax should always be 'help <command>'
+        not '<command> help'
+
+    [x] show network
+    [x] show security
+    [x] show password_hint
+
+    [x] reboot
+    [x] shutdown
+
+    [ ] set system default
+        reset to factory defaults
+
+    [x] ping (-n)
+
+    [x] traceroute (-n)
+
+    [ ] show version
+
+    [ ] show services
+        show current status of the box servers (BIND,DHCPD,RADIUSd)
+
+    [ ] show ha
+        shows HA status for this box
+
+    [ ] show cpu
+        This should not be "top"
+        calls : system("vmsat");
+    [ ] show cpu <interval> <count>
+        calls : system("vmsat x y");
+        
+    [ ] show interface eth0
+        calls : system("ifconfig eth0");
+    [ ] show interface all
+        calls : system("ifconfig -a");
+
+    [ ] configure interface eth0 speed auto duplex none
+        Set port and speed
+
+    [ ] dig
+        [ ] dig host <type>
+        [ ] dig -x number
+        [ ] dig @host host <type>
+        [ ] dig @host -x host
+
+    [x] show temperature
+
+  OPTIONAL
+
+    [ ] show log
+        calls : system("less /var/log/messages");
+
+    [x] show log tail
+        calls : system("tail /var/log/messages");
+
+    [x] show log tail 30
+        calls : system("tail -30 /var/log/messages");
+
+    [ ] show log /regex/
+        calls : system("less /var/log/messages | grep 'regex' ");
+        # actually use perl RE somehow so the the /xxx/ implies a regex
+          perl -n -e 'print if /regex/' /var/log/messages
+
+    [ ] show connections
+        calls : system("netstat --inet");
+    [ ] show connections numerical
+        calls : system("netstat -n --inet");
+
+    [ ] show disk
+        pump 'df' through a grep to clean stuff
+
+    [ ] show diagnostics
+        gets version info
+        gets interface info
+        gets vmstat info
+        gets whatever else we need
+
+    [ ] show counters
+        show counters <param>
+        conf counters reset
+
+    [ ] Show arp
+
