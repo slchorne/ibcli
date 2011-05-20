@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.24 2007/06/01 18:28:42 horne Exp $ ;
-my $REV = q$Revision: 3.24 $;
-# $Date: 2007/06/01 18:28:42 $
+my $ID  = q$Id: ibcli,v 3.25 2007/06/01 20:51:49 horne Exp $ ;
+my $REV = q$Revision: 3.25 $;
+# $Date: 2007/06/01 20:51:49 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -346,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.24 $.
+$Revision: 3.25 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2750,7 +2750,7 @@ sub cli_add_fixed_address {
           &debug_cli(2,"addnet s($set) v($val)");
    
           # and set this on the object
-          $net->$set ( $val ) ;
+          $obj->$set ( $val ) ;
        }
 
     }
@@ -5218,6 +5218,7 @@ sub dump_data {
                 my $val = $sobj->{'value'};
 
                 # perhaps it is something else ?
+                if (! $name) {$name = $sobj->{'name'} };
                 if (! $val) {$val = $sobj->{'seconds'} };
                 if (! $val) {$val = $sobj->{'name'} };
                 if (! $val) {$val = $sobj->{'ipv4addr'} };
@@ -5275,6 +5276,9 @@ sub make_dhcp_option {
 
     my $option ;
 
+    # get the server version
+    my $niosrev = $SESSION->server_version();
+
     if ( $oname eq "routers" ) {
        $option = Infoblox::DHCP::Option->new (
                     "type" => "routers",
@@ -5288,10 +5292,17 @@ sub make_dhcp_option {
                  )
     }
     elsif ( $oname eq "domain-name" ) {
+        # conditional case for 4.1r2 options
        $option = Infoblox::DHCP::Option->new (
                     "type" => "domain-name",
                     "name" => $val,
-                 )
+                 );
+        if ( $niosrev =~ /4.1r[3-9]/ ) {
+            $option = Infoblox::DHCP::Option->new (
+                    "name" => "domain-name",
+                    "value" => $val,
+                 );
+        }
     }
     elsif ( $oname eq "broadcast-address" ) {
        $option = Infoblox::DHCP::Option->new (
@@ -6612,6 +6623,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.25  2007/06/01 20:51:49  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: added a patch for the new DHCP option format
+#
 # Revision 3.24  2007/06/01 18:28:42  horne
 # BugId: 8205
 # Reviewer(s): Geoff
