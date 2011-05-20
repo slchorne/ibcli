@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 #
 my $ID  = q$Id$ ;
-my $SRTAG = q$Revision: 105$ ;
+my $SRTAG = q$Revision$ ;
 my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
 my $REV = "Revision 3.$SVNREV";
 # $Date$
