@@ -47,53 +47,16 @@
 ###############################################################################
 
 
-# $Id: ibcli,v 1.1 2003/08/11 23:31:57 horne Exp $
-# $Revision: 1.1 $
-# $Date: 2003/08/11 23:31:57 $
-#
-# $Log: ibcli,v $
-# Revision 1.1  2003/08/11 23:31:57  horne
-# *** empty log message ***
-#
-# Revision 1.9  2001/06/07 16:45:47  horne
-# major rewrite of the arg parser - ripped out all the RE's to a much better
-# process.
-# delete commands disabled
-#
-# Revision 1.8  2001/05/31 05:28:15  horne
-# *** empty log message ***
-#
-# Revision 1.7  2001/05/24 00:17:54  horne
-# Added RE's to handle shortened commant words, not however that this is
-# still buggy, typos, as long as they are unique will still work. thus
-#  - password, p , pa , ps , pdfgt = password
-# I need to find a better command parser
-#
-# Revision 1.6  2001/05/23 19:39:11  horne
-# working version - waiting for updates from infoblox to see if they have
-# changed the API syntax
-#
-# Revision 1.5  2001/05/19 06:08:13  horne
-# iblox ready version, but no connections to servers work
-#
-# Revision 1.4  2001/05/19 04:59:19  horne
-# All base commands are being parsed and netmasks are being applied.
-# Now we need to hit the infoblox engine for real
-#
-# Revision 1.3  2001/05/19 03:43:45  horne
-# added the DEBUG option before i started to drown in a lot of messy print
-# statements
-#
-# Revision 1.2  2001/05/19 03:34:34  horne
-# Basic version, config file parsing is functional.
-#
-# Revision 1.1  2001/05/19 03:33:56  horne
-# *** empty log message ***
+# $Id: ibcli,v 1.2 2003/09/09 22:58:27 horne Exp $
+# $Revision: 1.2 $
+# $Date: 2003/09/09 22:58:27 $
 #
 
 # Perl CGI common chunks
 #
 use strict ;
+no strict "refs" ;
+
 
 # include infoblox
 use InfoBloxDNS ;
@@ -110,10 +73,14 @@ my ($BASE,$NAME)=($Bin,$Script) ;
 # define some globals
 #
 my $DEBUG = 0 ;
+my $CLI = 0 ;
+my $PROMPT = "not connected > " ;
+my $CONN_STRING = "!" ;
 my $server_id ;
 my $server_pass ;
-my $connected ;
-my $no_command ;
+my $CONNECTED ;
+my $GOOD_COMMAND ;
+my $NO_COMMAND ;
 my @history ;
 
 #
@@ -126,71 +93,110 @@ my @history ;
 ## NOTE - to make a better CLI version we should have a wrapper loop that
 #  checks if you are coming in as a file or STD in. The primary loop in
 #  either case should pass to the actual arg parser
+#
+
+if ( ! @ARGV ) {
+   print "CLI version\n";
+   $CLI = 1 ;
+   # unflush the buffer
+   $| = 1 ;
+
+   # set initial prompt
+   &print_prompt ;
+}
 
 while (<>) {
+
    # strip blanks, comments etc
    next if /^\s*#/ ;
    next if /^\s*$/ ;
-   $no_command = 1;
+   $GOOD_COMMAND = 0;
+   $NO_COMMAND = 1;
 
    chomp ;
    # now break the commandline into components
-   my ($command,@words) = split /\s+/ ;
+   my (@args) = split /\s+/ ;
+   # we want to use 'shift' but keep the original args...
+#    my @eatline = @args ;
+   my $command = shift @args ;
 
-   #    &debug(1,"words : [$command] @words");
+   #    &debug(1,"args : [$command] @args");
 
    # you know, a case statement would work well here...
+   #
+   # when we call rd_line, we need to re-write the original command
+   # so that it goes into history correctly
+
    
+   # general commands
+      # HISTORY
+   if ($command =~ /^H\w*/i)  { &rd_line("show_history","history",@args) }
       # DEBUG
-   if ($command =~ /^DEB\w*/i)  { $DEBUG = $words[0]   ; &addhistory($_) }
+   if ($command =~ /^DEB\w*/i)  { &rd_line("set_debug","debug",@args) }
       # SERVER
-   if ($command =~ /^SE\w*/i)   { &add_server(@words)  ; &addhistory($_) }
+#    if ($command =~ /^SER\w*/i)   { &add_server(@args)  ; &addhistory($_) }
+   if ($command =~ /^SER\w*/i)   { &rd_line("add_server","server",@args) }
       # password
-   if ($command =~ /^P\w*/i)    { &add_pass(@words)    ; &addhistory($_) }
+   if ($command =~ /^P\w*/i)    { &add_pass(@args)    ; &addhistory($_) }
       # commit
-   if ($command =~ /^CO\w*/i)  { &commit          ; &addhistory($_) }
+   if ($command =~ /^CO\w*/i)  { &commit               ; &addhistory($_) }
+      # commit
+   if ($command =~ /^DIS\w*/i)  { &disconnect          ; &addhistory($_) }
 
       # split
    if ($command =~ /^SP\w*/i) {
-      my $command = shift @words ;
+      my $command = shift @args ;
       # network
-      if ($command =~ /^N\w*/i) { &split_net(@words)  ; &addhistory($_) }
+      if ($command =~ /^N\w*/i) { &split_net(@args)  ; &addhistory($_) }
    }
 
+   # get
+   if ($command =~ /^G\w*/i) {
+      &debug(1,"[$command]=get");
+	  my $command = shift @args ;
+      # zone
+      if ($command =~ /^Z\w*/i)   { &get_zone(@args)   ; &addhistory($_) }
+   }
+   
    # add
    if ($command =~ /^A\w*/i) {
       &debug(1,"[$command]=add");
-	  my $command = shift @words ;
+	  my $command = shift @args ;
       # zone
-      if ($command =~ /^Z\w*/i)   { &add_zone(@words)   ; &addhistory($_) }
+      if ($command =~ /^Z\w*/i)   { &add_zone(@args)   ; &addhistory($_) }
       # network
-      if ($command =~ /^N\w*/i)   { &add_net(@words)    ; &addhistory($_) }
+      if ($command =~ /^N\w*/i)   { &add_net(@args)    ; &addhistory($_) }
       # subnet
-      if ($command =~ /^S\w*/i)   { &add_sub(@words)    ; &addhistory($_) }
+      if ($command =~ /^S\w*/i)   { &add_sub(@args)    ; &addhistory($_) }
       # host
-      if ($command =~ /^H\w/i)    { &add_host(@words)   ; &addhistory($_) }
+      if ($command =~ /^HO\w/i)    { &add_host(@args)   ; &addhistory($_) }
    }
 
    # delete
    if ($command =~ /^DEL\w*/i) {
-	  my $command = shift @words ;
+	  my $command = shift @args ;
       # network
-      if ($command =~ /^N\w*/i)  { &remove_net(@words)   ; &addhistory($_) }
+      if ($command =~ /^N\w*/i)  { &remove_net(@args)   ; &addhistory($_) }
       # host
-      if ($command =~ /^H\w*/i)  { &remove_host(@words)  ; &addhistory($_) }
+      if ($command =~ /^H\w*/i)  { &remove_host(@args)  ; &addhistory($_) }
       # zone
-      if ($command =~ /^Z\w*/i)  { &remove_zone(@words)  ; &addhistory($_) }
+      if ($command =~ /^Z\w*/i)  { &remove_zone(@args)  ; &addhistory($_) }
    }
 
-
-   if ( $no_command ) {
+   # no_command is only set if we didn't get something we recognised
+   # this is just a lazy form of 'else'
+   #
+   if ( $NO_COMMAND ) {
       print "UNRECOGNISED :: $_\n";
+      &print_prompt ;
    }
 
 }
 
 # just in case
-if ( $connected ) { &disconnect } ;
+if ( $CONNECTED ) { &disconnect } ;
+
+exit ;
 
 ##########################################################
 #
@@ -204,13 +210,57 @@ if ( $connected ) { &disconnect } ;
 #
 
 
+###########################################3
+#
+
+# prompt
+#
+sub print_prompt {
+    print "[$DEBUG] $CONN_STRING $PROMPT" ;
+}
+
+sub set_debug {
+    if ( "@_" =~ /\d+/ ) {
+       $DEBUG = shift @_ ;
+       $GOOD_COMMAND = 1 ;
+    }
+    else {
+       &missing_arg("debug <level>");
+    }
+}
+
+# parse a line, this is called EVERYTIME we press <cr> so we can
+# do things like print the prompt
+# we abstract this to keep it in one place
+sub rd_line {
+
+    # we're passed :
+    #  the subroutine to call
+    #  the ORIGINAL LINE (post cleanup)
+    #  the subroutine arguments
+
+    my ($command,$hstring,@args) = @_ ;
+
+    $NO_COMMAND = 0 ;
+
+    # call the command
+    &$command(@args);
+
+    # history
+    if ( $GOOD_COMMAND ) {
+       &addhistory("$hstring",@args);
+    }
+
+    # prompt
+    &print_prompt ;
+    #
+}
+
 # show the history:
 # &show_history ;
 
-###########################################3
-
 sub addhistory {
-    my ($line) = @_ ;
+    my ($line) = "@_" ;
 
 	#cleanup spacing
 	$line =~ s/^\s*//;
@@ -219,10 +269,8 @@ sub addhistory {
 
 	push @history , $line ;
 
-	# we history all GOOD commands
-    # flag that this command is kosjer
-    $no_command = 0 ;
 }
+
 
 sub show_history {
     my $lineno = 1 ;
@@ -234,6 +282,8 @@ sub show_history {
 	   $lineno ++ ;
     }
 	print "\n";
+
+    $GOOD_COMMAND = 1 ;
 
 }
 
@@ -314,6 +364,7 @@ sub add_zone {
     &debug (1,"adding zone [$zone] [$isauth]");
  	ib_insert_zone("$zone","$isauth");
 }
+
 sub remove_zone {
     my ($zone) = @_ ;
     &debug (1,"removing zone [$zone]");
@@ -324,9 +375,18 @@ sub remove_zone {
 sub add_server {
     my ($arg) = @_ ;
     # save the server id and see if we have enough info to connect
-    &debug (2,"adding server [$arg]");
-	$server_id = $arg ;
-	&connect ;
+
+    if ($arg) {
+       &debug (2,"adding server [$arg]");
+	   $server_id = $arg ;
+
+       $PROMPT = "$server_id >" ;
+
+	   &connect ;
+    }
+    else {
+       &missing_arg("server <server>");
+    }
 }
 
 sub add_pass {
@@ -350,7 +410,11 @@ sub connect {
 	   &debug (3,"ibc [$ibc]");
 	   eval $ibc ;
 
-	   $connected = 1 ;
+       $PROMPT = "$server_id >" ;
+       $CONN_STRING = "*" ;
+
+	   $CONNECTED = 1 ;
+
     }
 	else {
 	   &debug (3,"NOOP - incomplete details for server connection");
@@ -359,23 +423,80 @@ sub connect {
 }
 
 sub disconnect {
-    if ( $connected ) {
+    if ( $CONNECTED ) {
        &commit ;
        print "SERVER :: disconnecting \n";
 	   ib_close_connection();
-	   $connected = 0 ;
+	   $CONNECTED = 0 ;
 	}
 	else {
-	   print "CANNOT COMMIT - no connection is in place\n";
+	   print "CANNOT DISCONNECT - no connection is in place\n";
 	}
 
 }
 
 sub commit {
-	&debug (1,"comitting changes");
-	print "Saving Changes .. ";
-    ib_update_server();
-	print "DONE.\n";
+    if ( $CONNECTED ) {
+	   &debug (1,"comitting changes");
+	   print "SERVER :: Comitting Changes .. ";
+       ib_update_server();
+	   print "DONE.\n";
+	}
+	else {
+	   print "CANNOT COMMIT - no connection is in place\n";
+	}
+}
+
+sub get_zone {
+    # use dig...
+    &debug (2,"getting zone [@_]");
+    my ($query,$type,$verb) = @_ ;
+
+    if ( ! $type ) { $type = "SOA" }
+
+    if ( ! $server_id ) {
+	   print "CANNOT GET - no server is specified\n";
+    }
+    else {
+       &do_dig($server_id,$query,$type,$verb);
+    }
+
+
+}
+
+sub do_dig {
+    # use a 'dig' to get zone data.
+    my $DIG = '/usr/bin/dig' ;
+    my $DIGOPTS = '+multiline +nostat +nocmd +norecur';
+    my $TERSEOPTS = '+noquestion +noauthority +noadditional +nocomments';
+
+    my $V_DIG = "$DIG $DIGOPTS";
+    my $T_DIG = "$DIG $DIGOPTS $TERSEOPTS";
+
+    # so we pass args to dig to work out what type of dig to do
+    &debug (3,"dig reqest =  [@_]");
+    my ($server,$query,$type,$verbose) = @_ ;
+
+    my $COMM ;
+
+    if ($verbose) {
+       $COMM = "$V_DIG \@$server $query $type";
+    }
+    else {
+       $COMM = "$T_DIG \@$server $query $type";
+    }
+
+    &debug (2,"dig comm =  [$COMM]");
+    print "\n";
+    system("$COMM");
+    print "\n";
+
+
+}
+
+sub missing_arg {
+    print "INCOMPLETE COMMAND :: @_\n";
+    $GOOD_COMMAND = 0 ;
 }
 
 ############################################3
@@ -420,9 +541,54 @@ sub debug {
 	# if this level is <= the CURRENT DEBUG level 
 	# we print the data
     my $level = shift @_ ;
+
     if ($level <= $DEBUG) {
            print "DEBUG : @_\n";
     }
 
 }
 
+###########################################################
+
+# $Log: ibcli,v $
+# Revision 1.2  2003/09/09 22:58:27  horne
+# *** empty log message ***
+#
+# Revision 1.1  2003/08/11 23:31:57  horne
+# *** empty log message ***
+#
+# Revision 1.9  2001/06/07 16:45:47  horne
+# major rewrite of the arg parser - ripped out all the RE's to a much better
+# process.
+# delete commands disabled
+#
+# Revision 1.8  2001/05/31 05:28:15  horne
+# *** empty log message ***
+#
+# Revision 1.7  2001/05/24 00:17:54  horne
+# Added RE's to handle shortened commant words, not however that this is
+# still buggy, typos, as long as they are unique will still work. thus
+#  - password, p , pa , ps , pdfgt = password
+# I need to find a better command parser
+#
+# Revision 1.6  2001/05/23 19:39:11  horne
+# working version - waiting for updates from infoblox to see if they have
+# changed the API syntax
+#
+# Revision 1.5  2001/05/19 06:08:13  horne
+# iblox ready version, but no connections to servers work
+#
+# Revision 1.4  2001/05/19 04:59:19  horne
+# All base commands are being parsed and netmasks are being applied.
+# Now we need to hit the infoblox engine for real
+#
+# Revision 1.3  2001/05/19 03:43:45  horne
+# added the DEBUG option before i started to drown in a lot of messy print
+# statements
+#
+# Revision 1.2  2001/05/19 03:34:34  horne
+# Basic version, config file parsing is functional.
+#
+# Revision 1.1  2001/05/19 03:33:56  horne
+# *** empty log message ***
+#
