@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.14 2006/08/18 19:06:18 horne Exp $ ;
-my $REV = q$Revision: 3.14 $;
-# $Date: 2006/08/18 19:06:18 $
+my $ID  = q$Id: ibcli,v 3.15 2006/11/14 21:53:47 horne Exp $ ;
+my $REV = q$Revision: 3.15 $;
+# $Date: 2006/11/14 21:53:47 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -239,7 +239,7 @@ else {
 print " 
 #####################################################################
 #
-# the Infoblox CLI $REV (this is alpha code, ymmv)
+# the Infoblox CLI $REV (this is beta code, ymmv)
 #
 #####################################################################
 
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.14 $.
+$Revision: 3.15 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1408,6 +1408,7 @@ sub cli_add_host {
     my ( $ttl )     = $line =~/ttl (\d+)/ ;
 
     my @aliases  = $line =~/ alias (\S+)/g ;
+    my @ipam  = $line =~/ info (\S+)/g ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -1439,6 +1440,24 @@ sub cli_add_host {
     if ( $ttl ) { $obj->ttl ( $ttl ) }
 
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
+
+    # now add IPAM info
+    foreach my $info ( @ipam ) {
+        # break this onto name = value pairs
+        my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
+
+        # decode a quoted string
+        my $cvalue = &decode_comment ( $value ) ;
+
+        # and strip the quotes
+        $cvalue =~ s/^"//;
+        $cvalue =~ s/"$//;
+
+        &debug_cli(3,"addh info($name) =($cvalue) [$value]");
+
+        # and set these directly
+        $obj->$name ( $cvalue );
+    }
 
     # addit
     &do_func("add",$obj);
@@ -1631,11 +1650,10 @@ sub cli_add_bulk {
                    "prefix" => $prefix ,
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
-		   "reverse" => "FALSE"
+                   "reverse" => "FALSE"
     );
 
     if ( $comment ) { $obj->comment ( $comment ) }
-
     if ( $addrev ) { $obj->reverse ( "TRUE" ) }
 
     # addit
@@ -3478,6 +3496,7 @@ sub cli_add_server {
                      "master" => $server,
                      "username" => $user,
                      "password" => $passwd ,
+                     "timeout" => 36000 ,
                   );
 
 
@@ -3552,12 +3571,27 @@ sub cli_restart {
     # get the args from the line
     ( my $service)  = $line =~/restart (\S+)/ ;
     ( my $delay)  = $line =~/delay (\S+)/ ;
+    ( my $member)  = $line =~/member (\S+)/ ;
+    ( my $test)  = $line =~/(test_dhcp)/ ;
 
     &debug_cli (2,"restart s($service) d($delay)");
 
-    my %opthash ;
-    $opthash{'service'}=$service;
-    $opthash{'when'}=0;
+#     my %opthash ;
+#     $opthash{'service'}=$service;
+#     $opthash{'when'}=0;
+    my %opthash = (
+          "service" => $service ,
+          "when" => "0",
+    );
+
+    if ( $member ) {
+       $opthash{'member'}=$member;
+    }
+
+    if ( $test ) {
+       $opthash{'test_restart'}="yes";
+    }
+
     if ( $delay ) {
        $opthash{'delay'}=$delay;
     }
@@ -3573,7 +3607,7 @@ sub cli_restart {
 
 =cut
 
-sub cli_download {
+sub cli_download_database {
 
     my ( $line ) = @_ ;
     # get the args from the line
@@ -3588,6 +3622,85 @@ sub cli_download {
     print "DOWNLOADING ALL DATABASE data as $dest ...\n";
 
     my @function=("export_data",%opthash);
+    &do_func(@function);
+
+    print "DONE\n";
+}
+
+=head2 download the DHCP configuration
+
+    download dhcp_conf <file>
+
+=cut
+
+sub cli_download_dhcp {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $dest)  = $line =~/dhcp_conf (\S+)/ ;
+    ( my $member)  = $line =~/member (\S+)/ ;
+    ( my $type)  = $line =~/(expert_file)/ ;
+
+
+    # set the defaults ;
+    my %opthash = (
+          "path" => $dest ,
+    );
+
+    # pick the member
+    if ( $member ) {
+        $opthash{'member'} = $member ;
+    }
+    else {
+        $opthash{'member'} = $MASTER_IP ;
+    }
+
+    # pick the file type
+    if ( $type eq "expert_file" ) {
+        $opthash{"type"} = "dhcp_expert_mode_config",
+    }
+    else {
+        $opthash{"type"} = "dhcpd_conf",
+    }
+
+    print "DOWNLOADING ALL dhcpd.conf data as $dest ...\n";
+
+    my @function=("export_data",%opthash);
+    &do_func(@function);
+
+    print "DONE\n";
+}
+
+=head2 upload the DHCP configuration
+
+    upload dhcp_conf <file>
+
+=cut
+
+sub cli_upload_dhcp {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $dest)  = $line =~/dhcp_conf (\S+)/ ;
+    ( my $member)  = $line =~/member (\S+)/ ;
+
+    my %opthash = (
+          "path" => $dest ,
+          "type" => "dhcp_expert_mode_config",
+#           "member" => $member,
+    );
+
+    # pick the member
+    if ( $member ) {
+        $opthash{'member'} = $member ;
+    }
+    else {
+        $opthash{'member'} = $MASTER_IP ;
+    }
+
+    print "UPLOADING dhcpd.conf data as $dest ...\n";
+
+    my @function=("import_data",%opthash);
     &do_func(@function);
 
     print "DONE\n";
@@ -4184,7 +4297,25 @@ sub cidrtomask {
 
 sub by_ip {
     # used for sorting (by_ip)
-    &abs_ip($a) <=> &abs_ip($b) ;
+
+#     &abs_ip($a) <=> &abs_ip($b) ;
+
+    my(@a) = split(/[\.\/]/, $a);
+    my(@b) = split(/[\.\/]/, $b);
+
+#     The first return is only processed if $a[0] != $b[0].
+# 
+#     It doesn't need to process the rest of @a/@b because it has
+#     reached a point in the (parallel) vectors where the values
+#     differ so it returns the -1, 0, or 1 based on a comparision
+#     of those 2 values.
+
+    while (@a) {
+        return $a[0] <=> $b[0] if ($a[0] != $b[0]);
+        shift @a;
+        shift @b;
+    }
+    return 0;
 }
 
 sub abs_ip {
@@ -4349,7 +4480,7 @@ sub init_commands {
 my %COMMANDS = (
 
     'NULL' => { 
-           words => "help quit history restart download configure show test", },
+           words => "help quit history restart upload download configure show test", },
     'test' => { 
 #            words => "configure zone network", 
            words => "configure add adc|bb zone network", 
@@ -4472,19 +4603,39 @@ my %COMMANDS = (
     'show lease <ip>' => { 
            func => "cli_show_lease", },
 
+# uploads
+    'upload' => { 
+           words => "dhcp_conf",  },
+
+    'upload dhcp_conf' => { 
+           words => "<file>",  },
+    'upload dhcp_conf <file>' => { 
+           words => "member=<ip>",
+           func => "cli_upload_dhcp", },
+    'upload dhcp_conf <file> member <ip>' => { 
+           func => "cli_upload_dhcp", },
+
+# downloads
     'download' => { 
-           words => "database",  },
+           words => "dhcp_conf database",  },
     'download database' => { 
            words => "<file>",  },
     'download database <file>' => { 
-           func => "cli_download", },
+           func => "cli_download_database", },
+
+    'download dhcp_conf' => { 
+           words => "<file>",  },
+    'download dhcp_conf <file>' => { 
+           words => "member=<ip>|expert_file",
+           func => "cli_download_dhcp", },
+
     'restart' => { 
            words => "dns dhcp",  },
     'restart dns' => { 
            words => "delay=<num>",  
            func => "cli_restart", },
     'restart dhcp' => { 
-           words => "delay=<num>",  
+           words => "member=<ip>|delay=<num>|test_dhcp",  
            func => "cli_restart", },
 
     'configure' => { 
@@ -4666,7 +4817,7 @@ my %COMMANDS = (
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
-           words => "<cr> ttl=<num>|comment=<comment>|alias=<name>|disabled", 
+           words => "<cr> ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
 #     'configure zone <zone> add host <name> <ip,ip> comment <comment>' => { 
 #            func => "cli_add_host", },
@@ -4881,6 +5032,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.15  2006/11/14 21:53:47  horne
+# BugId: 8205
+# Reviewer(s): geoff
+# Description: added ipam and DDPI
+#
 # Revision 3.14  2006/08/18 19:06:18  horne
 # BugId: 8205
 # Reviewer(s): Geoff
