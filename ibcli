@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.26 2007/06/06 20:08:52 rpashby Exp $ ;
-my $REV = q$Revision: 3.26 $;
-# $Date: 2007/06/06 20:08:52 $
+my $ID  = q$Id: ibcli,v 3.27 2007/06/07 19:31:47 horne Exp $ ;
+my $REV = q$Revision: 3.27 $;
+# $Date: 2007/06/07 19:31:47 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -346,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.26 $.
+$Revision: 3.27 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2215,7 +2215,7 @@ sub cli_add_network {
 
     # create the network object :
 
-    # corece a netmask into a cidr
+    # coerce a netmask into a cidr
     if ( $netmask ) {
         my $cidr = mask_to_cidr ( $netmask ) ;
         $network = "$network/$cidr";
@@ -2225,10 +2225,15 @@ sub cli_add_network {
     my $net = Infoblox::DHCP::Network->new (
                    "network" => $network ,
                    "comment" => $comment ,
-                   "network_container" => $parent ,
+#                    "network_container" => $parent ,
                    "auto_create_reversezone" => "FALSE"
                 );
 
+    # parenting ?
+    # fixed in 4.1r3
+    if ( $parent ) {
+        $net->network_container ( $parent );
+    }
     # auto create reverses ?
     if ( $addrev ) {
         $net->auto_create_reversezone ( "TRUE" );
@@ -2313,6 +2318,13 @@ sub cli_delete_network {
 
     # get the args from the line
     my ( $network ) = $line =~/ network delete (\S+)/ ;
+    my ( $netmask ) = $line =~/ netmask (\S+)/ ;
+
+    # coerce a netmask into a cidr
+    if ( $netmask ) {
+        my $cidr = mask_to_cidr ( $netmask ) ;
+        $network = "$network/$cidr";
+    }
 
     &debug_cli(1,"delnet n($network)");
 
@@ -2834,6 +2846,7 @@ sub cli_add_dhcp_range {
 
     # get the args from the line
     my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $netmask ) = $line =~/ netmask (\S+)/ ;
     my ( $fip , $lip )  = $line =~/ add range (\S+) (\S+)/ ;
     my ( $failover )  = $line =~/ failover (\S+)/ ;
     my ( $member )  = $line =~/ member (\S+)/ ;
@@ -2850,6 +2863,12 @@ sub cli_add_dhcp_range {
     &debug_cli (1,"addrng n($network) s($fip) e($lip) o(@options)");
     &debug_cli (1,"addrng n($network) m($member) c($comment) f($failover)");
     &debug_cli (1,"addrng n($network) e(@exclude)");
+
+    # coerce a netmask into a cidr
+    if ( $netmask ) {
+        my $cidr = mask_to_cidr ( $netmask ) ;
+        $network = "$network/$cidr";
+    }
 
     # create the object
     my $obj = Infoblox::DHCP::Range->new (
@@ -3817,6 +3836,7 @@ sub cli_show_network {
         # sput a sumary list
 
         my @netlist ;
+        my $num = @nets + 1 ;
         foreach my $nobj (@nets) {
             my $name = $nobj->network();
             my $comm = $nobj->comment();
@@ -3838,7 +3858,10 @@ sub cli_show_network {
         }
 
         # now print them (sorted)
-        print sort by_ip @netlist ; 
+        if ( @netlist ) {
+            print sort by_ip @netlist ; 
+            print "$num networks found\n ";
+        }
     }
     
 }
@@ -3968,7 +3991,7 @@ sub cli_show_range {
     my @ranges = &do_func("search", %opthash );
 
     # dump the range or all the list
-    if ( $range ) {
+    if ( $range  and $range ne ".*" ) {
         &dump_object ( shift @ranges ) ;
     }
     else {
@@ -4018,6 +4041,9 @@ sub cli_show_fixed {
 #            "start_addr" => ".*",
 #     );
 
+    # workaround some oddnesses in the syntax
+    if ( $net eq "fixed" ) { undef $net }
+
     # get all fixed in a network ( 3.2r9 ? )
     # to work around a bug, we have to protect the cidr
     # and wildcard it
@@ -4025,18 +4051,17 @@ sub cli_show_fixed {
 
     my %opthash = (
            "object" => "Infoblox::DHCP::FixedAddr", 
-           "network" => $net,
-#            "network" => "192.168.42.0.*24",
            "ipv4addr" => ".*",
     );
 
+    if ( $net ) {
+        $opthash{"network"} = $net ;
+    }
+
     # if we want to be specific, we get an actual fixed
     if ( $fixed ) {
-        %opthash = (
-           "object" => "Infoblox::DHCP::FixedAddr", 
-        );
 
-        # and we check for IP or MAC
+        # we check for IP or MAC
         if ( $fixed =~ /:/ ) {
             $opthash{"mac"} = $fixed ;
         }
@@ -4725,9 +4750,15 @@ sub debug_file {
         print "$count\t$type\n";
     }
 }
+
 sub debug_pwd {
     print "otype($COT) path [@PATH]\n";
     print Dumper ( $CWD ) ;
+}
+
+sub cli_show_date {
+    chomp( my $date = `date`);
+    print "$date\n";
 }
 
 
@@ -5019,7 +5050,11 @@ sub cli_set_path {
 sub decode_comment {
     # urldecode a comment string
     my ( $string ) = @_ ;
-      $string =~ s/%(..)/chr ( hex($1) )/ge;
+    $string =~ s/%(..)/chr ( hex($1) )/ge;
+
+    # also undo quotes in inside the comment
+    $string =~ s/''/"/g;
+
     debug_cli(1,"dec comment ($string) ");
     return ( $string ) ;
 }
@@ -5264,6 +5299,7 @@ sub make_dhcp_option {
 
     # initially clean the value
     $val =~ s/"//g;
+    $val = &decode_comment ( $val ) ;
 
     # we have to convert all options to both a name and a number
     # this will save us pain in the long run
@@ -5282,7 +5318,8 @@ sub make_dhcp_option {
     my $option ;
 
     # get the server version
-    my $niosrev = $SESSION->server_version();
+    my $niosrev ;
+    if ( $ONLINE ) { $niosrev = $SESSION->server_version(); }
 
     if ( $oname eq "routers" ) {
        $option = Infoblox::DHCP::Option->new (
@@ -5725,7 +5762,6 @@ sub mask_to_cidr {
 
 sub by_ip {
     # used for sorting (by_ip)
-
 #     &abs_ip($a) <=> &abs_ip($b) ;
 
     my(@a) = split(/[\.\/]/, $a);
@@ -5952,7 +5988,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "file server grid=<name> admin views lease zone host network range debug",  },
+           words => "time file server grid=<name> admin views lease zone host network range debug",  },
 
     'help' => { 
            words => "all",
@@ -5968,6 +6004,9 @@ my %COMMANDS = (
 #            func => "cli_show_file", },
 #     'show file properties <name>' => { 
 #            func => "cli_show_file", },
+
+    'show time' => { 
+           func => "cli_show_date", },
 
     'show debug' => { 
            words => "session commands file pwd",  },
@@ -6464,6 +6503,9 @@ my %COMMANDS = (
     'configure network delete' => { 
            words => "<n.n.n.n/mm> macfilter=<name> shared=<name>", },
     'configure network delete <n.n.n.n/mm>' => { 
+           words => "netmask=<ip>",
+           func => "cli_delete_network", },
+    'configure network delete <n.n.n.n/mm> netmask <ip>' => { 
            func => "cli_delete_network", },
 
     'configure network add' => { 
@@ -6494,8 +6536,7 @@ my %COMMANDS = (
            words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
     'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr>
-           netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
+           words => "<cr> netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
@@ -6631,6 +6672,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.27  2007/06/07 19:31:47  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: fixed some search routines
+#
 # Revision 3.26  2007/06/06 20:08:52  rpashby
 # BugId: 8205
 # Added support for adding bulk hosts within a view
