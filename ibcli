@@ -53,9 +53,9 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-my $ID  = q$Id: ibcli,v 2.9 2005/07/13 05:07:06 horne Exp $ ;
-my $REV = q$Revision: 2.9 $;
-my $RDATE = q$Date: 2005/07/13 05:07:06 $;
+my $ID  = q$Id: ibcli,v 2.10 2005/08/14 23:07:23 horne Exp $ ;
+my $REV = q$Revision: 2.10 $;
+my $RDATE = q$Date: 2005/08/14 23:07:23 $;
 
 
 # uncomment the following two lines to see what the options hash contains
@@ -78,6 +78,9 @@ BEGIN {
 
 #
 # $Log: ibcli,v $
+# Revision 2.10  2005/08/14 23:07:23  horne
+# last version, this now gets replaced by complt with Readline
+#
 # Revision 2.9  2005/07/13 05:07:06  horne
 # major fixes of some of the parser bits
 # added additional functions to add zone
@@ -159,15 +162,10 @@ GetOptions(
       "l=s" => \$DNS_VER ,
       "m+"  => \$MAKE ,
       "t+"  => \$LIST_COMM ,
-      "v|V"   => \$GET_VERSION ,
+      "v|V"   => sub { print "\n$BASE/$NAME\n$REV\n$RDATE\n\n"; exit ; },
    );
 
    #
-
-if ( $GET_VERSION ) {
-   &show_version ;
-   exit 0 ;
-}
 
 ## NOTE - to make a better CLI version we should have a wrapper loop that
 #  checks if you are coming in as a file or STD in. The primary loop in
@@ -225,7 +223,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 2.9 $
+$Revision: 2.10 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -614,7 +612,7 @@ sub do_exit {
 # we just want to call shift_arg to do the rest of the processing
 #
 # THIS is the guts of the command line parser, for each ARG in a line
-# shift_arg looks at this word, does an apprev match, and if it is ok
+# shift_arg looks at this word, does an abbrev match, and if it is ok
 # then calls the hashed subroutine.
 #
 # The nice thing about this is that the subroutines can either be end
@@ -774,6 +772,10 @@ sub show_commands {
                 'network' => 'do_nothing',
         ) ;
    &shift_arg($arg,%commands);
+}
+
+sub show_version {
+     print "\n$BASE/$NAME\n$REV\n$RDATE\n\n";
 }
 
 # PARSER : download xxx
@@ -2769,9 +2771,6 @@ sub add_server {
     # if we don't recognise the arg, 
     # then we assume it is a servername
 
-#     if ( $type !~ /^$IPRE$/) {
-#     }
-
     # syntax check next arg...
     my $etype ;
     my @opts = ( "dns","radius","user","password");
@@ -2782,9 +2781,13 @@ sub add_server {
     if ( ! $etype ) { 
        # must be a servername
        $server = $type ;
-#        $CONN_INFO{'Host'} = $server ;
        $CONN_INFO{'master'} = $server ;
        &debug_cli(3,"conf server s($server)");
+
+       # create the master NS object
+       $MASTER = Infoblox::DNS::Member->new ( 'ipv4addr' => $server, );
+       $DHMASTER = Infoblox::DHCP::Member->new ( 'ipv4addr' => $server, );
+
     }
     else {
        # hack things by fudging the arglist
@@ -2794,10 +2797,6 @@ sub add_server {
        unshift ( @args , $type ) ;
        &debug_cli(3,"conf server push t[$type] args[@args]");
     }
-
-    # create the master NS object
-    $MASTER = Infoblox::DNS::Member->new ( 'ipv4addr' => $server, );
-    $DHMASTER = Infoblox::DHCP::Member->new ( 'ipv4addr' => $server, );
 
 =pod
 
@@ -3184,10 +3183,6 @@ sub script_footer {
 
 exit ; \n";
 
-}
-
-sub show_version {
-    print "\n$BASE/$NAME\n$REV\n$RDATE\n\n";
 }
 
 
@@ -3652,6 +3647,9 @@ sub debug_cli {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.10  2005/08/14 23:07:23  horne
+# last version, this now gets replaced by complt with Readline
+#
 # Revision 2.9  2005/07/13 05:07:06  horne
 # major fixes of some of the parser bits
 # added additional functions to add zone
