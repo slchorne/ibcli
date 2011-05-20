@@ -46,11 +46,18 @@
 #
 ###############################################################################
 
+sub show_version {
+    #   $Id: ibcli,v 1.10 2003/10/16 21:41:25 horne Exp $
+    my $REV = '
+    $Revision: 1.10 $
+    $Date: 2003/10/16 21:41:25 $
+    ';
+    $REV =~ s/\$//g;
+    print "$REV\n";
 
-# $Id: ibcli,v 1.9 2003/09/24 01:43:08 horne Exp $
-# $Revision: 1.9 $
-# $Date: 2003/09/24 01:43:08 $
-#
+    exit ;
+}
+
 
 # Perl CGI common chunks
 #
@@ -127,6 +134,7 @@ GetOptions(
       "p=s" => \$SERVER_PASS ,
       "f=s" => \$CONFIG ,
       "d=s" => \$DEBUG ,
+      "v|V"   => \&show_version ,
    );
 
    #
@@ -205,6 +213,10 @@ while (<>) {
    # regardless of what routine we are in. At the end of the parsing, we
    # should end up with the command ($SAVE_HIST) and the args (@WORDS)
    #
+   # SO, if there are more args that need to be checked, the subroutine
+   # to call should be a simple one that just resets $commands and makes
+   # another call to 'shift_Arg'
+   #
    $LINE = $_ ;
    @WORDS  = split /\s+/ ;
    @P_ARGS = () ;
@@ -215,6 +227,7 @@ while (<>) {
                 'commit' => 'commit',
                 'connect' => 'connect',
                 'disconnect' => 'disconnect',
+                'download' => 'download_commands',
                 'set' => 'set_commands' ,
                 'configure' => 'set_commands' ,
                 'show' => 'show_commands' ,
@@ -311,6 +324,17 @@ sub show_commands {
                 'zone' => 'show_zone',
                 'network' => 'show_network',
                 'host' => 'show_host',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : download xxx
+sub download_commands {
+   &debug (4,"sub = download_commands");
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                "database" => 'get_database',
+                "logs" => 'get_logs',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -486,20 +510,51 @@ sub do_ib_func {
 #
 ###########################################
 
+sub get_logs {
+    #
+    # download the logs to the current dir
+    #
+    my $dest ;
+    chomp($dest = `pwd`);
+    $dest="$dest/IB_files";
+
+    &err_print("DOWNLOADING ALL LOGS data to $dest ...");
+    if ( ! -d $dest ) { mkdir($dest,0755); }
+
+    my $function = "ib_export_logs(\"$dest\")";
+    &do_ib_func($function);
+
+    &err_print("DONE ");
+
+}
+
+sub get_database {
+    #
+    # download the database to the current dir
+    #
+    my $dest ;
+    chomp($dest = `pwd`);
+    $dest="$dest/IB_files";
+
+    &err_print("DOWNLOADING ALL DATABASE data to $dest ...");
+    if ( ! -d $dest ) { mkdir($dest,0755); }
+
+    my $function = "ib_export_database(\"$dest\")";
+    &do_ib_func($function);
+
+    &err_print("DONE ");
+
+}
+
 sub erase_data {
 
-    if ( $CONNECTED ) {
-       &err_print("ERASING ALL DATABASE data ...");
+    &err_print("ERASING ALL DATABASE data ...");
 
-       # we may want an 'are you sure here...'
-       my $function = "ib_erase_dns_data()";
-       &do_ib_func($function);
+    # we may want an 'are you sure here...'
+    my $function = "ib_erase_dns_data()";
+    &do_ib_func($function);
 
-       &err_print("DONE ");
-    }
-    else {
-       &err_print ("CANNOT ERASE - no connection is in place");
-    }
+    &err_print("DONE ");
 }
 
 sub add_host {
@@ -968,15 +1023,31 @@ sub show_history {
 #
 
 sub add_server {
-    my ($arg) = @_ ;
+    my ($server,$pass) = @_ ;
     # save the server id and see if we have enough info to connect
+    # password can be passed on this line, if not specified, assume
+    # no password
+    
 
-    if ($arg) {
+    if ($server) {
+       # if we're already connected, sput an error
        if ( ! $CONNECTED ) {
-          &debug (2,"adding server [$arg]");
-          $SERVER_ID = $arg ;
+          &debug (2,"adding server [$server]");
+          $SERVER_ID = $server ;
 
           $PROMPT = "$SERVER_ID > " ;
+
+          # when you specify a new server, you need to re-set the
+          # password
+          if ( ! $pass ) {
+             # this is a NON DNSone, DIG only
+             # unset the password
+             $SERVER_PASS = "" ;
+          }
+          else {
+             $SERVER_PASS = $pass ;
+          }
+          &debug (2,"adding passwd [$pass]");
 
           &connect ;
        }
@@ -1028,7 +1099,7 @@ sub connect {
 
     }
     else {
-       &err_print ("CANNOT CONNECT :: no server|pass supplied");
+       &err_print ("CANNOT CONNECT :: no server or password supplied");
        &debug (3,"NOOP - incomplete details for server connection");
     }
 
@@ -1135,7 +1206,8 @@ sub show_network {
 
 sub do_dig {
     # use a 'dig' to get zone data.
-    my $DIG = '/usr/bin/dig' ;
+#     my $DIG = '/usr/bin/dig' ;
+    my $DIG = 'dig' ;
     my $DIGOPTS = '+multiline +nostat +nocmd +norecur';
     my $TERSEOPTS = '+noquestion +noauthority +noadditional +nocomments';
     my $REVOPTS = '+noquestion +noadditional +nocomments';
@@ -1230,6 +1302,12 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.10  2003/10/16 21:41:25  horne
+# un hardcoede dig
+# changed password syntax
+# added a -V -v option (version)
+# added download commands
+#
 # Revision 1.9  2003/09/24 01:43:08  horne
 # added dhcp range stuff
 # cleaned up the dig pre-processing
