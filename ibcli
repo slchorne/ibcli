@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.1.2.1 2005/08/14 23:31:43 horne Exp $ ;
-my $REV = q$Revision: 3.1.2.1 $;
-# $Date: 2005/08/14 23:31:43 $
+my $ID  = q$Id: ibcli,v 3.1.2.2 2005/08/15 01:23:12 horne Exp $ ;
+my $REV = q$Revision: 3.1.2.2 $;
+# $Date: 2005/08/15 01:23:12 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -87,16 +87,32 @@ $Data::Dumper::Sortkeys = 1 ;
 # abbreviate all of them. This will give you conditional cmpctl and still
 # hopefully be easy to read
 
+# the hash is $COMMANDS { "<string>" } { "words|func|help" }
+#             $COMMANDS { "<string>" } { "words" }
+
+# the LHS is a regex matching the WHOLE expanded comand line
+# the RHS is the list of next possible words as a string which
+# will get carved into array values as part of get_context()
+
+# we grep from the LHS the WHOLE STRING (^..$) ensure uniqieness
+
+# [x] how do you handle options than can come in any order ?
+#      use '|' syntax "word|word|word"
+# [x] how do you handle option/value pairs ?
+#      use '|=' syntax "word=<spec>|word=<spec>|word=<spec>"
 # [ ] some options can be repeated, some need to end with them.
 #     so we need a val|val syntax and a val?|val? syntax
 #     ( use perlre's '?' for 0 or 1 )
+
 
 my %COMMANDS = (
 
     'NULL' => { 
            words => "quit history restart download configure show test", },
     'test' => { 
-           words => "comment=<comment> <cr> <name,ip> delay=<num> aa|bb bad|member=<ip>|import=<svr> zone network", 
+           words => "configure zone network", 
+#            words => "configure aa|bb zone network", 
+#            words => "comment=<comment> <cr> <name,ip> delay=<num> aa|bb bad|member=<ip>|import=<svr> zone network", 
            func => "cli_test", },
     'quit' => { 
            func => "cli_exit", },
@@ -313,25 +329,6 @@ my %COMMANDS = (
 
    );
 
-# the hash is $COMMANDS { "<string>" } { "words|func|help" }
-#             $COMMANDS { "<string>" } { "words" }
-
-# the LHS is a regex matching the WHOLE expanded comand line
-# the RHS is the list of next possible words as a string which
-# will get carved into array values as part of get_context()
-
-# we grep from the LHS the WHOLE STRING (^..$) ensure uniqieness
-
-# [x] how do you handle options than can come in any order ?
-#      use '|' syntax "word|word|word"
-# [x] how do you handle option/value pairs ?
-#      use '|=' syntax "word=<spec>|word=<spec>|word=<spec>"
-
-# [ ] how do you handle alternate words
-#     * this needs a context shift
-#     * use '/' syntax : "word/other/other"
-#       [ ] SET these globally
-
 # print Dumper ( \%COMMANDS ) ;
 
 ### ---  PRE canned regexes --- ###
@@ -373,6 +370,12 @@ my %SPECOPS = (
      '</cidr>'      => '^\/\d{1,2}$',
      '<zone>'   => '^\S+$',
    );
+
+# Alternate words are set of a global lookup table
+
+my %ALTERNATES = (
+     "configure" => "set",
+);
 
 ### ---  end ------------------ ###
 
@@ -491,7 +494,13 @@ if ( $S_ID and $S_PASS and $S_USER ) {
 
 # [ ] reading from a file ?
 while (defined($_ = $el->gets())) {
-    $el->history_enter($_);
+
+    # only history non-blank lines
+    chomp ( my ( $in ) = $el->line ) ;
+    if ( $in ) {
+       # save the line WITH the cr.
+       $el->history_enter($_);
+    }
 
     # now do something
 #     exit if /^quit|q$/;
@@ -598,7 +607,19 @@ sub expand_line {
     foreach my $thisarg ( split ( /\s+/ , $line ) ) {
 
        &debug_cli (3,"linex -------");
-       &debug_cli (3,"linex arg     a($thisarg)");
+
+       my $origarg  = $thisarg ;
+#        # [ ] alternate words - we need to undo them here
+#        #     but we can't because the word wasnt expanded
+#        foreach my $alt ( keys %ALTERNATES ) {
+#           my $other = $ALTERNATES{$alt};
+#           if ( $other eq $origarg ) {
+#              # undo the alternate word
+#              $thisarg = $alt ;
+#           }
+#        }
+
+       &debug_cli (3,"linex arg     a($thisarg)<-($origarg)");
        &debug_cli (3,"linex partial e[$expline]");
        &debug_cli (3,"linex partial m[$matchline]");
 
@@ -637,13 +658,10 @@ sub expand_line {
           # NO MATCH, Bad word
           $expline .= "$thisarg" ;
           $matchline .= "$thisarg" ;
-#           $error = "Unknown argument";
 
           # find out where the error was.. (kinda tricky)
           # the bad word will be at the end of $expanded
-          # [ ] need to make this not greedy
-          my ( $bad ) = $thisarg ;
-          ( my $good = $line ) =~ s/$bad.*?$//;
+          ( my $good = $line ) =~ s/(.*)$thisarg.*$/$1/;
 
           # and unclean comments
           $good =~ s/%20s/ /g ;
@@ -651,8 +669,9 @@ sub expand_line {
           # and use this to put a marker at the right place
           my $slen = length ( $PROMPT) + length ( $good ) ;
           my $spc = sprintf ( "%*s^" , $slen , " " ) ;
-          &debug_cli (3,"cmpctl estrip [$bad] from [$good] [$spc]");
+          &debug_cli (3,"linex estrip [$thisarg] from [$good] [$spc]");
 
+          # create the error string.
           $error = "$spc\n  Unknown argument at '^'";
 
           return ( $expline , $error , $matchline) ;
@@ -754,7 +773,17 @@ sub get_context {
     if ( $COMMANDS{"$line"}{'words'} ) {
        my $wordlist = $COMMANDS{"$line"}{'words'} ;
 
-       # now we need to clean up some of the odd syntaxes the list
+#        # [ ] alternate words - we could insert them here
+#        # but we need to un-insert them here as well
+#        foreach my $alt ( keys %ALTERNATES ) {
+#           my $other = $ALTERNATES{$alt};
+#           &debug_cli (4,"contxt alt ($alt) + ($other)");
+# 
+#           # and sub it in
+#           $wordlist =~ s/$alt /$alt $other /;
+#        }
+
+       # We need to clean up some of the odd syntaxes the list
        # of words, so we do neat things before creating an array
 
        # 'word=<var>' pair : if that's the case we have to get a
@@ -2348,6 +2377,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.1.2.2  2005/08/15 01:23:12  horne
+# some rearranging of coments, mostly
+#
 # Revision 3.1.2.1  2005/08/14 23:31:43  horne
 # *** empty log message ***
 #
