@@ -1,0 +1,1380 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>user_guide.html</title>
+<link rev="made" href="mailto:root@b49.apple.com" />
+</head>
+
+<body style="background-color: white">
+
+<p><a name="__index__"></a></p>
+<!-- INDEX BEGIN -->
+
+<ul>
+
+	<li><a href="#ibcli">Ibcli</a></li>
+	<li><a href="#synopsis">Synopsis</a></li>
+	<li><a href="#description">Description</a></li>
+	<li><a href="#quickstart">Quickstart</a></li>
+	<li><a href="#installation">Installation</a></li>
+	<li><a href="#getting_started">Getting started</a></li>
+	<li><a href="#setting_the_debug_level">Setting the debug level</a></li>
+	<li><a href="#command_line_options">Command line options</a></li>
+	<ul>
+
+		<li><a href="#config_file">config file</a></li>
+	</ul>
+
+	<li><a href="#other_gritty_details">Other Gritty Details</a></li>
+	<ul>
+
+		<li><a href="#members_and_secondaries">Members and secondaries</a></li>
+		<li><a href="#laziness">Laziness</a></li>
+		<li><a href="#tab_completion_and_other_commands">TAB completion and other commands</a></li>
+		<li><a href="#batch_processing">BATCH processing</a></li>
+	</ul>
+
+	<li><a href="#general_command_reference">GENERAL COMMAND REFERENCE</a></li>
+	<li><a href="#dns_configuration">DNS Configuration</a></li>
+	<ul>
+
+		<li><a href="#add_a_view_to_dns">Add a view to dns</a></li>
+		<li><a href="#remove_a_view_from_dns">Remove a view from dns</a></li>
+		<li><a href="#add_a_shared_record_group">Add a shared record group</a></li>
+		<li><a href="#add_a_zone">Add a Zone</a></li>
+		<li><a href="#remove_a_zone">Remove a zone</a></li>
+		<li><a href="#add_a_ns_group">Add a NS group</a></li>
+		<li><a href="#delete_a_ns_group">Delete a NS group</a></li>
+		<li><a href="#add_a_host_to_a_zone">Add a host to a zone</a></li>
+		<li><a href="#modifying_hosts">Modifying hosts</a></li>
+		<li><a href="#remove_a_host_from_a_zone">Remove a host from a zone</a></li>
+		<li><a href="#add_an_a_record_to_a_zone">Add an A record to a zone</a></li>
+		<li><a href="#remove_an_a_record_from_a_zone">Remove An A record from a zone</a></li>
+		<li><a href="#add_an_aaaa_record_to_a_zone">Add an AAAA record to a zone</a></li>
+		<li><a href="#remove_an_aaaa_record_from_a_zone">Remove An AAAA record from a zone</a></li>
+		<li><a href="#add_an_mx_record_to_a_zone">Add an MX record to a zone</a></li>
+		<li><a href="#remove_an_mx_record_from_a_zone">Remove An MX record from a zone</a></li>
+		<li><a href="#add_an_srv_record_to_a_zone">Add an SRV record to a zone</a></li>
+		<li><a href="#add_a_bulk_host_to_a_zone">Add a bulk host to a zone</a></li>
+		<li><a href="#remove_a_bulk_host_from_a_zone">Remove a bulk host from a zone</a></li>
+		<li><a href="#add_a_cname_to_a_zone">Add a CNAME to a zone</a></li>
+		<li><a href="#remove_a_cname_from_a_zone">Remove a CNAME from a zone</a></li>
+		<li><a href="#add_a_txt_record_to_a_zone">Add a TXT record to a zone</a></li>
+		<li><a href="#remove_a_txt_record_from_a_zone">Remove a TXT Record from a zone</a></li>
+		<li><a href="#add_a_ptr_to_a_zone">Add a PTR to a zone</a></li>
+		<li><a href="#remove_a_ptr_from_a_zone">Remove a PTR from a zone</a></li>
+	</ul>
+
+	<li><a href="#dhcp_configuration">DHCP Configuration</a></li>
+	<ul>
+
+		<li><a href="#add_a_network">Add a network</a></li>
+		<li><a href="#modifying_networks">Modifying Networks</a></li>
+		<li><a href="#remove_a_network">Remove a network</a></li>
+		<li><a href="#move_networks">Move Networks</a></li>
+		<li><a href="#join_networks">Join Networks</a></li>
+		<li><a href="#add_a_shared_network">Add a shared network</a></li>
+		<li><a href="#remove_a_shared_network">Remove a shared network</a></li>
+		<li><a href="#split_a_network">Split a network</a></li>
+		<li><a href="#adding_network_to_parents">Adding network to parents</a></li>
+		<li><a href="#add_a_failover_association">Add a failover association</a></li>
+		<li><a href="#add_a_fixed_address">Add a fixed address</a></li>
+		<li><a href="#remove_a_fixed_address">Remove a fixed address</a></li>
+		<li><a href="#add_a_dhcp_range_to_a_network">Add a dhcp range to a network</a></li>
+		<li><a href="#modifying_ranges">Modifying Ranges</a></li>
+		<li><a href="#remove_a_dhcp_range">Remove a dhcp range</a></li>
+		<li><a href="#add_a_dhcp_filter">Add a DHCP filter</a></li>
+		<li><a href="#remove_a_dhcp_filter">Remove a DHCP filter</a></li>
+		<li><a href="#add_a_mac_address_to_a_filter">Add a mac address to a filter</a></li>
+		<li><a href="#remove_a_mac_address_from_a_filter">remove a mac address from a filter</a></li>
+	</ul>
+
+	<li><a href="#ipam_configuration">IPAM Configuration</a></li>
+	<ul>
+
+		<li><a href="#adding_custom_metadata_fields">Adding custom metadata fields</a></li>
+		<li><a href="#showing_device_types">Showing device types</a></li>
+		<li><a href="#showing_definitions_for_a_device_type">Showing definitions for a device type</a></li>
+	</ul>
+
+	<li><a href="#radius_configuration">RADIUS Configuration</a></li>
+	<ul>
+
+		<li><a href="#adding_radius_users">Adding Radius users</a></li>
+		<li><a href="#deleting_radius_users">Deleting Radius users</a></li>
+		<li><a href="#showing_radius_users">Showing Radius users</a></li>
+		<li><a href="#adding_radius_devices">Adding Radius devices</a></li>
+		<li><a href="#deleting_radius_devices">Deleting Radius devices</a></li>
+		<li><a href="#showing_radius_users">Showing Radius users</a></li>
+	</ul>
+
+	<li><a href="#grid_configuration">Grid Configuration</a></li>
+	<ul>
+
+		<li><a href="#adding_administrator_groups">Adding Administrator groups</a></li>
+		<li><a href="#adding_users">Adding users</a></li>
+		<li><a href="#adding_permissions">Adding permissions</a></li>
+		<li><a href="#deleting_or_changing_permissions">Deleting or Changing permissions</a></li>
+		<li><a href="#modifying_permissions">Modifying permissions</a></li>
+		<li><a href="#configure_global_grid_settings">configure global Grid settings</a></li>
+		<li><a href="#configure_member_settings">configure Member settings</a></li>
+		<li><a href="#configure_member_dns_settings">configure Member DNS settings</a></li>
+		<li><a href="#configure_member_dhcp_settings">configure Member DHCP settings</a></li>
+		<li><a href="#adding_members">Adding members</a></li>
+		<li><a href="#removing_members">Removing members</a></li>
+		<li><a href="#add_global_dns_settings">add global DNS settings</a></li>
+		<li><a href="#add_global_dhcp_option_definitions">add global DHCP option definitions</a></li>
+		<li><a href="#add_global_dhcp_options">add global DHCP options</a></li>
+		<li><a href="#remove_a_custom_option">Remove a custom option</a></li>
+		<li><a href="#show_global_dns_options">Show global DNS options</a></li>
+		<li><a href="#show_global_dhcp_options">Show global DHCP options</a></li>
+	</ul>
+
+	<li><a href="#show_commands">SHOW commands</a></li>
+	<ul>
+
+		<li><a href="#showing_zones">Showing Zones</a></li>
+		<li><a href="#showing_views">Showing Views</a></li>
+		<li><a href="#showing_hosts">Showing hosts</a></li>
+		<li><a href="#showing_records">Showing records</a></li>
+		<li><a href="#showing_leases">Showing leases</a></li>
+		<li><a href="#showing_networks">Showing networks</a></li>
+		<li><a href="#showing_network_failover">Showing network failover</a></li>
+		<li><a href="#showing_network_statistics">Showing network statistics</a></li>
+		<li><a href="#showing_network_ipam">Showing network IPAM</a></li>
+		<li><a href="#showing_ranges">Showing ranges</a></li>
+		<li><a href="#showing_fixed_addresses">Showing fixed addresses</a></li>
+		<li><a href="#showing_mac_filters">Showing MAC filters</a></li>
+		<li><a href="#show_global_grid_settings">Show global Grid settings</a></li>
+		<li><a href="#show_global_member_settings">Show global Member settings</a></li>
+		<li><a href="#showing_users_and_groups">Showing users and groups</a></li>
+	</ul>
+
+	<li><a href="#server_management">Server Management</a></li>
+	<ul>
+
+		<li><a href="#connect_to_a_server">Connect to a server</a></li>
+		<li><a href="#connecting_to_the_mgmt__management__port">connecting to the MGMT (management) port</a></li>
+		<li><a href="#show_server_details">Show server details</a></li>
+		<li><a href="#restarting_services">Restarting services</a></li>
+		<li><a href="#export_log_files">Export log files</a></li>
+		<li><a href="#download_the_database">Download the database</a></li>
+		<li><a href="#restore_the_database">Restore the database</a></li>
+		<li><a href="#download_the_dhcp_configuration">Download the DHCP configuration</a></li>
+		<li><a href="#upload_the_dhcp_expert_mode_configuration">Upload the DHCP expert mode configuration</a></li>
+		<li><a href="#browse_and_load_a_datbase_backup">Browse and load a datbase backup</a></li>
+		<li><a href="#show_the_contents_of_a_file">show the contents of a file</a></li>
+		<li><a href="#change_the_path_of_the_current_node">Change the path of the current node</a></li>
+		<li><a href="#debugging__">Debugging :</a></li>
+	</ul>
+
+</ul>
+<!-- INDEX END -->
+
+<hr />
+<p>
+</p>
+<h1><a name="ibcli">Ibcli</a></h1>
+<p>The INFOBLOX CLI, a users guide</p>
+<p>
+</p>
+<hr />
+<h1><a name="synopsis">Synopsis</a></h1>
+<p>*A guide for commandline junkies*</p>
+<p>
+</p>
+<hr />
+<h1><a name="description">Description</a></h1>
+<p>This is 
+$Revision: 3.1 $.
+There were previous versions that were even worse, this one is pretty bad,
+it really is beta code.  But it is a start.</p>
+<p>So why do this, what is this CLI for ? Well there were a few primary
+reasons:</p>
+<p>The Ibcli is a simple command line tool that lets you do some (mostly) powerful things. It
+leverages the Infoblox api but provides a wrapper to the more complex (and detailed) API calls that
+uses more simple command line type calls.</p>
+<p>I also lets you create batch scripts that can configure an Infoblox SDB with actually writing any
+perl.</p>
+<dl>
+<dt><strong><a name="item_quick_changes_are_now_easy_2c">Quick changes are now easy,</a></strong><br />
+</dt>
+<dd>
+You don't need to wait for a GUI to start or get the right version
+of java functional, this allows you to quickly get into the database
+and make some simple and efficient changes
+</dd>
+<p></p>
+<dt><strong><a name="item_abstract_command_set">Abstract command set</a></strong><br />
+</dt>
+<dd>
+Now you don't need to know the intricacies of the API, a few simple
+commands will achieve the same effect, if you are a user that
+doesn't know PERL you can still drive the CLI and get the results
+you need. This may not be an advantage if you are reading data from
+another system to import into an Infoblox unit (since you still need
+to write software to parse the data, eg PERL) but it may still help
+and end user that can convert this data in to the CLI command set
+but not know enough to write PERL.
+</dd>
+<p></p>
+<dt><strong><a name="item_customers_wanted_it">Customers wanted it</a></strong><br />
+</dt>
+<dd>
+Need I say more ?
+</dd>
+<p></p></dl>
+<p>Lastly, why is this called 'ibcli' and not 'DNScli' ? Well, this is just
+a wrapper to any API we like, it is not really DNS specific.</p>
+<p>
+</p>
+<hr />
+<h1><a name="quickstart">Quickstart</a></h1>
+<p>Simple example, adding a zone</p>
+<pre>
+   server ? &gt; conf server 10.0.1.224 user admin pass infoblox
+   admin@10.0.1.224 &gt; conf zone add infoblox.com
+   admin@10.0.1.224 &gt; conf zone add sales.infoblox.com</pre>
+<p>A more detailed example</p>
+<pre>
+   server ? &gt; conf server 10.0.1.224 user admin pass infoblox
+   admin@10.0.1.224 &gt; conf zone add com
+   admin@10.0.1.224 &gt; conf zone add foo.com
+   admin@10.0.1.224 &gt; conf zone foo.com add host test 1.2.3.4
+   admin@10.0.1.224 &gt; conf zone delete bar.com</pre>
+<p>A complex example, multiple connections</p>
+<pre>
+   server ? &gt; conf server 10.0.1.224 user admin pass infoblox
+   admin@10.0.1.224 &gt; conf zone add sales.foo.com</pre>
+<pre>
+   # now switch servers
+   admin@10.0.1.224 &gt; conf server 10.0.1.200 user admin1 pass infoblox1
+   admin1@10.0.1.220 &gt; conf zone add biz.foo.com</pre>
+<p>
+</p>
+<hr />
+<h1><a name="installation">Installation</a></h1>
+<p>It should run 'as is' from a uniz machine.</p>
+<p>If you have a windows OS then you will have a few hurdles to cross:</p>
+<ul>
+<li><strong><a name="item_rename_the_script_to__27ibcli_2epl_27_2e">Rename the script to 'ibcli.pl'.</a></strong><br />
+</li>
+I still don't understand why Windows uses file suffix to type its data
+rather than doing something intelligent like looking at the contents of
+the file, but then, we are dealing with people who thought 8.3 was all
+you'd ever need as a file namespace and 640K for ram...
+<p></p>
+<li><strong><a name="item_make_sure_you_have_the_necessary_libraries_install">Make sure you have the necessary libraries installed,</a></strong><br />
+</li>
+you'll need:
+<pre>
+   o Getopt::Long</pre>
+<pre>
+   o Text::Abbrev</pre>
+<pre>
+   o Term::EditLine</pre>
+<p></p></ul>
+<p>
+</p>
+<hr />
+<h1><a name="getting_started">Getting started</a></h1>
+<p>Run the ibcli - it is a perl script, you will get a prompt</p>
+<pre>
+    % ./ibcli
+    server ? &gt;</pre>
+<p>Ideally, you should now connect the CLI to a server somewhere, to do
+this you give it the server and a user and a password, you can do these in
+either order, it just tries to eventually connect when it has enough data.</p>
+<pre>
+    server ? &gt; conf server 10.0.1.224 user admin password infoblox
+    admin@10.0.1.224 &gt;</pre>
+<p>Or you can also do this from the initial invocation:</p>
+<pre>
+    % ./ibcli -s 10.0.1.230 -u admin -p infoblox</pre>
+<p>``HOLD ON A SEC'', I hear you ask, ``Why am i connecting to a server, isn't
+this CLI running on a console somewhere ?''. No, Grasshopper, the CLI is
+just a wrapper to the Infoblox.pm so you can run it from anywhere in
+the world. This gives you the added advantage of being able to work on
+MANY servers from the one CLI.</p>
+<p>
+</p>
+<hr />
+<h1><a name="setting_the_debug_level">Setting the debug level</a></h1>
+<pre>
+    server ? &gt; conf debug 3
+    server ? &gt;</pre>
+<p>Or you can also do this from the initial invocation:</p>
+<pre>
+    % ./ibcli -d 3</pre>
+<p>
+</p>
+<hr />
+<h1><a name="command_line_options">Command line options</a></h1>
+<dl>
+<dt><strong><a name="item__2ds__3cserver_3e">-s &lt;server&gt;</a></strong><br />
+</dt>
+<dd>
+Connect to this server
+</dd>
+<p></p>
+<dt><strong><a name="item__2du__3cusername_3e">-u &lt;username&gt;</a></strong><br />
+</dt>
+<dd>
+Connect as this user
+</dd>
+<p></p>
+<dt><strong><a name="item__2dp__3cpassword_3e">-p &lt;password&gt;</a></strong><br />
+</dt>
+<dd>
+Connect with this password
+</dd>
+<p></p>
+<dt><strong><a name="item__27_2dw_27">'-w'</a></strong><br />
+</dt>
+<dd>
+Print a CGI header instead of the normal header
+</dd>
+<p></p>
+<dt><strong><a name="item__2de__3ccommand_3e">-e &lt;command&gt;</a></strong><br />
+</dt>
+<dd>
+Run a single command and exit. The command must be quoted (for obvious reasons). 
+For example
+</dd>
+<dd>
+<pre>
+  % ./ibcli -e 'show zone'</pre>
+</dd>
+<p></p>
+<dt><strong><a name="item__2db_7cf__3cfile_3e">-b|f &lt;file&gt;</a></strong><br />
+</dt>
+<dd>
+load a database backup file for browsing
+</dd>
+<p></p></dl>
+<p>
+</p>
+<h2><a name="config_file">config file</a></h2>
+<p>If ibcli finds a file in the current working dircetory called '.ibcli.cf' it will
+silently load and run the commands in that file. This is useful for doing things
+like auto connection to a server (in CGI mode).</p>
+<p>
+</p>
+<hr />
+<h1><a name="other_gritty_details">Other Gritty Details</a></h1>
+<p>OK, so what can I do from here ?</p>
+<p>
+</p>
+<h2><a name="members_and_secondaries">Members and secondaries</a></h2>
+<p>By default all stuff is added to just the Grid Master, the API guesses
+this from the SERVER setting. If you explicitly want to add stuff to
+certain members you need to append the members to the command arg :</p>
+<pre>
+   conf zone add foo.com member 1.2.3.4
+   conf zone add foo.com member 1.2.3.4 member 1.2.3.5</pre>
+<p>
+</p>
+<h2><a name="laziness">Laziness</a></h2>
+<p>The command parser accepts abbreviations</p>
+<pre>
+    se z a foo.com</pre>
+<p>is the same as</p>
+<pre>
+    conf zone add foo.com</pre>
+<p>
+</p>
+<h2><a name="tab_completion_and_other_commands">TAB completion and other commands</a></h2>
+<p>The cli uses a full line editor with history and the usual bells and
+whistles. Command completion can be achieved by pressing &lt;tab&gt;</p>
+<p>To clear the line press '&lt;ctrl&gt;-u' or '\'</p>
+<p>To exit the cli, press '&lt;ctrl&gt;-D' (not &lt;ctrl&gt;-c)</p>
+<p>
+</p>
+<h2><a name="batch_processing">BATCH processing</a></h2>
+<p>You can process command in batch by just writing them to a file and
+adding it to the command line thus :</p>
+<pre>
+   ibcli -s 10.64.128.50 -u admin -p infoblox demo.cf</pre>
+<p>
+</p>
+<hr />
+<h1><a name="general_command_reference">GENERAL COMMAND REFERENCE</a></h1>
+<p>The syntax mostly matches the API syntax. Also, since this is based on
+the API (duh) the same restrictions about required arguments applies.
+Don't expect the cli to work around requiring dumb extra arguments. When
+you look deep into the API you realise why they are there.</p>
+<p>
+</p>
+<hr />
+<h1><a name="dns_configuration">DNS Configuration</a></h1>
+<p>
+</p>
+<h2><a name="add_a_view_to_dns">Add a view to dns</a></h2>
+<pre>
+   conf zone add view internal</pre>
+<p>Add a view disabled :</p>
+<pre>
+   conf zone add view internal disabled</pre>
+<p>
+</p>
+<h2><a name="remove_a_view_from_dns">Remove a view from dns</a></h2>
+<pre>
+   conf zone delete view internal</pre>
+<p>
+</p>
+<h2><a name="add_a_shared_record_group">Add a shared record group</a></h2>
+<pre>
+   conf zone add shared_record_group my_group</pre>
+<pre>
+   conf zone delete shared_record_group my_group</pre>
+<p>
+</p>
+<h2><a name="add_a_zone">Add a Zone</a></h2>
+<p>Zones can be added as either forward or reverse. If you add a zone of the
+form n.n.n.n/mm it will assume it is a reverse zone</p>
+<p>Add a forward zone</p>
+<pre>
+   conf zone add foo.com</pre>
+<p>Add a reverse zone</p>
+<pre>
+   conf zone add 10.0.1.0/24
+   conf zone add 10.in-addr.arpa</pre>
+<p>Add a zone to specific members</p>
+<pre>
+   conf zone add foo.com primary 1.2.3.4 secondary 1.2.3.5 sec 1.2.3.6</pre>
+<p>Add a zone with external primary</p>
+<pre>
+   conf zone add foo.com ext_primary ns1.foo.com,1.2.3.4</pre>
+<p>Add a zone with stealth primary or secondary</p>
+<pre>
+   conf zone add foo.com stealth_secondary 1.2.3.20 
+   conf zone add foo.com stealth_ext_secondary ns1.foo.com,1.2.3.4 
+   conf zone add foo.com stealth_ext_primary ns0.foo.com,1.2.3.4</pre>
+<p>Add a zone with an nsgroup</p>
+<pre>
+   conf zone add foo.com nsgroup mygroup</pre>
+<p>Add a shared record group to a zone</p>
+<pre>
+   conf zone modify foo.com shared_record_group mygroup
+   conf zone add foo.com shared_record_group mygroup</pre>
+<p>Add a forwarding zone (and assign it to members)</p>
+<pre>
+   configure zone add fwd.foo.com forward_to 2.2.2.2 forward_to 3.3.3.3</pre>
+<p>Add a delegated zone</p>
+<pre>
+   configure zone add deleg.foo.com delegate_to ns1.s.foo.com,1.2.3.4</pre>
+<p>Add a stub zone (and assign it to members)</p>
+<pre>
+   conf zone add foo.com stub_from ns0.foo.com,1.2.3.4 mem 2.2.2.2
+    
+=head2 Import a zone</pre>
+<p>Zones can be imported as either forward or reverse. You just add an extra
+argument of the import source</p>
+<p>Import a forward zone</p>
+<pre>
+   conf zone add foo.com import 45.0.1.220</pre>
+<p>Import a reverse zone</p>
+<pre>
+   conf zone add 10.0.1.0/24 import 45.0.1.220</pre>
+<p>Set a random API method on a zone</p>
+<pre>
+   conf zone add foo set &lt;method&gt;=&lt;value&gt;
+   conf zone add foo set disable_forwarding=FALSE</pre>
+<p>When setting arrays you need special syntax ``[ ]'' and seperate your
+values by a ',' (This mostly seems to work)</p>
+<pre>
+   ... set allow_update=&quot;[10.0.0.0/8,168.147.0.0/24,192.168.114.0/24]&quot;</pre>
+<p>
+</p>
+<h2><a name="remove_a_zone">Remove a zone</a></h2>
+<p>Forward or reverse, the syntax follows the same logic as add zone</p>
+<p>Remove a forward zone</p>
+<pre>
+   conf zone del foo.com</pre>
+<p>Remove a reverse zone</p>
+<pre>
+   conf zone del 10.0.1.0/24</pre>
+<p>
+</p>
+<h2><a name="add_a_ns_group">Add a NS group</a></h2>
+<pre>
+    conf zone add nsgroup internal primary 45.0.12.20 secondary 45.0.128.20</pre>
+<p>You can also call this as a grid command</p>
+<pre>
+    conf grid Infoblox dns add nsgroup internal ...</pre>
+<p>
+</p>
+<h2><a name="delete_a_ns_group">Delete a NS group</a></h2>
+<pre>
+    conf zone del nsgroup internal</pre>
+<p>You can also call this as a grid command</p>
+<pre>
+    conf grid Infoblox dns del nsgroup internal</pre>
+<p>
+</p>
+<h2><a name="add_a_host_to_a_zone">Add a host to a zone</a></h2>
+<pre>
+   conf zone foo.com add host test 1.2.3.4</pre>
+<pre>
+   conf zone foo.com add host test 1.2.3.4 comment &quot;this is a comment&quot;</pre>
+<p>Don't know the zones ? Then just leave it NULL</p>
+<pre>
+   conf zone &quot;&quot; add host test.foo.com 1.2.3.4</pre>
+<p>Add hosts with multiple ip addresses. seperate the values with a ','</p>
+<pre>
+   conf zone foo.com add host test 1.2.3.4,1.2.3.5</pre>
+<p>Add hosts with multiple ip addresses and mac addresses, append the
+mac address with ':&lt;mac&gt;' to the ipaddress</p>
+<pre>
+   conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03,1.2.3.5</pre>
+<p>To add hosts with fixed addresses, and a fixed addr template</p>
+<pre>
+   conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03 template mytemp</pre>
+<p>Add hosts with aliases (CNAMES)</p>
+<pre>
+   conf zone foo.com add host test 1.2.3.4 alias www alias ftp</pre>
+<p>Adding hosts with IPAM information ( quotes may be required )
+You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
+<pre>
+   conf zone info.com add host pc1 2.3.3.3 info Asset=23456-06
+   conf zone info.com add host pc2 2.3.3.3 info Custom1=&quot;Room 207&quot;</pre>
+<p>
+</p>
+<h2><a name="modifying_hosts">Modifying hosts</a></h2>
+<p>You cannot rename a host, only modify the contents of it</p>
+<pre>
+   conf zone foo.com modify host test 1.2.3.4</pre>
+<pre>
+   conf zone foo.com modify host test 1.2.3.4 comment &quot;this is a comment&quot;</pre>
+<p>
+</p>
+<h2><a name="remove_a_host_from_a_zone">Remove a host from a zone</a></h2>
+<pre>
+   conf zone foo.com delete host test</pre>
+<p>
+</p>
+<h2><a name="add_an_a_record_to_a_zone">Add an A record to a zone</a></h2>
+<pre>
+   conf zone foo.com add a_record test 1.2.3.4</pre>
+<p>Add it to a view :</p>
+<pre>
+   conf zone foo.com add a_record test 1.2.3.4 view my_view</pre>
+<p>To add the record to a shared record group (zone must be blank)</p>
+<pre>
+   conf zone &quot;&quot; add a_record test 1.2.3.4 shared_record_group mygroup</pre>
+<p>
+</p>
+<h2><a name="remove_an_a_record_from_a_zone">Remove An A record from a zone</a></h2>
+<pre>
+   conf zone foo.com delete A test 1.2.3.4</pre>
+<p>
+</p>
+<h2><a name="add_an_aaaa_record_to_a_zone">Add an AAAA record to a zone</a></h2>
+<pre>
+   conf zone foo.com add AAAA test fe80::0001</pre>
+<p>To add the record to a shared record group (zone must be blank)</p>
+<pre>
+   conf zone &quot;&quot; add AAAA test ad::2007 shared_record_group mygroup</pre>
+<p>
+</p>
+<h2><a name="remove_an_aaaa_record_from_a_zone">Remove An AAAA record from a zone</a></h2>
+<pre>
+   conf zone foo.com delete AAAA test fe80::0001</pre>
+<p>
+</p>
+<h2><a name="add_an_mx_record_to_a_zone">Add an MX record to a zone</a></h2>
+<pre>
+   conf zone foo.com add mx mail 10 mail.bar.com</pre>
+<p>To add the record to a shared record group (zone must be blank)</p>
+<pre>
+   conf zone &quot;&quot; add mx mail 10 mail.bar.com shared_record_group mygroup</pre>
+<p>
+</p>
+<h2><a name="remove_an_mx_record_from_a_zone">Remove An MX record from a zone</a></h2>
+<pre>
+   conf zone foo.com del mx mail 10 mail.bar.com</pre>
+<p>
+</p>
+<h2><a name="add_an_srv_record_to_a_zone">Add an SRV record to a zone</a></h2>
+<pre>
+   conf zone foo.com add SRV &lt;name&gt; &lt;pri&gt; &lt;weight&gt; &lt;port&gt; &lt;target&gt;
+   conf zone foo.com add SRV _ldap._tcp 0 100 3268 dc01.foo.com</pre>
+<p>To add the record to a shared record group (zone must be blank)</p>
+<pre>
+   conf zone &quot;&quot; add srv ... shared_record_group mygroup</pre>
+<p>
+</p>
+<h2><a name="add_a_bulk_host_to_a_zone">Add a bulk host to a zone</a></h2>
+<pre>
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20</pre>
+<pre>
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 addreverse</pre>
+<pre>
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 view foo</pre>
+<pre>
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 comment &quot;bah&quot;</pre>
+<p>
+</p>
+<h2><a name="remove_a_bulk_host_from_a_zone">Remove a bulk host from a zone</a></h2>
+<pre>
+   conf zone foo.com del bulkhost my_prefix 1.2.3.10 1.2.3.20</pre>
+<p>
+</p>
+<h2><a name="add_a_cname_to_a_zone">Add a CNAME to a zone</a></h2>
+<pre>
+   conf zone foo.com add CNAME alias real.foo.com</pre>
+<p>
+</p>
+<h2><a name="remove_a_cname_from_a_zone">Remove a CNAME from a zone</a></h2>
+<pre>
+   conf zone foo.com delete CNAME alias</pre>
+<p>
+</p>
+<h2><a name="add_a_txt_record_to_a_zone">Add a TXT record to a zone</a></h2>
+<pre>
+   conf zone foo.com add TXT alias real.foo.com</pre>
+<p>
+</p>
+<h2><a name="remove_a_txt_record_from_a_zone">Remove a TXT Record from a zone</a></h2>
+<pre>
+   conf zone foo.com delete txt name</pre>
+<p>
+</p>
+<h2><a name="add_a_ptr_to_a_zone">Add a PTR to a zone</a></h2>
+<pre>
+   conf zone 10.0.0.0/24 add PTR 10.0.0.20 ns2.foo.com</pre>
+<p>Add a PTR with comments</p>
+<pre>
+   conf zone 10.0.0.0/24 add PTR 10.0.0.20 ns2.foo.com comment &quot;string&quot;</pre>
+<p>
+</p>
+<h2><a name="remove_a_ptr_from_a_zone">Remove a PTR from a zone</a></h2>
+<pre>
+   conf zone 10.0.0.0/24 del PTR 10.0.0.20 ns2.foo.com</pre>
+<p>
+</p>
+<hr />
+<h1><a name="dhcp_configuration">DHCP Configuration</a></h1>
+<p>
+</p>
+<h2><a name="add_a_network">Add a network</a></h2>
+<pre>
+   conf network add 1.1.1.0/24</pre>
+<p>Add a network witwith a reverse zone</p>
+<pre>
+   conf network add 1.1.1.0/24 addreverse</pre>
+<p>Add a network with members</p>
+<pre>
+   conf network add 1.1.1.0/24 member 10.1.1.20 member 10.1.1.40</pre>
+<p>If no members are specified, the network will be added to the Grid
+master.  If you don't want to assign any members use '0.0.0.0'</p>
+<pre>
+   conf network add 1.1.1.0/24 member 0.0.0.0</pre>
+<p>Add a network using a template</p>
+<pre>
+   conf network add 1.1.1.0/24 template MyTemplate</pre>
+<p>Add a network with options</p>
+<pre>
+   conf network add 1.1.1.0/24 option 82=&quot;some data&quot;</pre>
+<p>Add a network with vendor class options (class.option)</p>
+<pre>
+   conf network add 1.1.1.0/24 option SunW.bootsvr=&quot;some data&quot;</pre>
+<p>Add a network with comments (comments must come last)</p>
+<pre>
+   conf network add 1.1.1.0/24 comment &quot;comment string&quot;</pre>
+<p>Add a network and set any additional parameters. (the setting
+must match a method in the API)</p>
+<pre>
+   conf network add 1.1.1.0/24 set &lt;method=value&gt;
+   conf network add 1.1.1.0/24 set enable_ddns=FALSE</pre>
+<p>
+</p>
+<h2><a name="modifying_networks">Modifying Networks</a></h2>
+<p>You cannot renumber a network, only modify the contents of it.</p>
+<pre>
+   conf network modify 1.1.1.0/24 set &lt;method=value&gt;</pre>
+<pre>
+   conf network modify 1.1.1.0/24 option 82=&quot;some data&quot;</pre>
+<p>if you change things like options arrays, ALL the existing values will be
+replaced by the new list. 'modify' does not append to existing lists, it
+does a complete replacement of it.</p>
+<p>
+</p>
+<h2><a name="remove_a_network">Remove a network</a></h2>
+<pre>
+   conf network del 1.1.1.0/24</pre>
+<p>
+</p>
+<h2><a name="move_networks">Move Networks</a></h2>
+<p>Move a network to a different member, or move a network onto members to
+match a failover association. The ranges inside the network will also be
+moved.</p>
+<p>Moving a network to a single member :</p>
+<pre>
+   configure network move 45.0.0.0/24 member 2.2.2.2</pre>
+<p>Moving a network to a multiple members :</p>
+<pre>
+   configure network move 45.0.0.0/24 member 2.2.2.2 member 3.3.3.3</pre>
+<p>Moving a network to use DHCP failover :</p>
+<pre>
+   configure network move 45.0.0.0/24 failover box1-boxb</pre>
+<p>
+</p>
+<h2><a name="join_networks">Join Networks</a></h2>
+<pre>
+   ** This feature will soon change, use with caution **</pre>
+<pre>
+   conf network 1.1.1.0/23 join /23 net 1.1.2.0/24</pre>
+<pre>
+   # this will copy all the ranges etc from the network
+   # and create a new network</pre>
+<p>
+</p>
+<h2><a name="add_a_shared_network">Add a shared network</a></h2>
+<pre>
+   conf network add shared my_shared child_network 1.1.1.0/24 child 1.1.2.0/24</pre>
+<p>Add a shared network with options</p>
+<pre>
+   conf network add shared foo option 82=&quot;some data&quot;</pre>
+<p>Add a shared network with comments</p>
+<pre>
+   conf network add shared my_shared ... comment &quot;comment string&quot;</pre>
+<p>
+</p>
+<h2><a name="remove_a_shared_network">Remove a shared network</a></h2>
+<pre>
+   conf network del shared my_shared</pre>
+<p>
+</p>
+<h2><a name="split_a_network">Split a network</a></h2>
+<p>You need to specify the netmaks of the children networks when you are
+doing a split. So to split a /16 into /20 networks :</p>
+<pre>
+   conf network 1.1.0.0/16 split /24</pre>
+<p>Split a network and add all children</p>
+<pre>
+   conf network 1.1.0.0/16 split /24 all</pre>
+<p>
+</p>
+<h2><a name="adding_network_to_parents">Adding network to parents</a></h2>
+<p>When you split a network and want to add children you just add them to
+the parent network. All other options are the same as for adding networks</p>
+<pre>
+   conf network 1.1.0.0/16 add 1.1.4.0/22</pre>
+<p>
+</p>
+<h2><a name="add_a_failover_association">Add a failover association</a></h2>
+<pre>
+   conf net add failover AtoB primary 45.0.12.20 secondary 45.0.128.30</pre>
+<p>
+</p>
+<h2><a name="add_a_fixed_address">Add a fixed address</a></h2>
+<pre>
+   conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33</pre>
+<p>Add a fixed address with a Fixed Address Template</p>
+<pre>
+   conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 template mytemp</pre>
+<p>Add a fixed address with comments</p>
+<pre>
+   conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 comment &quot;comment string&quot;</pre>
+<p>
+</p>
+<h2><a name="remove_a_fixed_address">Remove a fixed address</a></h2>
+<p>For some clever reason, you don't really need to specify the parent
+network to remove a fixed address, but we enforct it here to keep people
+sane (In reality, any bogus string for the network name will work)</p>
+<pre>
+   conf network 10.0.1.0 delete fixed 1.2.3.4</pre>
+<p>
+</p>
+<h2><a name="add_a_dhcp_range_to_a_network">Add a dhcp range to a network</a></h2>
+<p>Dhcp ranges, by default, will get added to the Grid master unless you
+override that setting with the 'member &lt;ip&gt;' syntax</p>
+<pre>
+   conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40</pre>
+<p>Failover associations are an additional argument</p>
+<pre>
+   conf net 10.1.1.1/24 add range 10... failover &quot;my_peering&quot;</pre>
+<p>As are adding the member</p>
+<pre>
+   conf net 10.1.1.1/24 add range 10... member 1.1.1.2</pre>
+<p>If no members are specified, the range will be added to the Grid
+master.  If you don't want to assign any members use '0.0.0.0'</p>
+<pre>
+   conf net 10.1.1.1/24 add range 10... member 0.0.0.0</pre>
+<p>You can also add exclusions</p>
+<pre>
+   conf net 10.1.1.1/24 add range 10... exclude 1.1.1.2,1.1.2.5</pre>
+<p>You can also add filters to a range (multiples are allowed)</p>
+<pre>
+   conf net 10.1.1.1/24 add range 10... macfilter &lt;name&gt;=&lt;permission&gt;</pre>
+<p>
+</p>
+<h2><a name="modifying_ranges">Modifying Ranges</a></h2>
+<p>You cannot renumber a range, only modify the contents of it.</p>
+<pre>
+   conf network 1.1.1.0/24 modify range 10.. set &lt;method=value&gt;</pre>
+<pre>
+   conf network 1.1.1.0/24 modify range 10.. option 82=&quot;some data&quot;</pre>
+<p>if you change things like options arrays, ALL the existing values will be
+replaced by the new list. 'modify' does not append to existing lists, it
+does a complete replacement of it.</p>
+<p>
+</p>
+<h2><a name="remove_a_dhcp_range">Remove a dhcp range</a></h2>
+<pre>
+   conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40</pre>
+<p>
+</p>
+<h2><a name="add_a_dhcp_filter">Add a DHCP filter</a></h2>
+<p>Filters can take many forms, so you need to be specific</p>
+<pre>
+    conf network add macfilter my_filter</pre>
+<p>
+</p>
+<h2><a name="remove_a_dhcp_filter">Remove a DHCP filter</a></h2>
+<pre>
+    conf network del macfilter my_filter</pre>
+<p>
+</p>
+<h2><a name="add_a_mac_address_to_a_filter">Add a mac address to a filter</a></h2>
+<pre>
+    conf network filter my_filter add macaddress aa:bb:cc:11:22:33</pre>
+<p>Add a mac address to a filter with comments</p>
+<pre>
+    conf network filter my_filter add mac aa:bb:cc:11:22:33 comment &quot;my comment&quot;</pre>
+<p>
+</p>
+<h2><a name="remove_a_mac_address_from_a_filter">remove a mac address from a filter</a></h2>
+<pre>
+    conf network filter my_filter delete macaddress aa:bb:cc:11:22:33</pre>
+<p>
+</p>
+<hr />
+<h1><a name="ipam_configuration">IPAM Configuration</a></h1>
+<p>
+</p>
+<h2><a name="adding_custom_metadata_fields">Adding custom metadata fields</a></h2>
+<p>Add a device type</p>
+<pre>
+   configure grid add device_type &lt;name&gt;</pre>
+<p>Add a device type with new custom labels</p>
+<pre>
+   configure grid add device_type &lt;name&gt; label &lt;orig&gt;=&lt;new-name&gt;</pre>
+<p>Add a device type with multiple custom labels</p>
+<pre>
+   ... device_type &lt;name&gt; label &lt;orig2&gt;=&lt;new-name2&gt; label &lt;orig2&gt;=&lt;new-name2&gt;</pre>
+<p>For 4.3 or later you have to add and define Extensible attributes</p>
+<pre>
+   configure grid add attribute &lt;name&gt;</pre>
+<p>Set Values and type</p>
+<pre>
+   configure grid add attribute &lt;name&gt; value &lt;value&gt; [ value &lt;value ]</pre>
+<pre>
+   configure grid add attribute &lt;name&gt; type &lt;type&gt;</pre>
+<p>create a list of elements</p>
+<pre>
+   configure grid add attribute &lt;name&gt; type list value one value two</pre>
+<p>Set the attribute to be a multiple or a required item</p>
+<pre>
+   configure grid add attribute &lt;name&gt; required</pre>
+<pre>
+   configure grid add attribute &lt;name&gt; multiple</pre>
+<p>
+</p>
+<h2><a name="showing_device_types">Showing device types</a></h2>
+<pre>
+   show grid device_type</pre>
+<pre>
+   show grid device_type &lt;name&gt;</pre>
+<p>
+</p>
+<h2><a name="showing_definitions_for_a_device_type">Showing definitions for a device type</a></h2>
+<p>
+</p>
+<hr />
+<h1><a name="radius_configuration">RADIUS Configuration</a></h1>
+<p>
+</p>
+<h2><a name="adding_radius_users">Adding Radius users</a></h2>
+<pre>
+   configure radius add user bob password changeme</pre>
+<p>
+</p>
+<h2><a name="deleting_radius_users">Deleting Radius users</a></h2>
+<pre>
+   configure radius del user bob</pre>
+<p>
+</p>
+<h2><a name="showing_radius_users">Showing Radius users</a></h2>
+<pre>
+   show radius user bob</pre>
+<p>
+</p>
+<h2><a name="adding_radius_devices">Adding Radius devices</a></h2>
+<p>You MUST specify a member and a Shared secret</p>
+<pre>
+   conf radius add device &lt;name&gt; &lt;ip&gt; member 1.2.3.4 shared_secret xxxx
+   
+You can also add a comment</pre>
+<pre>
+   conf radius add device &lt;name&gt; &lt;ip&gt; ... comment &quot;Test AP&quot;</pre>
+<p>
+</p>
+<h2><a name="deleting_radius_devices">Deleting Radius devices</a></h2>
+<pre>
+   conf radius del device &lt;name&gt; &lt;ip&gt; member 1.2.3.4 shared_secret xxxx</pre>
+<p>
+</p>
+<h2><a name="showing_radius_users">Showing Radius users</a></h2>
+<pre>
+   show radius device bob</pre>
+<pre>
+   show radius device &lt;name&gt;</pre>
+<p>
+</p>
+<hr />
+<h1><a name="grid_configuration">Grid Configuration</a></h1>
+<p>
+</p>
+<h2><a name="adding_administrator_groups">Adding Administrator groups</a></h2>
+<pre>
+   configure admin add admin_group locals</pre>
+<p>
+</p>
+<h2><a name="adding_users">Adding users</a></h2>
+<p>You need the admin group name and a password</p>
+<pre>
+   configure admin add user bob group locals password changeme</pre>
+<p>
+</p>
+<h2><a name="adding_permissions">Adding permissions</a></h2>
+<p>Permissions can be any of 'read' 'write' or 'deny', and ar applied to an
+admin group or an admin</p>
+<pre>
+  conf zone &lt;zone&gt; add permission &lt;perm&gt; group &lt;name&gt;</pre>
+<pre>
+  conf zone test.com add permission read group ops</pre>
+<pre>
+  conf net 45.0.0.0/24 add permission read group ops</pre>
+<pre>
+  conf member ns1.test.com add permission read group ops</pre>
+<p>
+</p>
+<h2><a name="deleting_or_changing_permissions">Deleting or Changing permissions</a></h2>
+<p>Permissions can be any of 'read' 'write' or 'deny', and ar applied to an
+admin group or an admin.</p>
+<p>If you want to change a permission, you have to delete it, then add a new
+permission (yes, there should be a better way)</p>
+<pre>
+  conf zone &lt;zone&gt; del permission &lt;perm&gt; group &lt;name&gt;</pre>
+<pre>
+  conf zone test.com del permission read group ops</pre>
+<pre>
+  conf net 45.0.0.0/24 del permission read group ops</pre>
+<p>
+</p>
+<h2><a name="modifying_permissions">Modifying permissions</a></h2>
+<p>you need enough unique information to find the correct permission and
+them modify it, thus you need :
+ - resource object
+ - admin group</p>
+<p>The CLI will then try to get the current permission and modify it</p>
+<pre>
+  conf zone &lt;zone&gt; mod permission &lt;perm&gt; group &lt;name&gt;</pre>
+<p>To change a zone permision to 'read-only' :</p>
+<pre>
+  conf zone test.com mod permission read group ops</pre>
+<p>
+</p>
+<h2><a name="configure_global_grid_settings">configure global Grid settings</a></h2>
+<p>Add or remove access methods</p>
+<pre>
+   conf grid &lt;name&gt; add remote_console_access
+   conf grid &lt;name&gt; delete  remote_console_access
+   conf grid &lt;name&gt; add support_access
+   conf grid &lt;name&gt; add lcd_input</pre>
+<p>Modify some basic grid values</p>
+<pre>
+   configure grid Infoblox modify grid_name My_Grid</pre>
+<pre>
+   configure grid Infoblox modify vpn_port 1194
+   configure grid Infoblox modify shared_secret test
+   configure grid Infoblox modify session_timeout 14400
+   configure grid Infoblox modify prefer_resolver 127.0.0.1</pre>
+<p>Add ntp servers ( and enable NTP at the same time )</p>
+<pre>
+   configure grid Infoblox add ntp_server 1.1.1.1 ntp_server 2.2.2.2</pre>
+<p>Disable the NTP service</p>
+<pre>
+   configure grid Infoblox disable ntp</pre>
+<p>
+</p>
+<h2><a name="configure_member_settings">configure Member settings</a></h2>
+<p>Enable or Disable the NTP service</p>
+<pre>
+   configure grid Infoblox modify member 1.2.3.20 enable ntp
+   configure grid Infoblox modify member 1.2.3.20 disable ntp</pre>
+<p>Change the IP address</p>
+<pre>
+    conf grid Infoblox modify member infoblox.localdomain ipaddress 10.64.128.40/24</pre>
+<p>Make this an HA pair</p>
+<pre>
+    conf grid blox modify member foo.com hapair 10.64.128.41,10.64.128.42,10.64.128.43,10.64.128.44 routerid 40</pre>
+<p>
+</p>
+<h2><a name="configure_member_dns_settings">configure Member DNS settings</a></h2>
+<p>Set a value
+</p>
+<pre>
+
+   conf member ns1.lab.com dns set ...</pre>
+<pre>
+   conf member ns1.lab.com dns set forwarders=&quot;[1.1.1.1,4.2.2.2]&quot;</pre>
+<p>
+</p>
+<h2><a name="configure_member_dhcp_settings">configure Member DHCP settings</a></h2>
+<p>Set an option</p>
+<pre>
+   conf member ns1.lab.com dhcp option 82=&quot;some data&quot;</pre>
+<p>Set a value
+</p>
+<pre>
+
+   conf member ns1.lab.com dhcp set ...</pre>
+<pre>
+   conf member ns1.lab.com dhcp set forwarders=&quot;[1.1.1.1,4.2.2.2]&quot;</pre>
+<p>
+</p>
+<h2><a name="adding_members">Adding members</a></h2>
+<pre>
+   configure grid Infoblox add member ns1.foo.com ipaddress 1.2.3.20/24</pre>
+<p>Add a member as an HA pair</p>
+<pre>
+   configure grid Infoblox add member ns1.foo.com \
+      ipaddress 192.168.1.100/24 gateway 192.168.1.1 \
+      hapair 192.168.1.101,192.168.1.102,192.168.1.103,192.168.1.104 \
+      routerid 100</pre>
+<p>Members can have a LOT of options...</p>
+<p>To add a mgmt port :</p>
+<pre>
+     mgmt_ip 5.195.156.52/25 mgmt_gate 5.195.156.1</pre>
+<p>To add mgmt ports to HA pairs ( 'hapair' must be defined ) :</p>
+<pre>
+    mgmt_ip 5.195.156.52/25 mgmt_gate 5.195.156.1 mgmt_ip_2 5.195.156.53/25</pre>
+<p>
+</p>
+<h2><a name="removing_members">Removing members</a></h2>
+<pre>
+   configure grid Infoblox delete member ns1.foo.com ipaddress 1.2.3.20/24</pre>
+<p>
+</p>
+<h2><a name="add_global_dns_settings">add global DNS settings</a></h2>
+<pre>
+   conf grid &lt;name&gt; dns add default_ttl &lt;num&gt;
+   conf grid &lt;name&gt; dns add recursion</pre>
+<pre>
+   conf grid &lt;name&gt; dns add nsgroup &lt;name&gt;</pre>
+<p>DNS ACLs</p>
+<pre>
+   conf grid &lt;name&gt; dns add acl allow transfer x.x.x.x/nn
+   conf grid &lt;name&gt; dns add acl deny update x.x.x.x/nn</pre>
+<p>
+</p>
+<h2><a name="add_global_dhcp_option_definitions">add global DHCP option definitions</a></h2>
+<p>Create a Vendor space</p>
+<pre>
+  conf network add space &lt;name&gt;</pre>
+<pre>
+  conf network add space SUNW</pre>
+<p>Create a DHCP network option</p>
+<pre>
+  conf network add optiondef &lt;name&gt; code &lt;num&gt; type &lt;type&gt;</pre>
+<pre>
+  conf network add optiondef voip 150 type string</pre>
+<p>If you want to add them to vendor spaces..</p>
+<pre>
+  conf network add optiondef server 150 type string space SUNW
+  conf network add optiondef boot 270 type string space Cisco-ap</pre>
+<p>
+</p>
+<h2><a name="add_global_dhcp_options">add global DHCP options</a></h2>
+<p>Add a network option to the grid level</p>
+<pre>
+   conf grid &lt;name&gt; dhcp add option &lt;num&gt;=&lt;value&gt;</pre>
+<pre>
+   conf grid Infoblox dhcp add option 82=&quot;some data&quot;</pre>
+<p>Remove a custom option</p>
+<pre>
+   conf grid &lt;name&gt; delete network option 82</pre>
+<p>
+</p>
+<h2><a name="remove_a_custom_option">Remove a custom option</a></h2>
+<pre>
+   conf network global delete custom_option 82
+   conf network global delete lease_time</pre>
+<p>
+</p>
+<h2><a name="show_global_dns_options">Show global DNS options</a></h2>
+<pre>
+   show grid &lt;name&gt; dns</pre>
+<p>
+</p>
+<h2><a name="show_global_dhcp_options">Show global DHCP options</a></h2>
+<pre>
+   show grid &lt;name&gt; dhcp</pre>
+<p>
+</p>
+<hr />
+<h1><a name="show_commands">SHOW commands</a></h1>
+<p>
+</p>
+<h2><a name="showing_zones">Showing Zones</a></h2>
+<p>Show all zones</p>
+<pre>
+    show zone</pre>
+<p>Show all forward zones</p>
+<pre>
+    show zone forward</pre>
+<p>Show all reverse zones</p>
+<pre>
+    show zone reverse</pre>
+<p>Show just 1 zone</p>
+<pre>
+    show zone foo.com</pre>
+<p>Show NameServer Groups</p>
+<pre>
+    show zone nsgroup</pre>
+<pre>
+    show zone nsgroup &lt;name&gt;</pre>
+<p>Show Shared Record Groups</p>
+<pre>
+    show zone shared_record_group</pre>
+<pre>
+    show zone shared_record_group &lt;name&gt;</pre>
+<p>
+</p>
+<h2><a name="showing_views">Showing Views</a></h2>
+<p>Show all views</p>
+<pre>
+    show views</pre>
+<p>Show just One view</p>
+<pre>
+    show view default</pre>
+<p>
+</p>
+<h2><a name="showing_hosts">Showing hosts</a></h2>
+<pre>
+    show host www.foo.com</pre>
+<p>
+</p>
+<h2><a name="showing_records">Showing records</a></h2>
+<pre>
+    show record cname www.foo.com
+    show record a_record test.foo.com</pre>
+<p>
+</p>
+<h2><a name="showing_leases">Showing leases</a></h2>
+<pre>
+   show network lease 1.1.1.1</pre>
+<pre>
+   shoe network lease aa:bb:cc:11:22:33</pre>
+<p>Show ALL leases</p>
+<pre>
+   show network lease</pre>
+<p>
+</p>
+<h2><a name="showing_networks">Showing networks</a></h2>
+<pre>
+   show network</pre>
+<pre>
+   show network 45.200.100.128/25</pre>
+<p>
+</p>
+<h2><a name="showing_network_failover">Showing network failover</a></h2>
+<pre>
+   show network failover</pre>
+<p>
+</p>
+<h2><a name="showing_network_statistics">Showing network statistics</a></h2>
+<pre>
+   show network statistics</pre>
+<pre>
+   show network 45.200.100.128/25 statistics</pre>
+<p>
+</p>
+<h2><a name="showing_network_ipam">Showing network IPAM</a></h2>
+<p>List ALL the used and unused addresses in a subnet</p>
+<pre>
+   show network 45.200.100.128/25 ipam</pre>
+<p>Show just the unused addresses</p>
+<pre>
+   show network 45.200.100.128/25 ipam used</pre>
+<p>
+</p>
+<h2><a name="showing_ranges">Showing ranges</a></h2>
+<p>Show all ranges in a network</p>
+<pre>
+   show network 45.200.100.128/25 range</pre>
+<p>Show just a specific range</p>
+<pre>
+   show network 45.200.100.128/25 range 161.245.254.130</pre>
+<p>
+</p>
+<h2><a name="showing_fixed_addresses">Showing fixed addresses</a></h2>
+<p>Show all fixed addresses in a network</p>
+<pre>
+   show network 45.200.100.128/25 fixed</pre>
+<p>Show just a specific fixed address</p>
+<pre>
+   show network 45.200.100.128/25 fixed 161.245.254.130</pre>
+<p>
+</p>
+<h2><a name="showing_mac_filters">Showing MAC filters</a></h2>
+<p>Show all macfilter lists</p>
+<pre>
+   show network filter</pre>
+<p>Show the entries in a filter</p>
+<pre>
+   show network filter my_filter entries</pre>
+<p>Show the details of a filter entry in a filter</p>
+<pre>
+   show network filter my_filter mac aa:aa:aa:11:22:33</pre>
+<p>
+</p>
+<h2><a name="show_global_grid_settings">Show global Grid settings</a></h2>
+<pre>
+   show grid Infoblox</pre>
+<p>
+</p>
+<h2><a name="show_global_member_settings">Show global Member settings</a></h2>
+<p>Get a list of all grid members</p>
+<pre>
+   show grid Infoblox member</pre>
+<p>Get specific member details</p>
+<pre>
+   show grid Infoblox member 45.0.12.20</pre>
+<p>
+</p>
+<h2><a name="showing_users_and_groups">Showing users and groups</a></h2>
+<pre>
+   show admin user &lt;name&gt;</pre>
+<pre>
+   show admin admin_group &lt;name&gt;</pre>
+<p>
+</p>
+<hr />
+<h1><a name="server_management">Server Management</a></h1>
+<p>
+</p>
+<h2><a name="connect_to_a_server">Connect to a server</a></h2>
+<pre>
+    conf server &lt;SERVER&gt; user &lt;USERNAME&gt; password &lt;PASSWD&gt;</pre>
+<p>Select a server to talk to</p>
+<pre>
+    server ? &gt; conf server 10.0.1.230 
+    10.0.1.20 &gt;</pre>
+<p>Supply the username and or password</p>
+<pre>
+    server ? &gt; conf server 10.0.1.230 user admin pass infoblox
+    admin@10.0.1.20 &gt;</pre>
+<p>
+</p>
+<h2><a name="connecting_to_the_mgmt__management__port">connecting to the MGMT (management) port</a></h2>
+<p>If you are connecting to the MGMT port, you need to define the GRID MASTER
+IP address.  This is because it is different from the MGMT port and it is
+autoassigned to any zones, networks or ranges that do not specifically
+have a ember assignment</p>
+<pre>
+    configure master &lt;ip&gt;</pre>
+<p>Alternatively, you can add it as a keyword to the 'conf server' command :</p>
+<pre>
+    conf server 10.0.1.230 user admin pass infoblox master 45.0.12.20</pre>
+<p>You can also do this from the command line :
+</p>
+<pre>
+
+    ibcli -m &lt;ip&gt;</pre>
+<p>
+</p>
+<h2><a name="show_server_details">Show server details</a></h2>
+<pre>
+    show server version</pre>
+<pre>
+    show server error</pre>
+<pre>
+    show server message</pre>
+<p>
+</p>
+<h2><a name="restarting_services">Restarting services</a></h2>
+<p>the cli will not restart services, you have to do that manually</p>
+<pre>
+   restart dns
+   restart dhcp</pre>
+<p>IF you want to delay the restart you can do that also</p>
+<pre>
+   restart dns delay 10</pre>
+<p>
+</p>
+<h2><a name="export_log_files">Export log files</a></h2>
+<pre>
+    download merge_log &lt;file&gt;</pre>
+<p>
+</p>
+<h2><a name="download_the_database">Download the database</a></h2>
+<pre>
+    download database &lt;file&gt;</pre>
+<p>
+</p>
+<h2><a name="restore_the_database">Restore the database</a></h2>
+<p>This will always force a restore and KEEP the current IP settings
+(the API and GUI has other options, but I can't see why you'd need them)</p>
+<pre>
+    upload database &lt;file&gt;</pre>
+<p>
+</p>
+<h2><a name="download_the_dhcp_configuration">Download the DHCP configuration</a></h2>
+<pre>
+    download dhcp_conf &lt;file&gt;</pre>
+<p>
+</p>
+<h2><a name="upload_the_dhcp_expert_mode_configuration">Upload the DHCP expert mode configuration</a></h2>
+<pre>
+    upload dhcp_conf &lt;file&gt;</pre>
+<p>
+</p>
+<h2><a name="browse_and_load_a_datbase_backup">Browse and load a datbase backup</a></h2>
+<pre>
+    configure file load &lt;file&gt;</pre>
+<p>
+</p>
+<h2><a name="show_the_contents_of_a_file">show the contents of a file</a></h2>
+<p>To get the database summary</p>
+<pre>
+    show file summary</pre>
+<p>to lost all the nodes in a path</p>
+<pre>
+    show file path &lt;path&gt;</pre>
+<p>To show the details of a path</p>
+<pre>
+    show file properties
+    show file properties &lt;path&gt;</pre>
+<p>
+</p>
+<h2><a name="change_the_path_of_the_current_node">Change the path of the current node</a></h2>
+<pre>
+    conf file path /path/to/node</pre>
+<p>
+</p>
+<h2><a name="debugging__">Debugging :</a></h2>
+<pre>
+  configure debug &lt;level&gt;</pre>
+<p>The higher the debug level, the more junk gets spat to the tty. You
+probably don't want anything higher than (2) unless you are debugging the
+completion control parser.
+
+</p>
+
+</body>
+
+</html>
