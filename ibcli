@@ -47,9 +47,9 @@
 ###############################################################################
 
 
-# $Id: ibcli,v 1.5 2003/09/20 01:22:36 horne Exp $
-# $Revision: 1.5 $
-# $Date: 2003/09/20 01:22:36 $
+# $Id: ibcli,v 1.6 2003/09/21 23:04:29 horne Exp $
+# $Revision: 1.6 $
+# $Date: 2003/09/21 23:04:29 $
 #
 
 # Perl CGI common chunks
@@ -85,6 +85,7 @@ my $CONNECTED ;
 my $CONFIG ;
 
 my $GOOD_COMMAND ;
+my $LINE ;
 # my $NO_COMMAND ;
 my $SAVE_HIST ;
 my @CLIST ;
@@ -143,6 +144,11 @@ if ( ! $CONFIG ) {
    &print_prompt ;
 }
 
+if ( $CONFIG ) { 
+   # make 'while(<>)' still work...
+   push @ARGV , $CONFIG  ;
+}
+
 #
 # time to read commands, line at a time...
 #
@@ -194,6 +200,7 @@ while (<>) {
    # regardless of what routine we are in. At the end of the parsing, we
    # should end up with the command ($SAVE_HIST) and the args (@WORDS)
    #
+   $LINE = $_ ;
    @WORDS  = split /\s+/ ;
    @P_ARGS = () ;
    my $arg = shift @WORDS ;
@@ -204,7 +211,10 @@ while (<>) {
                 'connect' => 'connect',
                 'disconnect' => 'disconnect',
                 'set' => 'set_commands' ,
+                'configure' => 'set_commands' ,
                 'show' => 'show_commands' ,
+                'get' => 'show_commands' ,
+                'exit' => 'do_exit' ,
         ) ;
 
    &shift_arg($arg,%commands);
@@ -221,11 +231,22 @@ while (<>) {
 }
 
 # just in case
-if ( $CONNECTED ) { &disconnect } ;
-
-exit ;
+&do_exit ;
 
 ################################################################
+
+# 
+# EXIT
+#
+sub do_exit {
+    $LINE = "exit" ;
+    if ( $CONNECTED ) { 
+       &commit ;
+       &disconnect ;
+    }
+
+    exit ;
+}
 
 #
 # shift arg, once we've set up a new %commands hash
@@ -263,10 +284,18 @@ sub shift_arg {
       &rd_line($call_sub) ;
    }
    else {
-      print "Next possible completions :\n";
-      print "\t@CLIST\n";
-      $GOOD_COMMAND = 0 ;
+      &missing_arg(@CLIST)  ;
    }
+}
+
+sub show_commands {
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                'zone' => 'show_zone',
+                'network' => 'show_zone',
+                'host' => 'show_host',
+        ) ;
+   &shift_arg($arg,%commands);
 }
 
 sub set_commands {
@@ -282,22 +311,13 @@ sub set_commands {
 
 }
 
-sub show_commands {
-   my ( $arg ) = shift @WORDS ;
-   my %commands = ( 
-                'zone' => 'show_zone',
-                'network' => 'show_zone',
-        ) ;
-   &shift_arg($arg,%commands);
-
-}
-
 sub zone_commands {
    &debug (4,"sub = zone_commands");
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
                 "add" => 'add_zone',
                 "delete" => 'remove_zone',
+                "remove" => 'remove_zone',
                 "" => 'mod_zone',
         ) ;
    &shift_arg($arg,%commands);
@@ -309,6 +329,7 @@ sub network_commands {
    my %commands = ( 
                 "add" => 'add_network',
                 "delete" => 'remove_network',
+                "remove" => 'remove_network',
                 "" => 'mod_network',
         ) ;
    &shift_arg($arg,%commands);
@@ -321,6 +342,7 @@ sub mod_zone {
    my %commands = ( 
                 "add" => 'add_to_zone',
                 "delete" => 'remove_from_zone',
+                "remove" => 'remove_from_zone',
         ) ;
    &shift_arg($arg,%commands);
 
@@ -374,7 +396,7 @@ sub do_ib_func {
        eval $function ;
     }
     else {
-       print "CANNOT EXECUTE - no connection is in place\n";
+       &err_print("CANNOT EXECUTE - no connection is in place");
     }
 }
 
@@ -632,7 +654,13 @@ sub rd_line {
 }
 
 sub missing_arg {
-    print "Next possible completions : \n\t@_\n";
+    &debug(4,"MISS ARG call");
+    if ( $CLI ) {
+       print "Next possible completions : \n\t@_\n";
+    }
+    else {
+       &err_print("UNRECOGNISED command");
+    }
     $GOOD_COMMAND = 0 ;
 }
 
@@ -640,7 +668,23 @@ sub missing_arg {
 # PROMPT
 #
 sub print_prompt {
-    print "[$DEBUG] $CONN_STRING $PROMPT" ;
+    if ( $CLI ) {
+       print "[$DEBUG] $CONN_STRING $PROMPT" ;
+    }
+}
+
+#
+# ERRORS
+#
+sub err_print {
+    if ( $CLI ) {
+       print "@_\n" ;
+    }
+    else {
+#        print "@_\n" ;
+#        print "ERROR: @_ : $LINE\n";
+       print "@_ : $LINE\n";
+    }
 }
 
 #
@@ -730,13 +774,13 @@ sub connect {
 
     if ( $SERVER_ID && $SERVER_PASS ) {
        if ( $CONNECTED ) {
-          print "SERVER :: already connected \n";
+          &err_print("SERVER :: already connected");
           return ;
        }
 
        &debug (1,"connecting to server [$SERVER_ID] [$SERVER_PASS]");
 
-       print "SERVER :: connecting \n";
+       &err_print("SERVER :: connecting");
 
        ib_open_connection($SERVER_ID,$SERVER_PASS) ;
 
@@ -747,7 +791,7 @@ sub connect {
 
     }
     else {
-       print "CANNOT CONNECT :: no server|pass supplied \n";
+       &err_print ("CANNOT CONNECT :: no server|pass supplied");
        &debug (3,"NOOP - incomplete details for server connection");
     }
 
@@ -756,24 +800,23 @@ sub connect {
 sub disconnect {
     if ( $CONNECTED ) {
        &commit ;
-       print "SERVER :: disconnecting \n";
+       &err_print ( "SERVER :: disconnecting");
        ib_close_connection();
        $CONNECTED = 0 ;
 
        $PROMPT = "no server > " ;
     }
     else {
-       print "CANNOT DISCONNECT - no connection is in place\n";
+       &err_print ( "CANNOT DISCONNECT - no connection is in place");
     }
 
 }
 
 sub commit {
-    print "COMMIT -  NOT WORKING\n";
+    &err_print ( "COMMIT -  NOT WORKING");
 
     if ( $CONNECTED ) {
-#        &debug (1,"comitting changes");
-       print "SERVER :: Comitting Changes .. ";
+       print "SERVER :: Committing Changes .. ";
 
        ib_update_server();
 
@@ -782,7 +825,7 @@ sub commit {
        $CONN_STRING = " " ;
     }
     else {
-       print "CANNOT COMMIT - no connection is in place\n";
+       &err_print ("CANNOT COMMIT - no connection is in place");
     }
 }
 
@@ -790,6 +833,27 @@ sub commit {
 # DIGS AND GET ROUTINES
 #
 
+sub show_host {
+    my ($query,$verbose) = @_ ;
+
+    # use dig...
+
+    if ( ! $query ) {
+       &missing_arg("$SAVE_HIST <host> (verbose)") ;
+       return (0) ;
+    }
+
+    &debug (2,"showing zone [@_]");
+
+    if ( ! $CONNECTED ) {
+       &err_print("CANNOT dig - no connection is in place");
+    }
+    else {
+       &do_dig($SERVER_ID,$query,$verbose);
+    }
+
+
+}
 sub show_zone {
     my ($query,$type,$verbose) = @_ ;
 
@@ -805,7 +869,7 @@ sub show_zone {
     if ( ! $type ) { $type = "SOA" }
 
     if ( ! $CONNECTED ) {
-       print "CANNOT dig - no connection is in place\n";
+       &err_print( "CANNOT dig - no connection is in place");
     }
     else {
        &do_dig($SERVER_ID,$query,$type,$verbose);
@@ -896,6 +960,11 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.6  2003/09/21 23:04:29  horne
+# added ambiguous commands
+# prints now wrapped for cli or batch
+# batch commands now work
+#
 # Revision 1.5  2003/09/20 01:22:36  horne
 # First full working version with the abstracted argument parser.
 # there is still a lot of gumpf in here, but most of the repeatable code is
@@ -911,7 +980,7 @@ sub debug {
 # *** empty log message ***
 #
 # Revision 1.1  2003/08/11 23:31:57  horne
-# *** empty log message ***
+# INFOBLOX version, re-set the CVS counters
 #
 # Revision 1.9  2001/06/07 16:45:47  horne
 # major rewrite of the arg parser - ripped out all the RE's to a much better
