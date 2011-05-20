@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 1.16 2004/08/13 03:57:45 horne Exp $
+#   $Id: ibcli,v 1.17 2004/08/13 05:21:09 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 1.16 $
-$Date: 2004/08/13 03:57:45 $
+$Revision: 1.17 $
+$Date: 2004/08/13 05:21:09 $
 ';
 $REV =~ s/\$//g;
 
@@ -72,6 +72,7 @@ use Text::Abbrev ;
 # this is done at compile time so we need to use a method...
 use lib "$FindBin::Bin";
 use InfoBloxDNS ;
+use Infoblox::RADIUSOne ;
 
 ######################
 #
@@ -84,6 +85,8 @@ my $CLI = 0 ;
 my $CONN_STRING = "!" ;
 
 my %SESSION ;
+my $SESS_CONN ;
+
 my $CONNECTED ;
 my $CONFIG ;
 my $MAKE ;
@@ -740,17 +743,16 @@ sub do_ib_func {
     # format the data for pretty printing
     my $formatted = &format_ib_func($ib_call,@fargs);
 
-    # v3 code uses a hash and not an array
-    if ( $DNS_VER == 3 ) {
-       # also prepend the session handle to the args
-       push @fargs , %SESSION ;
-    }
-
     if ( ! $MAKE ) {
-       # actually try an run it
+       # actually try and run it
        if ( $CONNECTED ) {
-#           eval @fargs ;
-          &$ib_call ( @fargs ) ;
+          if ( $DNS_VER == 3 ) {
+             # type cast correctly and prepend the SESSION
+             &$ib_call ( $SESS_CONN , { @fargs } ) ;
+          }
+          else {
+             &$ib_call ( @fargs ) ;
+          }
        }
        else {
           &err_print("CANNOT EXECUTE - no connection is in place");
@@ -762,18 +764,20 @@ sub do_ib_func {
 sub do_unconn_func {
     # do a function without checking the conection
     my ( $ib_call , @fargs ) = @_ ;
-    &debug (1,"do_ib_func ($ib_call) [@fargs]");
+    &debug (1,"do_unconn_func ($ib_call) [@fargs]");
 
     # format the data for pretty printing
     my $formatted = &format_ib_func($ib_call,@fargs);
 
-    # v3 code uses a hash and not an array
-    if ( $DNS_VER == 3 ) {
-       # also prepend the session handle to the args
-       push @fargs , %SESSION ;
+    if ( ! $MAKE ) { 
+       if ( $DNS_VER == 3 ) {
+          my $result ;
+          ($result, $SESS_CONN) = &$ib_call ( { @fargs } ) ;
+       }
+       else {
+          &$ib_call ( @fargs )
+       }
     }
-
-    if ( ! $MAKE ) { &$ib_call ( @fargs ) }
 }
 
 sub format_ib_func {
@@ -1419,7 +1423,7 @@ sub add_realm {
        $opthash{$key} = $value ;
     }
 
-    my @function = ("realm_insert",%opthash);
+    my @function = ("RADIUSOne::realm_insert",%opthash);
 
     &do_ib_func(@function);
 
@@ -1436,7 +1440,7 @@ sub remove_realm {
     my %opthash ;
     $opthash{'name'}=$realm;
 
-    my @function = ("realm_delete",%opthash);
+    my @function = ("RADIUSOne::realm_delete",%opthash);
 
     &do_ib_func(@function);
 
@@ -1472,7 +1476,7 @@ sub add_attrib_to_realm {
     $opthash{'attribute'}=$name;
     $opthash{'value'}=$value;
 
-    my @function = ("realm_av_pair_insert",%opthash);
+    my @function = ("RADIUSOne::realm_av_pair_insert",%opthash);
     &do_ib_func(@function);
 
 }
@@ -1507,7 +1511,7 @@ sub remove_attrib_from_realm {
     $opthash{'attribute'}=$name;
     $opthash{'value'}=$value;
 
-    my @function = ("realm_av_pair_delete",%opthash);
+    my @function = ("RADIUSOne::realm_av_pair_delete",%opthash);
     &do_ib_func(@function);
 
 }
@@ -1555,7 +1559,7 @@ sub add_user_to_realm {
        $opthash{'user_password'}=$passwd;
     }
 
-    my @function = ("radius_user_insert",%opthash);
+    my @function = ("RADIUSOne::radius_user_insert",%opthash);
     &do_ib_func(@function);
 
 }
@@ -1586,7 +1590,7 @@ sub remove_user_from_realm {
        $opthash{'name'}=$name;
     }
 
-    my @function = ("radius_user_delete",%opthash);
+    my @function = ("RADIUSOne::radius_user_delete",%opthash);
     &do_ib_func(@function);
 
 }
@@ -1630,7 +1634,7 @@ sub modify_realm_user_add_att {
     }
 
 
-    my @function = ("user_av_pair_insert",%opthash);
+    my @function = ("RADIUSOne::user_av_pair_insert",%opthash);
     &do_ib_func(@function);
 
 }
@@ -1674,7 +1678,7 @@ sub modify_realm_user_del_att {
     }
 
 
-    my @function = ("user_av_pair_delete",%opthash);
+    my @function = ("RADIUSOne::user_av_pair_delete",%opthash);
     &do_ib_func(@function);
 
 }
@@ -1777,10 +1781,38 @@ sub show_history {
 #
 
 sub add_server {
-    my ($server,$pass,$user) = @_ ;
+    my ($type,@args) = @_ ;
     # save the server id and see if we have enough info to connect
     # password can be passed on this line, if not specified, assume
     # no password
+
+    # if the server arg is NOT an ip address it is a type
+    my $IPRE = '\d+\.\d+\.\d+\.\d+';
+
+    my ( $server , $pass , $user ) ;
+
+    if ( $type !~ /^$IPRE$/) {
+
+       # must be a server type, check the syntax
+       # syntax check next arg...
+       my $etype ;
+       my @opts = ( "dns","radius");
+       my %optlist = abbrev ( @opts ) ;
+       $etype = $optlist{ lc($type) } ;
+       if ( ! $etype ) { 
+          &missing_arg(@opts);
+          return ;
+       }
+       
+       # otherwise, we're good
+       ( $server , $pass , $user ) = @args ;
+       $SESSION{'cli_type'}=$etype ;
+
+    }
+    else {
+       ( $server , $pass , $user ) = ($type, @args ) ;
+    }
+    &debug (2,"adding server t[$type] s($server) p($pass) u($user)");
     
     if ($server) {
        # if we're already connected, sput an error
@@ -1804,9 +1836,9 @@ sub add_server {
 
           if ( $user ) {
              # this is a v3 system
-             $SESSION{'UserName'} = $pass ;
+             $SESSION{'UserName'} = $user ;
           }
-          &debug (2,"adding user [$pass]");
+          &debug (2,"adding user [$user]");
 
           &connect ;
        }
@@ -1854,17 +1886,22 @@ sub connect {
             return ;
          }
 
-         &debug (1,"connecting to server [$SESSION{'HostIp'}] [$SESSION{'UserPassword'}]");
+         &debug (1,"conn ->[$SESSION{'HostIp'}] [$SESSION{'UserPassword'}]");
 
          &err_print("SERVER :: connecting");
 
-         # you cannot pass this to do_ib_func since that sub checks the
-         # connection first, so we either abstract it or (better still)
-         # make a new subroutine of the pretty printing and then call
+         # call a new subroutine of the pretty printing and then call
          # a non checking version of do_ib_func
 
-         &do_unconn_func("ib_open_conection",
+         if ( $SESSION{'cli_type'} eq 'radius' ) {
+            $DNS_VER = 3 ;
+            &do_unconn_func("RADIUSOne::server_session_create",%SESSION);
+         }
+         else {
+            $DNS_VER = 2 ;
+            &do_unconn_func("ib_open_connection",
                      $SESSION{'HostIp'},$SESSION{'UserPassword'});
+         }
 
          $PROMPT = "$SESSION{'HostIp'} > " ;
          $CONN_STRING = "*" ;
@@ -2112,6 +2149,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.17  2004/08/13 05:21:09  horne
+# Added correct connection handling
+#
 # Revision 1.16  2004/08/13 03:57:45  horne
 # Major changes to the arg parsers, args are now sent as arrays and the
 #   do_ib_finc does the formatting/prettyprinting
