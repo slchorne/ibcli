@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 1.17 2004/08/13 05:21:09 horne Exp $
+#   $Id: ibcli,v 1.18 2004/10/20 16:44:39 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 1.17 $
-$Date: 2004/08/13 05:21:09 $
+$Revision: 1.18 $
+$Date: 2004/10/20 16:44:39 $
 ';
 $REV =~ s/\$//g;
 
@@ -78,7 +78,7 @@ use Infoblox::RADIUSOne ;
 #
 # define some globals
 #
-my $DNS_VER = 2 ;
+my $DNS_VER = 3 ;
 
 my $DEBUG = 0 ;
 my $CLI = 0 ;
@@ -746,18 +746,25 @@ sub do_ib_func {
     if ( ! $MAKE ) {
        # actually try and run it
        if ( $CONNECTED ) {
-          if ( $DNS_VER == 3 ) {
-             # type cast correctly and prepend the SESSION
-             &$ib_call ( $SESS_CONN , { @fargs } ) ;
-          }
-          else {
-             &$ib_call ( @fargs ) ;
-          }
+          # type cast correctly and prepend the SESSION
+          &$ib_call ( $SESS_CONN , { @fargs } ) ;
        }
        else {
           &err_print("CANNOT EXECUTE - no connection is in place");
        }
 
+    }
+}
+
+sub do_nothing {
+    my ( $ib_call , @fargs ) = @_ ;
+    &debug (1,"do_nothing ($ib_call) [@fargs]");
+
+    # format the data for pretty printing
+    my $formatted = &format_ib_func($ib_call,@fargs);
+
+    if ( ! $MAKE ) {
+          &err_print("CANNOT EXECUTE - NOT IMPLEMENTED");
     }
 }
 
@@ -790,22 +797,31 @@ sub format_ib_func {
     # V2 code passes args as an array
     # V3 code passes args as a hash
 
-    # format the data if we are V2 or V3
-    if ( $DNS_VER == 2 ) {
-       $p_args = join ( '","' , @fargs );
-       $p_comm = "$ib_call (\"$p_args\")";
-    }
-    if ( $DNS_VER == 3 ) {
-       my %hargs = @fargs ;
-       # pretty print a hash (errk)
-       foreach my $key ( sort keys %hargs ) {
-          $p_args .= "\t\"$key\"\t=> \"$hargs{$key}\",\n";
-       }
-       $p_comm = "$ib_call (\$session, {\n$p_args\t});\n";
-    }
+    my %arg_hash = @fargs ;
+    my $syntax = &dump_hash( 0 , "HASH" , %arg_hash );
+#     print "my (\$result, \$message) = $ib_call ( \$SESSION ,\n $syntax";
+    $p_comm = "my \$result = $ib_call ( \$SESSION ,\n $syntax    );\n\n";
+#     print "    );\n\n";
 
+
+#     # format the data if we are V2 or V3
+#     if ( $DNS_VER == 2 ) {
+#        $p_args = join ( '","' , @fargs );
+#        $p_comm = "$ib_call (\"$p_args\")";
+#     }
+#     if ( $DNS_VER == 3 ) {
+#        my %hargs = @fargs ;
+#        # pretty print a hash (errk)
+#        foreach my $key ( sort keys %hargs ) {
+#           $p_args .= "\t\"$key\"\t=> \"$hargs{$key}\",\n";
+#        }
+#        $p_comm = "$ib_call (\$session, {\n$p_args\t});\n";
+#     }
+
+    # do we pring out code instead...
     if ( $MAKE ) {
-       print "\nprint '" . $p_comm . "'.\"\\n\";\n" ;
+       print "\nprint '" . $ib_call . "'.\"\\n\";\n" ;
+
        print "$p_comm ;\n" ;
     }
 
@@ -836,7 +852,7 @@ sub get_logs {
     if ( ! -d $dest ) { mkdir($dest,0755); }
 
     my @function = ("ib_export_logs",$dest);
-    &do_ib_func(@function);
+    &do_nothing(@function);
 
     &err_print("DONE ");
 
@@ -857,7 +873,17 @@ sub get_database {
     &err_print("DOWNLOADING ALL DATABASE data to $dest ...");
     if ( ! -d $dest ) { mkdir($dest,0755); }
 
-    my @function = ("ib_export_database",$dest);
+    my %opthash ;
+    $opthash{'name'}=$dest;
+
+#     # build the rest ad name value pairs
+#     while ( my $key = shift @type_opts ) {
+#        my $value = shift @type_opts ;
+#        $opthash{$key} = $value ;
+#     }
+
+    my @function = ("get_data",%opthash);
+
     &do_ib_func(@function);
 
     &err_print("DONE ");
@@ -881,7 +907,7 @@ sub put_database {
     }
 
     my @function = ("ib_import_database" , $dest ) ;
-    &do_ib_func(@function);
+    &do_nothing(@function);
 
     &err_print("DONE ");
 
@@ -896,7 +922,7 @@ sub erase_data {
 
     # we may want an 'are you sure here...'
     my @function = ("ib_erase_dns_data");
-    &do_ib_func(@function);
+    &do_nothing(@function);
 
     &err_print("DONE ");
 }
@@ -911,7 +937,7 @@ sub import_to_zone {
     &debug (2,"importing z($zone) ip($ip) ");
 
     my @function = ("ib_import_zone",$zone,$ip,$opt);
-    &do_ib_func(@function);
+    &do_nothing(@function);
 
 }
 
@@ -925,7 +951,15 @@ sub add_host {
 
     &debug (2,"addh n($name) n($ip) c($comment)");
 
-    my @function = ("ib_insert_host",$name,$ip,$comment);
+    my %opthash ;
+    $opthash{'zone'}=$zone;
+    $opthash{'name'}=$host;
+
+    # add the IP address
+    push @{ $opthash{"address_list"} } , {( "address" , $ip )};
+
+    my @function = ("add_host",%opthash);
+
     &do_ib_func(@function);
 
 }
@@ -2132,6 +2166,60 @@ sub cidrfind {
     return($mlook{$cidr}) ;
 }
 
+sub dump_hash {
+    # recursively walk a data structure
+    my ($depth,$type,@data) = @_ ;
+
+    # we're going to stuff all this into a variable
+    my $syntax ;
+
+    # set the spacer
+    my $spc ;
+    for my $i ( 0 .. $depth ) { $spc .= "    " }
+
+    # type dependent
+    if ( $type eq "HASH" ) {
+       my %hash = @data ;
+       $syntax .= "$spc { \n";
+       foreach my $key ( sort keys %hash ) {
+          my $value = $hash{$key} ;
+
+          # do we recurse or print ?
+          if ( $value =~ /^HASH/ ) {
+             $syntax .= "$spc '$key' => \n";
+             $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $hash{$key} } );
+          }
+          elsif ( $value =~ /^ARRAY/ ) {
+             $syntax .= "$spc '$key' => \n";
+             $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $hash{$key} } );
+          }
+          else {
+            $syntax .= "$spc '$key' => '$value',\n";
+          }
+       }
+       $syntax .= "$spc }, \n";
+    }
+
+    elsif ( $type eq "ARRAY" ) {
+       $syntax .= "$spc [\n";
+       foreach my $value ( @data ) {
+          if ( $value =~ /^HASH/ ) {
+             $syntax .= &dump_hash ( $depth+1 , "HASH" , %{ $value } );
+          }
+          elsif ( $value =~ /^ARRAY/ ) {
+             $syntax .= &dump_hash ( $depth+1 , "ARRAY" , @{ $value } );
+          }
+          else {
+             $syntax .= "$spc'$value',\n";
+          }
+       }
+       $syntax .= "$spc ], \n";
+    }
+
+    return ( $syntax ) ;
+
+}
+
 sub debug {
     # we're passed a message and a level
     # if this level is <= the CURRENT DEBUG level 
@@ -2149,6 +2237,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.18  2004/10/20 16:44:39  horne
+# broken checkin - ignore
+#
 # Revision 1.17  2004/08/13 05:21:09  horne
 # Added correct connection handling
 #
