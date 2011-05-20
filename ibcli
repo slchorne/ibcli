@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.1.2.5 2005/09/29 17:18:13 horne Exp $ ;
-my $REV = q$Revision: 3.1.2.5 $;
-# $Date: 2005/09/29 17:18:13 $
+my $ID  = q$Id: ibcli,v 3.2.2.1 2005/09/29 17:20:24 horne Exp $ ;
+my $REV = q$Revision: 3.2.2.1 $;
+# $Date: 2005/09/29 17:20:24 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -549,7 +549,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.1.2.5 $
+$Revision: 3.2.2.1 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2657,6 +2657,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.2.2.1  2005/09/29 17:20:24  horne
+# *** empty log message ***
+#
 # Revision 3.1.2.5  2005/09/29 17:18:13  horne
 # *** empty log message ***
 #
