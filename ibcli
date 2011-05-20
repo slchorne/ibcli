@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.33 2008/04/24 18:13:05 horne Exp $ ;
-my $REV = q$Revision: 3.33 $;
-# $Date: 2008/04/24 18:13:05 $
+my $ID  = q$Id: ibcli,v 3.34 2008/05/07 17:35:25 horne Exp $ ;
+my $REV = q$Revision: 3.34 $;
+# $Date: 2008/05/07 17:35:25 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -397,7 +397,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.33 $.
+$Revision: 3.34 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2081,7 +2081,9 @@ sub cli_add_host {
     my @settings  = $line =~/ set (\S+)/g ;
     my @aliases  = $line =~/ alias (\S+)/g ;
     my @ipam  = $line =~/ info (\S+)/g ;
-
+    # CBUIJS: Added to have DHCP options
+    my @options  = $line =~/ option (\S+)/g ;
+    
     # de-urlencode the name string
 #     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
@@ -2165,6 +2167,30 @@ sub cli_add_host {
 
             }
 
+            # CBUIJS: Added to have DHCP options
+            # options
+            if ( @options ) {
+
+                my @opt_list ;
+                foreach my $optval ( @options ) {
+                    # set some custom options;
+                    # split on the ','
+                    my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
+    
+                    &debug_cli(2,"addfix o($opt) v($val)");
+    
+                    my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
+    
+                    # only add options we recognise
+                    if ( $opt_obj ) {
+                        push @opt_list , $opt_obj ;
+                    }
+
+                }
+
+                $fobj->options ( \@opt_list ) ;
+
+            }
             # add the ip to the list
             push @iplist , $fobj ;
         }
@@ -2172,7 +2198,6 @@ sub cli_add_host {
             # add the ip to the list
             push @iplist , $ipv ;
         }
-
 
     }
 
@@ -4014,6 +4039,204 @@ sub cli_add_user {
 
 }
 
+=head2 Adding permissions
+
+Permissions can be any of 'read' 'write' or 'deny', and ar applied to an
+admin group or an admin
+
+
+  conf zone <zone> add permission <perm> group <name>
+
+  conf zone test.com add permission read group ops
+
+=cut
+
+sub cli_add_permission {
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $otype, $oname ) = $line =~/ (zone|network|member) (\S+)/ ;
+    my ( $perm ) = $line =~/\s(read|write|deny)\s/ ;
+    my ( $group ) = $line =~/ group (\S+)/ ;
+
+    &debug_cli (1,"addperm t($otype) n($oname) p($perm) g($group)");
+
+    #  make this generic for different object types
+    my $pobj ;
+    if ( $otype eq "zone" ) {
+        # greate a zone handle
+        $pobj = Infoblox::DNS::Zone->new(
+                       name => $oname,
+               );
+    }
+    if ( $otype eq "network" ) {
+        # greate a zone handle
+        $pobj = Infoblox::DHCP::Network->new(
+                       network => $oname,
+               );
+    }
+    if ( $otype eq "member" ) {
+        # get a member handle (tis easier than creating one
+        # because we need more params to call new()
+        ( $pobj ) = &do_func("get", (
+                object     => "Infoblox::Grid::Member",
+                name => $oname,
+            )
+        );
+    }
+
+    if ( $pobj ) {
+        # now create the permission
+        my $permission = Infoblox::Grid::Admin::Permission->new(
+            admin_group      => $group,
+            resource_object  => $pobj,
+            permission => $perm,
+        );
+    
+        # Submit for addition
+        &do_func("add",$permission);
+    }
+    else {
+        print "  Error, can't create resource_object ($otype) ($oname)\n";
+    }
+
+}
+
+=head2 Deleting or Changing permissions
+
+Permissions can be any of 'read' 'write' or 'deny', and ar applied to an
+admin group or an admin.
+
+If you want to change a permission, you have to delete it, then add a new
+permission (yes, there should be a better way)
+
+  conf zone <zone> del permission <perm> group <name>
+
+  conf zone test.com del permission read group ops
+
+=cut
+
+sub cli_del_permission {
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $otype, $oname ) = $line =~/ (zone|network|member) (\S+)/ ;
+    my ( $perm ) = $line =~/\s(read|write|deny)\s/ ;
+    my ( $group ) = $line =~/ group (\S+)/ ;
+
+    &debug_cli (1,"delperm t($otype) n($oname) p($perm) g($group)");
+
+    #  make this generic for different object types
+    my $pobj ;
+    if ( $otype eq "zone" ) {
+        # greate a zone handle
+        $pobj = Infoblox::DNS::Zone->new(
+                       name => $oname,
+               );
+    }
+    if ( $otype eq "network" ) {
+        # greate a zone handle
+        $pobj = Infoblox::DHCP::Network->new(
+                       network => $oname,
+               );
+    }
+    if ( $otype eq "member" ) {
+        # get a member handle (tis easier than creating one
+        # because we need more params to call new()
+        ( $pobj ) = &do_func("get", (
+                object     => "Infoblox::Grid::Member",
+                name => $oname,
+            )
+        );
+    }
+
+    if ( $pobj ) {
+        # now create the permission
+        my $permission = Infoblox::Grid::Admin::Permission->new(
+            admin_group      => $group,
+            resource_object  => $pobj,
+            permission => $perm,
+        );
+    
+        # Submit for addition
+        &do_func("remove",$permission);
+    }
+    else {
+        print "  Error, can't create resource_object ($otype) ($oname)\n";
+    }
+
+}
+
+=head2 Modifying permissions
+
+you need enough unique information to find the correct permission and
+them modify it, thus you need :
+ - resource object
+ - admin group
+
+The CLI will then try to get the current permission and modify it
+
+=cut
+
+sub cli_mod_permission {
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $otype, $oname ) = $line =~/ (zone|network|member) (\S+)/ ;
+    my ( $perm ) = $line =~/\s(read|write|deny)\s/ ;
+    my ( $group ) = $line =~/ group (\S+)/ ;
+
+    &debug_cli (1,"modperm t($otype) n($oname) p($perm) g($group)");
+
+    #  make this generic for different object types
+    my $pobj ;
+    if ( $otype eq "zone" ) {
+        # greate a zone handle
+        $pobj = Infoblox::DNS::Zone->new(
+                       name => $oname,
+               );
+    }
+    if ( $otype eq "network" ) {
+        # greate a zone handle
+        $pobj = Infoblox::DHCP::Network->new(
+                       network => $oname,
+               );
+    }
+    if ( $otype eq "member" ) {
+        # get a member handle (tis easier than creating one
+        # because we need more params to call new()
+        ( $pobj ) = &do_func("get", (
+                object     => "Infoblox::Grid::Member",
+                name => $oname,
+            )
+        );
+    }
+
+    if ( $pobj ) {
+        # get the current permission
+        my %opthash = (
+                object     => "Infoblox::Grid::Admin::Permission",
+                admin_group   => $group,
+                resource_object  => $pobj,
+        );
+        my ( $permission ) = &do_func("get", %opthash );
+
+        # now modify the permission
+        if ( $permission ) {
+            $permission->permission($perm);
+    
+            # Submit for modition
+            &do_func("modify",$permission);
+        }
+    }
+    else {
+        print "  Error, can't create resource_object ($otype) ($oname)\n";
+    }
+
+}
 
 =head2 configure global Grid settings
 
@@ -6701,7 +6924,8 @@ sub get_custom_options {
          "nisplus-servers" => "Option  65: nisplus-servers",
          "tftp-server-name" => "Option  66: tftp-server-name",
          "tftp-server" => "Option  66: tftp-server-name",
-         "boot-file" => "Option  67: boot-file",
+         "bootfile" => "Option  67: bootfile-name",
+         "bootfile-name" => "Option  67: bootfile-name",
          "mobile-ip-home-agent" => "Option  68: mobile-ip-home-agent",
          "smtp-server" => "Option  69: smtp-server",
          "pop-server" => "Option  70: pop-server",
@@ -6762,7 +6986,8 @@ sub get_custom_options {
          "option-125" => "Option 125: option-125",
          "option-126" => "Option 126: option-126",
          "option-127" => "Option 127: option-127",
-         "option-128" => "Option 128: option-128",
+         "option-128" => "Option 128: TFTP-Server",
+         "TFTP-Server" => "Option 128: TFTP-Server",
          "option-129" => "Option 129: option-129",
          "option-130" => "Option 130: option-130",
          "option-131" => "Option 131: option-131",
@@ -7558,7 +7783,19 @@ my %COMMANDS = (
     'show server message' => { 
            func => "cli_show_server", },
 
-# --
+# - member -
+    'configure member' => { 
+           words => "<name>", },
+    'configure member <name>' => { 
+           words => "add delete modify", },
+    'configure member <name> add' => { 
+           words => "permission", },
+    'configure member <name> delete' => { 
+           words => "permission", },
+    'configure member <name> modify' => { 
+           words => "permission", },
+
+# - grid -
 
     'configure grid' => { 
            words => "<name>", },
@@ -7663,7 +7900,7 @@ my %COMMANDS = (
            words => "ntp|dns|dhcp",
            func => "cli_mod_member", },
 
-# - zone -
+# - zones -
     'configure zone' => { 
            words => "add delete modify <zone>", },
 
@@ -7706,12 +7943,70 @@ my %COMMANDS = (
            words => "add delete modify", },
 
     'configure zone <zone> add' => { 
-           words => "host a_record aaaa bulkhost cname ptr_record srv mx", },
+           words => "permission host a_record aaaa bulkhost cname ptr_record srv mx", },
     'configure zone <zone> delete' => { 
-           words => "host a_record aaaa bulkhost cname ptr_record srv mx", },
+           words => "permission host a_record aaaa bulkhost cname ptr_record srv mx", },
     'configure zone <zone> modify' => { 
-           words => "host=<name> a_record aaaa bulkhost cname ptr_record srv mx", },
+           words => "permission host=<name> a_record aaaa bulkhost cname ptr_record srv mx", },
 
+# - permissions -
+    # I could do this in just one config line, but it doesn't force
+    # the order, so we will do it the hard way...
+
+    'configure zone <zone> add permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_add_permission", },
+
+    'configure zone <zone> delete permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_del_permission", },
+
+    'configure zone <zone> modify permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_mod_permission", },
+
+    'configure network <n.n.n.n/mm> add permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_add_permission", },
+
+    'configure network <n.n.n.n/mm> delete permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_del_permission", },
+
+    'configure network <n.n.n.n/mm> modify permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_mod_permission", },
+
+    'configure member <name> add permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_add_permission", },
+
+    'configure member <name> delete permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_del_permission", },
+
+    'configure member <name> modify permission' => { 
+           words => "<cr>|read|write|deny|group=<name>",
+           func => "cli_mod_permission", },
+
+
+
+#     'configure zone <zone> add permission' => { 
+#            words => "read write deny"},
+#     'configure zone <zone> add permission read' => { 
+#            words => "group=<name>"},
+#     'configure zone <zone> add permission read group <name>' => { 
+#            func => "cli_add_permission", },
+#     'configure zone <zone> add permission write' => { 
+#            words => "group=<name>"},
+#     'configure zone <zone> add permission write group <name>' => { 
+#            func => "cli_add_permission", },
+#     'configure zone <zone> add permission deny' => { 
+#            words => "group=<name>"},
+#     'configure zone <zone> add permission deny group <name>' => { 
+#            func => "cli_add_permission", },
+
+# - zone records -
     'configure zone <zone> delete host' => { 
            words => "<name>", },
     'configure zone <zone> delete host <name>' => { 
@@ -7764,7 +8059,8 @@ my %COMMANDS = (
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
-           words => "<cr> view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
+           # CBUIJS: Added option=
+           words => "<cr> view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|option=<name=value>", 
            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
@@ -7888,12 +8184,14 @@ my %COMMANDS = (
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
-           words => "split add delete join=</cidr>", },
+           words => "split add delete modify join=</cidr>", },
 
     'configure network <n.n.n.n/mm> add' => { 
-           words => "network fixed range",  },
+           words => "permission network fixed range",  },
     'configure network <n.n.n.n/mm> delete' => { 
-           words => "network fixed range",  },
+           words => "permission network fixed range",  },
+    'configure network <n.n.n.n/mm> modify' => { 
+           words => "permission",  },
 
     'configure network <n.n.n.n/mm> split' => { 
            words => "</cidr>",  },
@@ -8047,6 +8345,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.34  2008/05/07 17:35:25  horne
+# BugId: 8205
+# Reviewer(s): Geoff, Chris B
+# Description: Added permissions commands
+#
 # Revision 3.33  2008/04/24 18:13:05  horne
 # BugId: 8205
 # Reviewer(s): Geoff
