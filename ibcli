@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.32 2008/02/15 22:29:51 horne Exp $ ;
-my $REV = q$Revision: 3.32 $;
-# $Date: 2008/02/15 22:29:51 $
+my $ID  = q$Id: ibcli,v 3.33 2008/04/24 18:13:05 horne Exp $ ;
+my $REV = q$Revision: 3.33 $;
+# $Date: 2008/04/24 18:13:05 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -156,7 +156,7 @@ my @PATH ;
 my $CWD ;
 my $COT ; # current object type
 
-my ( $S_ID , $S_PASS , $S_USER ) ;
+my ( $M_ID , $S_ID , $S_PASS , $S_USER ) ;
 my $EXEC ;
 my $CGI ;
 
@@ -164,6 +164,7 @@ GetOptions (
     "s=s" => \$S_ID , 
     "p=s" => \$S_PASS ,
     "u=s" => \$S_USER ,
+    "m|master=s" => \$M_ID , 
     "e=s" => \$EXEC ,
     "w" => \$CGI ,
     "b|f=s" => \$SDB_FILE ,
@@ -179,6 +180,7 @@ Usage $NAME [-s <dns one IP> -u <user> -p <passwd>] [file.cf]
    -s <xxx>   # The name of the DNS One you are poking at
    -u <xxx>   # The username
    -p <xxx>   # That user's password
+   -m <xxx>   # the Grid MASTER IP address (when using the MGMT port)
    -b         # load a backup file
    -e         # run a sincle command
    -d N       # The debug level
@@ -241,6 +243,10 @@ if ( $SDB_FILE ) {
 # do a connection from the git go ?
 if ( $S_ID and $S_PASS and $S_USER ) {
    &cli_add_server ( "configure server $S_ID user $S_USER password $S_PASS" ) ;
+}
+# switch the master IP for MGMT port connections
+if ( $M_ID ) {
+   &cli_add_master ( "configure master $M_ID" ) ;
 }
 
 # GET/store the API version, after we've re-load the right perl modules
@@ -391,7 +397,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.32 $.
+$Revision: 3.33 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -679,7 +685,6 @@ sub process_line {
        else {
           if ( $line ) {
              my $words = $COMMANDS{ $matchline }{"words"} ;
-#              print "  Incomplete : $line ($words)\n";
              # cleanup some syntaxes
              $words =~ s/=/ /g;
              print "  Incomplete : $expanded ($words)\n";
@@ -1241,7 +1246,7 @@ sub do_func {
 
           if ( $result > 0 ) {
              # We got error...
-             print "  Error : $response ($result)\n";
+             print "  Error : API returned : $response ($result)\n";
           }
        }
        else {
@@ -1810,7 +1815,7 @@ sub cli_delete_zone {
 
     conf zone add nsgroup internal primary 45.0.12.20 secondary 45.0.128.20
 
-You can also cal this as a grid command
+You can also call this as a grid command
 
     conf grid Infoblox dns add nsgroup internal ...
 
@@ -2828,7 +2833,7 @@ Add a network with members
 
 Add a network with options
 
-   conf network add 1.1.1.0/24 option 82,"some data"
+   conf network add 1.1.1.0/24 option 82="some data"
 
 Add a network with comments (comments must come last)
 
@@ -3380,7 +3385,7 @@ sub cli_add_failover {
 
 Add a fixed address with comments
 
-   conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 "comment string"
+   conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 comment "comment string"
 
 =cut
 
@@ -3984,6 +3989,11 @@ sub cli_add_user {
 
     &debug_cli (1,"adduser u($user) p($pass) g($group)");
 
+    unless ( $user and $pass and $group ) {
+        print "  Error : user, password and group are required\n";
+        return ;
+    }
+
     my $obj = Infoblox::Grid::Admin::User->new (
                    "name" => $user ,
                    "password" => $pass ,
@@ -4365,12 +4375,25 @@ sub cli_add_grid_dns_acl {
 
     # build the ACL lust
     my $acl = "allow_$type" ;
-    # allow for deny rules
-    if ( $perm eq "deny" ) {
-        $ip = "!$ip";
+
+    # convert the ACL list into an array
+    my @iplist ;
+    foreach my $aip ( split (/\s*,\s*/ , $ip ) ) {
+        # allow for deny rules
+        if ( $perm eq "deny" ) {
+            push @iplist , "!$ip";
+        }
+        else {
+            push @iplist , $aip ;
+        }
     }
 
-    &debug_cli(1,"addgx p($perm) a($acl) i($ip)");
+#     # allow for deny rules
+#     if ( $perm eq "deny" ) {
+#         $ip = "!$ip";
+#     }
+
+    &debug_cli(1,"addgx p($perm) a($acl) i(@iplist)");
 
     # get the grid
     my %opthash = (
@@ -4386,7 +4409,7 @@ sub cli_add_grid_dns_acl {
         &debug_cli(2,"addgx l(@list)");
 
         # add this address to the ACL list
-        $grid->$acl([ @list , $ip]);
+        $grid->$acl([ @list , @iplist ]);
 
         # push it back
         &do_func("modify",$grid);
@@ -4395,17 +4418,54 @@ sub cli_add_grid_dns_acl {
 
 }
 
-=head2 add global DHCP settings
+=head2 add global DHCP option definitions
 
-   conf grid <name> add network option lease-time=3600
+Create a DHCP network option
 
-Custom options
+  conf network add optiondef <name> code <num> type <type>
 
-   conf grid <name> add network option 82="opt 82 string" 
+  conf network add optiondef voip 150 type string
 
-Set the type for a custom option
-   
-   conf grid <name> add definition 82=IPADDRESS
+=cut
+
+sub cli_add_option_def {
+
+    # [ ] can't add 'array of IP address'
+
+# Infoblox::DHCP::OptionDefinition
+# my $option_definition1 = Infoblox::DHCP::OptionDefinition->new(
+#                     space => "SUNW",
+#                     name  => "JumpStart-server",
+#                     code  => "6",
+#                     type  => "text"
+#                     );
+# # Submit for adding
+# my $response = $session->add( $option_definition1 );
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    my ( $name ) = $line =~/add optiondef (\S+)/ ;
+    my ( $num ) = $line =~/ code (\S+)/ ;
+    my ( $type ) = $line =~/ type (\S+)/ ;
+
+    my $def = Infoblox::DHCP::OptionDefinition->new(
+    #               space => "SUNW",
+                    name  => $name,
+                    code  => $num,
+                    type  => $type,
+                    );
+    # Submit for adding
+    &do_func("add",$def);
+
+}
+
+=head2 add global DHCP options
+
+Add a network option to the grid level
+
+   conf grid <name> dhcp add option <num>=<value>
+
+   conf grid Infoblox dhcp add option 82="some data"
 
 Remove a custom option
 
@@ -4413,14 +4473,18 @@ Remove a custom option
 
 =cut
 
-sub cli_add_grid_dhcp {
+# you only need the GRID name to ADD an option, not to DEFINE an option
+# so, ADD should use the same syntax as networks etc
+
+sub cli_add_grid_option {
 
     my ( $line ) = @_ ;
     # get the args from the line
-    ( my $gridname)  = $line =~/configure grid (\S+)/ ;
+    my ( $gridname)  = $line =~/configure grid (\S+)/ ;
+    my ( $option ) = $line =~/add option (\S+)/ ;
+    my ( $type ) = $line =~/ type (\S+)/ ;
+    my ( $value ) = $line =~/ value (\S+)/ ;
 
-    my @options  = $line =~/ option (\S+)/g ;
-    my @typedefs  = $line =~/ typeoption (\S+)/g ;
 
     # else get the grid
     my %opthash = (
@@ -4431,24 +4495,13 @@ sub cli_add_grid_dhcp {
 
     my ( $grid ) = &do_func("get", %opthash );
 
-
-#        my $option = Infoblox::Cluster::DHCP::Custom_option->new(
-#                "num" => "1",
-#                "type" => "ip-address",
-#                "value" => "10.0.0.10" );
-
-
-
-    
-#     my ( $cluster ) = &do_func("get", %args ) ;
-# 
-#     if ( $cluster ) {
-#         # add the option, make the changes;
-#         $cluster->options( [ $obj ] ) ;
-#     print Dumper ( \$cluster ) ;
-#         &do_func("modify", $cluster ) ;
-#     }
-
+# Infoblox::DHCP::Option
+#         my $dhcp_option = Infoblox::DHCP::Option->new(
+#             name         => "subnet-mask",
+#             num          => "1",
+#             value        => "255.0.0.0",
+#             vendor_class => "DHCP"
+#         );
 
 }
 
@@ -4823,6 +4876,12 @@ sub cli_show_network {
     # get the args from the line
     my ( $net ) = $line =~/ network (\S+)/ ;
 
+    my $details ;
+    if ( $net eq "details" ) {
+        $details = $net ;
+        undef $net ;
+    }
+
     &debug_cli(2,"shown n($net)");
 
     # do we get all nets
@@ -4839,8 +4898,8 @@ sub cli_show_network {
 
     my @nets = &do_func("search", %opthash );
 
-    # dump the network or all the list
-    if ( $net ) {
+    # dump the network(s) or just the list
+    if ( $net or $details ) {
 #         &dump_object ( shift @nets ) ;
         &dump_object ( @nets ) ;
     }
@@ -4865,12 +4924,14 @@ sub cli_show_network {
                 $name .= ", $mname";
             }
 
+
+            # save for a sorted list
             push @netlist , "  $name\n";
 
         }
 
         # now print them (sorted)
-        if ( @netlist ) {
+        if ( @netlist and ! $details ) {
             print sort by_ip @netlist ; 
             print "$num networks found\n ";
         }
@@ -5324,7 +5385,10 @@ sub cli_show_admin {
 
     my ( $line ) = @_ ;
 
-    my ( $type , $name ) = $line =~/^show admin (\S+) (\S+)/ ;
+    my ( $type ) = $line =~/^show admin (\S+)/ ;
+    my ( $name ) = $line =~/^show admin \S+ (\S+)/ ;
+
+    &debug_cli (2,"show adm t($type) u($name)");
 
     my %opthash ;
 
@@ -5346,7 +5410,13 @@ sub cli_show_admin {
             );
     }
 
-    my ( @results ) = &do_func("get", %opthash );
+    my @results ;
+    if ( $search =~ /\*/ ) {
+        ( @results ) = &do_func("search", %opthash );
+    }
+    else {
+        ( @results ) = &do_func("get", %opthash );
+    }
 
     # walk the results
     &dump_object ( @results ) ;
@@ -5383,10 +5453,17 @@ sub cli_add_server {
     ( my $server)  = $line =~/server (\S+)/ ;
     ( my $user)    = $line =~/user (\S+)/ ;
     ( my $passwd)  = $line =~/password (\S+)/ ;
+    ( my $master)  = $line =~/master (\S+)/ ;
 
     &debug_cli (2,"add svr s($server) u($user) p($passwd)");
 
-    $MASTER_IP = $server ;
+    # set the grid master IP
+    if ( $master ) {
+        &cli_add_master ( "configure master $master" ) ;
+    }
+    else {
+        &cli_add_master ( "configure master $server" ) ;
+    }
 
     # create the session handler
        $SESSION = Infoblox::Session->new( 
@@ -5417,6 +5494,38 @@ sub cli_add_server {
          }
       }
 
+}
+
+=head2 connecting to the MGMT (management) port
+
+If you are connecting to the MGMT port, you need to define the GRID MASTER
+IP address.  This is because it is different from the MGMT port and it is
+autoassigned to any zones, networks or ranges that do not specifically
+have a ember assignment
+
+    configure master <ip>
+
+Alternatively, you can add it as a keyword to the 'conf server' command :
+
+    conf server 10.0.1.230 user admin pass infoblox master 45.0.12.20
+
+You can also do this from the command line :
+   
+    ibcli -m <ip>
+
+=cut
+
+sub cli_add_master {
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    ( my $master)  = $line =~/configure master (\S+)/ ;
+
+    print "Using Grid Master [$master]\n";
+
+    # set the global
+    $MASTER_IP = $master ;
 
 }
 
@@ -5689,7 +5798,7 @@ sub cli_load_db {
     my $tmp_xml = ".ibcli-ondeb.xml";
 
     print "Unpacking the database backup...\n";
-    use Archive::Tar;
+    require Archive::Tar;
     my $tar = Archive::Tar->new ;
     $tar->read($file) or die "Cannot load database : $file";
     $tar->extract_file ( 'onedb.xml' , $tmp_xml );
@@ -6168,6 +6277,7 @@ sub dump_summ {
 sub dump_object {
     # wrapper to hold arrays
     foreach my $obj ( @_ ) {
+
         if ( $#_ > 0 ) {
             print "--- ---\n";
         }
@@ -6433,9 +6543,9 @@ sub make_dhcp_option {
         $opt = $2 ;
         debug_cli(4,"mkdh: vendor class c($class) o($opt)");
     }
-        
-    my ( $onum , $oname ) = &get_custom_options ( $DEBUG , $opt ) ;
 
+    # do a lookup to get the real name, (workaround laziness)
+    my ( $onum , $oname ) = &get_custom_options ( $DEBUG , $opt ) ;
 
     debug_cli(4,"mkdh: took option o($opt) > ($onum)($oname)=($val)");
 
@@ -6498,6 +6608,9 @@ sub make_dhcp_option {
                     "value" => $val,
                  )
     }
+    else {
+      print "  Error : unknown DHCP option [$opt]\n";
+    }
 
     # lastly hack in the vendor class
     if ( $class ) {
@@ -6511,8 +6624,8 @@ sub make_dhcp_option {
 
 sub get_custom_options {
   # remap some variables
-    my $DEBUG = shift;
-    my $opt = shift;
+    my ( $DEBUG , $opt ) = @_ ;
+
     my %lookup = (
          "subnet-mask" => "Option   1: subnet-mask",
          "time-offset" => "Option   2: time-offset",
@@ -6531,6 +6644,7 @@ sub get_custom_options {
          "merit-dump" => "Option  14: merit-dump",
          "default-domain" => "Option  15: domain-name",
          "domain-name" => "Option  15: domain-name",
+         "domain_name" => "Option  15: domain-name",
          "swap-server" => "Option  16: swap-server",
          "root-path" => "Option  17: root-path",
          "extensions-path" => "Option  18: extensions-path",
@@ -7163,7 +7277,12 @@ my %COMMANDS = (
 # -gdhtodo-
 # [ ] port for readline
 
-# [ ] add a -m|master ( Grid master IP ) for mgmt ports
+# [ ] Add a "-r rejectfile" option, which causes any ibcli line that
+# result in error to be written to the file specified by "rejectfile". 
+
+# Then you can fix them and just re-run ibcli with the file
+
+# [x] add a -m|master ( Grid master IP ) for mgmt ports
 #     conf master <ip>
 
 # [ ] exit , bye , quit 
@@ -7266,7 +7385,10 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> <n.n.n.n/mm> options failover fixed filter",  
+           words => "<cr> details <n.n.n.n/mm> options failover fixed filter",  
+           func => "cli_show_network", },
+
+    'show network details' => { 
            func => "cli_show_network", },
 
     'show network failover' => { 
@@ -7383,7 +7505,10 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "admin debug file server zone network radius grid member" , },
+           words => "admin debug master=<ip> file server zone network radius grid member" , },
+
+    'configure master <ip>' => { 
+           func => "cli_add_master", },
 
     'configure file' => { 
            words => "load=<file> path=<name>", },
@@ -7509,7 +7634,7 @@ my %COMMANDS = (
            words => "allow deny", },
 
     'configure grid <name> dns add acl allow' => { 
-           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           words => "transfer=<n.n.n.n/mm>|update=<value>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
            func => "cli_add_grid_dns_acl", },
     'configure grid <name> dns add acl deny' => { 
            words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
@@ -7517,7 +7642,7 @@ my %COMMANDS = (
 
     'configure grid <name> dhcp add' => { 
            words => "option=<name=value>|typeoption=<name=value>",
-           func => "cli_add_grid_dhcp", },
+           func => "cli_add_option_def", },
 
 # - grid member -
     'configure grid <name> modify member' => { 
@@ -7712,7 +7837,22 @@ my %COMMANDS = (
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "<n.n.n.n/mm> failover=<name> macfilter=<name> shared=<name> fixed", },
+           words => "<n.n.n.n/mm> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
+
+# - optiondef -
+    'configure network add optiondef <name>' => { 
+           words => "code=<num>", },
+    'configure network add optiondef <name> code <num>' => { 
+           words => "type=<value>", },
+
+# string, boolean, ip-address, text, 8-bit unsigned integer, 16-bit unsigned
+# inte- ger, 32-bit unsigned integer, 8-bit signed integer, 16-bit signed
+# integer, or 32-bit signed integer.
+
+    'configure network add optiondef <name> code <num> type <value>' => { 
+           func => "cli_add_option_def", },
+
+#            words => "<cr> code=<num>|type=<value>", 
 
 # - Failover -
     'configure network add failover <name>' => { 
@@ -7907,6 +8047,13 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.33  2008/04/24 18:13:05  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: global ACL and DHCP opton fixes
+# Documentation corrections
+# fixes for the mgmt port
+#
 # Revision 3.32  2008/02/15 22:29:51  horne
 # BugId: 8205
 # Reviewer(s): Geoff, Chris B
