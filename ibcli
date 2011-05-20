@@ -53,13 +53,23 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.0 2004/11/03 19:58:48 horne Exp $
+#   $Id: ibcli,v 2.1 2004/12/14 05:09:01 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.0 $
-$Date: 2004/11/03 19:58:48 $
+$Revision: 2.1 $
+$Date: 2004/12/14 05:09:01 $
 ';
 $REV =~ s/\$//g;
 
+
+####******#########
+#
+# my %options;
+# getopts('f:hl', \%options);   # read the options with getopts
+# 
+# uncomment the following two lines to see what the options hash contains
+#use Data::Dumper;
+#print Dumper \%options;
+####******#########
 
 # Perl CGI common chunks
 #
@@ -71,8 +81,10 @@ use Text::Abbrev ;
 # include infoblox , find the path ???
 # this is done at compile time so we need to use a method...
 use lib "$FindBin::Bin";
-use InfoBloxDNS ;
+
+use Infoblox::InfobloxDNS;
 use Infoblox::RADIUSOne ;
+use Infoblox;
 
 ######################
 #
@@ -83,6 +95,8 @@ my $DNS_VER = 3 ;
 my $DEBUG = 0 ;
 my $CLI = 0 ;
 my $CONN_STRING = "!" ;
+
+my $IPRE = '\d+\.\d+\.\d+\.\d+';
 
 my %CONN_INFO ;
 my $PUB_SESS ;
@@ -514,35 +528,35 @@ sub zone_commands {
    &debug (4,"sub = zone_commands");
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
-                "add" => 'add_zone',
-                "delete" => 'remove_zone',
-                "remove" => 'remove_zone',
+                "add" => 'cli_add_zone',
+                "delete" => 'cli_remove_zone',
+                "remove" => 'cli_remove_zone',
                 "" => 'mod_zone_commands',
         ) ;
    &shift_arg($arg,%commands);
 }
 
-# PARSER : set network xxx
+# PARSER : conf network xxx
 sub network_commands {
    &debug (4,"sub = network_commands");
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
-                "add" => 'add_network',
-                "delete" => 'remove_network',
-                "remove" => 'remove_network',
+                "add" => 'cli_add_network',
+                "delete" => 'cli_remove_network',
+                "remove" => 'cli_remove_network',
 #                 "global" => 'mod_global_dhcp',
                 "" => 'set_network_commands',
         ) ;
    &shift_arg($arg,%commands);
 }
 
-# PARSER : set network <n.n.n.n/mm> xxx
+# PARSER : conf network <n.n.n.n/mm> xxx
 sub set_network_commands {
    &debug (4,"sub = set_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
-                "split" => 'split_network',
+                "split" => 'cli_split_network',
                 "add" => 'add_to_network_commands',
                 "remove" => 'delete_from_network_commands',
                 "delete" => 'delete_from_network_commands',
@@ -551,13 +565,14 @@ sub set_network_commands {
    &shift_arg($arg,%commands);
 }
 
-# PARSER : set network <n.n.n.n/mm> add xxx
+# PARSER : conf network <n.n.n.n/mm> add xxx
 sub add_to_network_commands {
    &debug (4,"sub = add_to_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
-                "fixed" => 'add_fixed_address',
+                "fixed" => 'cli_add_fixed_address',
+                "address" => 'cli_add_fixed_address',
                 "network" => 'add_sub_network',
                 "range" => 'add_dhdprange',
                 "dhcprange" => 'add_dhdprange',
@@ -602,7 +617,7 @@ sub mod_zone_commands {
                 "add" => 'add_to_zone_commands',
                 "delete" => 'remove_from_zone_commands',
                 "remove" => 'remove_from_zone_commands',
-                "import" => 'import_to_zone',
+#                 "import" => 'import_to_zone',
         ) ;
    &shift_arg($arg,%commands);
 
@@ -686,7 +701,7 @@ sub add_to_zone_commands {
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
-                "host" => 'add_host',
+                "host" => 'cli_add_host',
                 "cname" => 'add_cname',
                 "a" => 'add_a_rec',
                 "ptr" => 'add_zone_ptr',
@@ -772,7 +787,11 @@ sub do_pub_func {
        if ( $CONNECTED ) {
           # type cast correctly and prepend the SESSION
 #           my $result = &$ib_call ( $PUB_SESS , { @fargs } ) ;
-          my $result = &$ib_call ( $PUB_SESS , $hash_ptr ) ;
+          my $ib_result = &$ib_call ( $PUB_SESS , $hash_ptr ) ;
+          my $result = $ib_result->get_status_code();
+          my $response = $ib_result->get_error_details();
+          &debug (1,"result [$result] ($response)");
+
        }
        else {
           &err_print("CANNOT EXECUTE - no connection is in place");
@@ -793,6 +812,7 @@ sub do_priv_func {
        # actually try and run it
        if ( $CONNECTED ) {
           # type cast correctly and prepend the SESSION
+
           my ( $res , $info ) = &$ib_call ( $PRI_SESS , $key_ptr , $mod_ptr ) ;
        }
        else {
@@ -977,7 +997,7 @@ sub import_to_zone {
 
 }
 
-sub add_host {
+sub cli_add_host {
     my ( $zone , $host , $ip , $comment ) = @_ ;
     if ( (! $host ) or ( ! $ip ) ) {
        &missing_arg("<host> <ip>")  ;
@@ -990,7 +1010,7 @@ sub add_host {
     my %opthash ;
     $opthash{'zone'}=$zone;
     $opthash{'name'}=$host;
-    $opthash{'comment'}=$comment;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
 
     # add the IP address
     push @{ $opthash{"address_list"} } , {( "address" , $ip )};
@@ -1029,7 +1049,7 @@ sub add_a_rec {
     $opthash{'zone'}=$zone;
     $opthash{'name'}=$host;
     $opthash{'address'}=$ip;
-    $opthash{'comment'}=$comment;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
 
     &debug (2,"add1h n($host) n($ip) ");
 
@@ -1069,7 +1089,7 @@ sub add_bulkhost {
        $opthash{'prefix'}=$prefix;
        $opthash{'start_address'}=$fip;
        $opthash{'end_address'}=$lip;
-       $opthash{'comment'}=$comment;
+       if ( $comment ) { $opthash{'comment'}=$comment; }
 
        my @function=("add_bulk_host",%opthash);
        &do_pub_func(@function);
@@ -1116,7 +1136,7 @@ sub add_cname {
     $opthash{'zone'}=$zone;
     $opthash{'alias'}=$alias;
     $opthash{'canonical_name'}=$cname;
-    $opthash{'comment'}=$comment;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
 
     my @function=("add_rr_cname",%opthash);
     &do_pub_func(@function);
@@ -1141,7 +1161,7 @@ sub remove_cname {
 
 }
 
-sub add_zone {
+sub cli_add_zone {
 
     # [ ] need a post cli deeper arg parser
     # essentially all options are passed as name value pairs
@@ -1158,6 +1178,8 @@ sub add_zone {
 
     if ( ! $zone ) { &missing_arg("<zone>") ; return }
 
+    &debug (2,"addz n($zone) t($type) oo(@type_opts)");
+
     #
     # etype is the expanded version of whatever we typed for $type
     # We'll only allow authorative zones for present
@@ -1165,7 +1187,7 @@ sub add_zone {
     my $etype ;
     if ( $type ) {
 #        my @opts = ( "authoritative","delegated","secondary");
-       my @opts = ( "Authoritative");
+       my @opts = ( "Authoritative","import" );
        my %optlist = abbrev ( @opts ) ;
        $etype = $optlist{ lc($type) } ;
 
@@ -1179,19 +1201,33 @@ sub add_zone {
     # format the type opts
     # ..... (code goes here) ...
 
-    &debug (2,"addz n($zone) a($etype) oo(@type_opts)");
-
     my %opthash ;
-    $opthash{'name'}=$zone;
     $opthash{'type'}=$etype;
-    $opthash{'parent_zone'}=".";
+    $opthash{'cluster_primary'}=$S_ID ;
 
-    my @function=("add_zone",%opthash);
+    # do we import ?
+    if ( $etype eq "import" ) {
+       $opthash{'type'}="Authoritative";
+       $opthash{'import_source'}=shift @type_opts ;
+    }
+
+    # are we forward or reverse
+    my @function ;
+    if ( $zone =~ /$IPRE\/\d+/ ) {
+       # reverse zone
+       $opthash{'network'}=$zone;
+       @function=("add_reverse_zone",%opthash);
+    }
+    else {
+       $opthash{'name'}=$zone;
+       @function=("add_zone",%opthash);
+    }
+
     &do_pub_func(@function);
 
 }
 
-sub remove_zone {
+sub cli_remove_zone {
     my ( $zone ) = @_ ;
     if ( ! $zone ) { &missing_arg("<zone>") ; return }
     &debug (2,"remz n($zone)");
@@ -1335,7 +1371,7 @@ sub modify_network {
     &do_priv_func(@function);
 }
 
-sub add_fixed_address {
+sub cli_add_fixed_address {
     my ( $network , $ip , $mac , $comment ) = @_ ;
     if ( (! $ip ) or ( ! $mac ) ) {
        &missing_arg("<ip> <mac>")  ;
@@ -1347,7 +1383,7 @@ sub add_fixed_address {
     $opthash{'network'}=$network;
     $opthash{'ip_address'}=$ip;
     $opthash{'mac_address'}=$mac;
-    $opthash{'comment'}=$comment;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
 
     my @function=("add_fixed_address",%opthash);
     &do_pub_func(@function);
@@ -1387,7 +1423,7 @@ sub add_zone_ptr {
     $opthash{'network'}=$network;
     $opthash{'name'}=$ip;
     $opthash{'host'}=$host;
-    $opthash{'comment'}=$comment;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
 
     my @function=("add_rr_ptr",%opthash);
     &do_pub_func(@function);
@@ -1425,12 +1461,13 @@ sub add_dhdprange {
     $opthash{'network'}=$network;
     $opthash{'start_address'}=$fip;
     $opthash{'end_address'}=$lip;
+    $opthash{'member'}=$S_ID;
 
     # parse optional extra arguments
 
     my $etype ;
     if ( $type ) {
-       my @opts = ( "peer_association");
+       my @opts = ( "failover_association");
        my %optlist = abbrev ( @opts ) ;
        $etype = $optlist{ lc($type) } ;
 
@@ -1468,7 +1505,7 @@ sub del_dhcprange {
 
 }
 
-sub add_network {
+sub cli_add_network {
     my ( $network , $comment ) = @_ ;
     if ( ! $network ) { 
             &missing_arg("<n.n.n.n/mm>") ; 
@@ -1478,8 +1515,12 @@ sub add_network {
     &debug (2,"addn n($network) c($comment)");
 
     my %opthash ;
-    $opthash{'network'}=$network;
-    $opthash{'comment'}=$comment;
+#     $opthash{'network'}=$network;
+    $opthash{'address'}=$network;
+    if ( $comment ) { $opthash{'comment'}=$comment; }
+
+    # add to the default member
+    push @{ $opthash{"members"} } , {( "member" , $S_ID )};
 
     my @function=("add_network",%opthash);
     &do_pub_func(@function);
@@ -1487,21 +1528,22 @@ sub add_network {
 }
 
 
-sub remove_network {
+sub cli_remove_network {
     my ( $network ) = @_ ;
     if ( ! $network ) { &missing_arg("<n.n.n.n/mm>") ; return }
 
     &debug (2,"remn n($network)");
 
     my %opthash ;
-    $opthash{'network'}=$network;
+#     $opthash{'network'}=$network;
+    $opthash{'address'}=$network;
 
     my @function=("remove_network",%opthash);
     &do_pub_func(@function);
 
 }
 
-sub split_network {
+sub cli_split_network {
     #
     # the split arg of split_network is a bitshift RELATIVE
     # to the original mask, so there is some math involved
@@ -1515,7 +1557,7 @@ sub split_network {
     # becomes redundant
     my($pnet,$pcidr)= split(/\//,$network );
        $ncidr =~ s/\/// ;
-    my $bitshift = $ncidr - $pcidr ;
+    my $bitshift = $ncidr ;
 #     my $pmask = &cidrfind($pcidr);
 
     &debug (3,"split net [$pnet] [$pcidr] [$ncidr] ($bitshift)\n");
@@ -1523,7 +1565,7 @@ sub split_network {
 
     my %opthash ;
     $opthash{'network'}=$network;
-    $opthash{'subnet_bits'}=$bitshift;
+    $opthash{'netmask_bits'}=$bitshift;
 
     # check for optional args...
     my $etype ;
@@ -1966,11 +2008,9 @@ sub add_server {
 
     &debug (2,"adding server args[@args]");
 
-    # if the server arg is NOT an ip address it is a type
-    my $IPRE = '\d+\.\d+\.\d+\.\d+';
-
     my ( $server , $pass , $user , $junk ) ;
 
+    # if the server arg is NOT an ip address it is a type
     # were we given an IP address or something else ?
     if ( $type !~ /^$IPRE$/) {
 
@@ -2073,7 +2113,7 @@ sub connect {
 
          # now set up the correct hashes for connection
          my %priv_hash;
-         $priv_hash{'HostIP'} = $CONN_INFO{'Host'};
+         $priv_hash{'HostIp'} = $CONN_INFO{'Host'};
          $priv_hash{'UserName'} = $CONN_INFO{'UserName'};
          $priv_hash{'UserPassword'} = $CONN_INFO{'UserPassword'};
          $priv_hash{'HostPort'} = "443";
@@ -2101,14 +2141,15 @@ sub connect {
             # pretty print the hash 
 
             if ( $MAKE ) {
+               my $cptr = \%CONN_INFO ;
+               my $pptr = \%priv_hash ;
                # format the data for pretty printing
-               my $fst=&format_ib_func("Infoblox::Session->new",%CONN_INFO);
-               my
-               $fst=&format_ib_func("Infoblox::InfobloxSession->new",%priv_hash);
+               my $fst=&format_ib_func("Infoblox::Session->new",$cptr);
+               my $fst=&format_ib_func("Infoblox::InfobloxSession->new",$pptr);
             }
             else {
                $PUB_SESS = Infoblox::Session->new( %CONN_INFO );
-               $PRI_SESS = Infoblox::InfobloxSession->new( %CONN_INFO );
+               $PRI_SESS = Infoblox::InfobloxSession->new( %priv_hash );
             }
          }
 
@@ -2685,6 +2726,11 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.1  2004/12/14 05:09:01  horne
+# first round of bug testing
+# also added member support
+# also add import zone
+#
 # Revision 2.0  2004/11/03 19:58:48  horne
 # new code suporting the infoblox V3 API
 # major rewrite
