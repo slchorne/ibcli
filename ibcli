@@ -53,19 +53,12 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 1.14 2004/06/16 20:19:46 horne Exp $
+#   $Id: ibcli,v 1.15 2004/08/01 19:34:03 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 1.14 $
-$Date: 2004/06/16 20:19:46 $
+$Revision: 1.15 $
+$Date: 2004/08/01 19:34:03 $
 ';
 $REV =~ s/\$//g;
-
-sub show_version {
-
-    print "$REV\n";
-
-    exit ;
-}
 
 
 # Perl CGI common chunks
@@ -94,6 +87,7 @@ my $CONNECTED ;
 my $CONFIG ;
 my $MAKE ;
 my $LIST_COMM ;
+my $GET_VERSION ;
 my @LIST_BRANCH ;
 
 my $GOOD_COMMAND ;
@@ -144,11 +138,16 @@ GetOptions(
       "f=s" => \$CONFIG ,
       "d=s" => \$DEBUG ,
       "m+"  => \$MAKE ,
-      "c+"  => \$LIST_COMM ,
-      "v|V"   => \&show_version ,
+      "t+"  => \$LIST_COMM ,
+      "v|V"   => \$GET_VERSION ,
    );
 
    #
+
+if ( $GET_VERSION ) {
+   &show_version ;
+   exit 0 ;
+}
 
 # set the first level command set
 my %commands = ( 
@@ -420,6 +419,7 @@ sub show_commands {
                 'zone' => 'show_zone',
                 'network' => 'show_network',
                 'host' => 'show_host',
+                'version' => 'show_version',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -607,6 +607,7 @@ sub do_ib_func {
     &debug (1,"do_ib_func [$function]");
 
     if ( $MAKE ) {
+       print "\nprint '" . $function . "'.\"\\n\";\n" ;
        print "$function ;\n" ;
     }
     else {
@@ -692,6 +693,9 @@ sub put_database {
     &do_ib_func($function);
 
     &err_print("DONE ");
+
+    # do an implicit disconnect
+    &disconnect ;
 
 }
 sub get_database {
@@ -881,6 +885,9 @@ sub add_zone {
 
 
     my $function = "ib_insert_zone(\"$zone\",\"$etype\"$opt_str)";
+
+    my @args = ( $zone , $etype , $opt_str ) ;
+
     &do_ib_func($function);
 
 }
@@ -901,15 +908,18 @@ sub mod_global_dhcp {
        &missing_arg("<option> <value>")  ;
        return ;
     }
-    # protect against array indirection
-    my $custom= "@extra";
+    # clean up any custom option args
+    my $custom= join ( '","' , @extra );
 
     # clean some options
     $val=~s/["']*//g ;
-    $custom=~s/["']*//g ;
+    $custom=~s/""/"/g ;
 
     &debug (2,"modglob o($opt) v($val) c($custom)");
 
+    #
+    # GLOBAL custom props have to ALL be on one line, or stuff gets dropped
+    #
     # ib_modify_global_dhcp_options
     #         ("10.34.8.0","255.255.252.0","router","10.34.8.1");
     # OR
@@ -918,9 +928,9 @@ sub mod_global_dhcp {
     #           "netbios-name-servers","","10.23.60.20");
     my $comm="ib_modify_global_dhcp_options(";
 
-    my $func="$comm,\"$opt\",\"$val\")";
-    if ( $opt eq "custom" ) {
-       $func="$comm\"custom_option\",\"$val\",\"\",\"$custom\")";
+    my $func="$comm\"$opt\",\"$val\")";
+    if ( $opt eq "custom_option" ) {
+       $func="$comm\"custom_option\",\"$val\",\"$custom\")";
     }
        
 
@@ -955,7 +965,7 @@ sub modify_network {
     my $comm="ib_modify_network_dhcp_options(\"$net\",\"$mask\"";
 
     my $func="$comm,\"$opt\",\"$val\")";
-    if ( $opt eq "custom" ) {
+    if ( $opt eq "custom_option" ) {
        $func="$comm,\"custom_option\",\"$val\",\"\",\"$custom\")";
     }
        
@@ -965,7 +975,7 @@ sub modify_network {
 }
 
 sub add_fixed_address {
-    my ( $parent , $mac , $ip , $comment ) = @_ ;
+    my ( $parent , $ip , $mac , $comment ) = @_ ;
     if ( (! $ip ) or ( ! $mac ) ) {
        &missing_arg("<mac> <ip>")  ;
        return ;
@@ -973,14 +983,14 @@ sub add_fixed_address {
     my ($net,$cidr) = split(/\//,$parent) ;
     my $mask = &cidrfind($cidr) ;
 
-    &debug (2,"addnp n($net) m($mask) mac($mac) ip($ip) c($comment)");
+    &debug (2,"addnp n($net) m($mask) ip($ip) mac($mac) c($comment)");
 
     # ib_insert_fixed_address(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
     my $comm="ib_insert_fixed_address(\"$net\",\"$mask\"";
     my $func="$comm,\"$mac\",\"$ip\")";
 
     if ($comment) {
-       $func="$comm,\"$mac\",\"$ip\",\"comment\",\"$comment\")";
+       $func="$comm,\"$ip\",\"$mac\",\"comment\",\"$comment\")";
     }
     &do_ib_func($func);
 
@@ -1005,7 +1015,7 @@ sub add_network_ptr {
 }
 
 sub add_dhdprange {
-    my ( $parent , $fip , $lip ) = @_ ;
+    my ( $parent , $fip , $lip , $type , @type_opts ) = @_ ;
     if ( (! $fip ) or ( ! $lip ) ) {
        &missing_arg("<first_ip> <last_ip>")  ;
        return ;
@@ -1013,10 +1023,33 @@ sub add_dhdprange {
     my ($net,$cidr) = split(/\//,$parent) ;
     my $mask = &cidrfind($cidr) ;
 
-    &debug (2,"addrng n($net) m($mask) ip($fip) h($lip)");
+    # parse optional extra arguments
 
-    # ib_insert_dhcp_range(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , foo.com );
-    my $func="ib_insert_dhcp_range(\"$net\",\"$mask\",\"$fip\",\"$lip\")";
+    my $etype ;
+    if ( $type ) {
+       my @opts = ( "peer_association");
+       my %optlist = abbrev ( @opts ) ;
+       $etype = $optlist{ lc($type) } ;
+
+       if ( ! $etype || ! @type_opts ) { 
+          &missing_arg(@opts , "<name>" );
+          return ;
+       }
+    }
+
+    # format the type opts
+    my $o_str ;
+       $o_str .= ",\"$etype\"";
+    if ( @type_opts ) {
+       foreach my $oo ( @type_opts ) {
+               $o_str .= ",\"$oo\"";
+       }
+    }
+
+    &debug (2,"addrng n($net) m($mask) ip($fip) h($lip) oo($o_str)");
+
+    # ib_insert_dhcp_range(10.0.0.0 , 255.255.0.0 , 10.2.3.4 , 10.2.3.50 );
+    my $func="ib_insert_dhcp_range(\"$net\",\"$mask\",\"$fip\",\"$lip\"$o_str)";
     &do_ib_func($func);
 
 }
@@ -1522,6 +1555,7 @@ sub do_dig {
 
 }
 
+# ib_open_connection(\$SERVER_ID,\$SERVER_PASS);
 sub script_header {
 
     print "#!/usr/bin/perl
@@ -1530,7 +1564,7 @@ sub script_header {
 #
 use InfoBloxDNS ;
 
-ib_open_connection(\$SERVER_IP,\$SERVER_PASS);
+ib_open_connection(\"$S_ID\",\"$S_PASS\");
 
 \n";
 }
@@ -1542,6 +1576,10 @@ ib_close_connection();
 
 exit ; \n";
 
+}
+
+sub show_version {
+    print "$REV\n";
 }
 
 
@@ -1603,6 +1641,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.15  2004/08/01 19:34:03  horne
+# Added 'peer_assoc' support for V2.5
+#
 # Revision 1.14  2004/06/16 20:19:46  horne
 # added comments to ptrs
 # added modify global dhcp opts
