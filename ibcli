@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.30 2008/01/28 02:49:23 horne Exp $ ;
-my $REV = q$Revision: 3.30 $;
-# $Date: 2008/01/28 02:49:23 $
+my $ID  = q$Id: ibcli,v 3.31 2008/02/04 21:31:25 horne Exp $ ;
+my $REV = q$Revision: 3.31 $;
+# $Date: 2008/02/04 21:31:25 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -109,6 +109,7 @@ my %SPECOPS = (
      '<svr>' => '^\S+$',
      '<file>' => '^\S+$',
      '<name>' => '^\S+$',
+     '<target>' => '^\S+$',
      '<value>' => '^\S+$',
      '<name=value>' => '^\S+=\S+$',
      '<canonical>' => '^\S+$',
@@ -123,6 +124,8 @@ my %SPECOPS = (
      '</cidr>'      => '^\/\d{1,2}$',
      '<zone>'   => '^\S+$',
      '<priority>'   => '^\d+$',
+     '<weight>'     => '^\d+$',
+     '<port>'       => '^\d+$',
    );
 
 # Alternate words are set of a global lookup table
@@ -270,6 +273,9 @@ if ( -f $conf ) {
 # [ ] exec mode
 # run a single command and exit
 if ( $EXEC ) {
+
+    $PROMPT = "" ;
+    print "$EXEC\n";
     &process_line ( $EXEC ) ;
     exit ;
 }
@@ -385,7 +391,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.30 $.
+$Revision: 3.31 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1274,9 +1280,9 @@ sub cli_add_view {
 
     # get the args from the line
     my ( $view )     = $line =~/view (\S+)/ ;
-    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
-    # de-urlencode the name string
+    # get and de-urlencode the comment string
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
     $comment = &decode_comment ( $comment ) ;
 
     &debug_cli(1,"addv v($view) c($comment)");
@@ -1964,6 +1970,8 @@ sub cli_add_host {
 
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
+    # views
+    my ( $vname )     = $line =~/view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -2032,11 +2040,11 @@ sub cli_del_host {
 
 =head2 Add an A record to a zone
 
-   conf zone foo.com add A test 1.2.3.4
+   conf zone foo.com add a_record test 1.2.3.4
 
 To add the record to a shared record group (zone must be blank)
 
-   conf zone "" add A test 1.2.3.4 shared_record_group mygroup
+   conf zone "" add a_record test 1.2.3.4 shared_record_group mygroup
 
 =cut
 
@@ -2081,6 +2089,13 @@ sub cli_add_a_rec {
                   "ipv4addr" => "$ip",
                   "shared_record_group" => "$shared",
         );
+    }
+
+    # views
+    my ( $vname )     = $line =~/view (\S+)/ ;
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
     }
 
     if ( $disable ) { $obj->disable ( "TRUE" ) }
@@ -2172,6 +2187,13 @@ sub cli_add_aaaa {
         );
     }
 
+    # views
+    my ( $vname )     = $line =~/view (\S+)/ ;
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
+    }
+
     if ( $disable ) { $obj->disable ( "TRUE" ) }
     if ( $comment ) { $obj->comment ( $comment ) }
 
@@ -2255,6 +2277,13 @@ sub cli_add_mx {
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
+    # views
+    my ( $vname )     = $line =~/view (\S+)/ ;
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
+    }
+
     &debug_cli(1,"add_mx n($host) n($pref) c($comment)");
 
     # addit
@@ -2287,6 +2316,83 @@ sub cli_del_mx {
     &do_func("remove",$obj);
 
 }
+
+=head2 Add an SRV record to a zone
+
+   conf zone foo.com add SRV <name> <pri> <weight> <port> <target>
+   conf zone foo.com add SRV _ldap._tcp 0 100 3268 dc01.foo.com
+
+To add the record to a shared record group (zone must be blank)
+
+   conf zone "" add srv ... shared_record_group mygroup
+
+=cut
+
+# CBUIJS: Added add_srv
+sub cli_add_srv_rec {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $zone )     = $line =~/zone (\S+)/ ;
+    my ( $host , $priority , $weight , $port , $target ) 
+        = $line =~/ srv (\S+) (\S+) (\S+) (\S+) (\S+)/ ;
+    my ( $view )    = $line =~/view (\S+)/ ;
+    my ( $shared )  = $line =~/shared_record_group (\S+)/ ;
+    my ( $disable ) = $line =~/add srv \S+.* \b(disabled)\b/ ;
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
+    # scrub the host/zone for blanks
+    # [ ] make this a function
+    $host =~ s/"//g;
+    $zone =~ s/"//g;
+    my $name ;
+    if ( $host and $zone ) { $name = "$host.$zone"; }
+    elsif ( $host and ! $zone ) { $name = "$host"; }
+    else { $name = $zone }
+
+    my $obj = Infoblox::DNS::Record::SRV->new (
+                  "name" => "$name",
+                  "port" => "$port",
+                  "priority" => "$priority",
+                  "target" => "$target",
+                  "weight" => "$weight",
+    );
+
+
+    # overrwrite this for shared record groups
+    if ( $shared ) {
+        # version specific...
+        require_api( "4.2r1-0" ) or return;
+
+        $obj = Infoblox::DNS::SharedRecord::SRV->new (
+                    "name" => "$name",
+                    "priority" => "$priority",
+                    "weight" => "$weight",
+                    "port" => "$port",
+                    "target" => "$target",
+        );
+    }
+
+    if ( $disable ) { $obj->disable ( "TRUE" ) }
+
+    if ( $view ) {
+        my $view = Infoblox::DNS::View->new ( name => $view, );
+        $obj->views ( [ $view ] ) ;
+    }
+
+    if ( $comment ) { $obj->comment ( $comment ) }
+
+    &debug_cli(1,"add_srv n($host) n($priority) n(weight) n(port)");
+    &debug_cli(1,"add_srv   t(target) c($comment) sh($shared)");
+
+    # addit
+    &do_func("add",$obj);
+
+}
+
 
 =head2 Add a bulk host to a zone
 
@@ -2386,6 +2492,13 @@ sub cli_add_cname {
                     "canonical" => "$cname",
     );
 
+    # views
+    my ( $vname )     = $line =~/view (\S+)/ ;
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
+    }
+
     if ( $comment ) { $obj->comment ( $comment ) }
 
     # addit
@@ -2445,6 +2558,13 @@ sub cli_add_ptr {
                   "ipv4addr" => $ip ,
                   "ptrdname" => "$host",
     );
+
+    # views
+    my ( $vname )     = $line =~/view (\S+)/ ;
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
+    }
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
@@ -3112,7 +3232,7 @@ sane (In reality, any bogus string for the network name will work)
 sub cli_del_fixed_address {
     my ( $line ) = @_ ;
 
-    my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $network ) = $line =~/configure network ($REcidr)/ ;
     my ( $ip ) = $line =~/ fixed (\S+)/ ;
     my ( $mac ) = $line =~/ fixed \S+ (\S+)/ ;
 
@@ -3826,6 +3946,10 @@ sub cli_add_member {
     my ($haaddr)    = $line =~/ hapair (\S+)/ ;
     my ($harid)    = $line =~/ routerid (\S+)/ ;
 
+    # get and de-urlencode the comment string
+    my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    $comment = &decode_comment ( $comment ) ;
+
     # break ip into ip and mask
     my ( $ip , $cidr ) = split ( /\// , $vip ) ;
     my $mask = &cidr_to_mask( $cidr ) ;
@@ -3841,18 +3965,11 @@ sub cli_add_member {
           "mask" => $mask ,
 #             "comment"   => $comment,
     );
+    if ( $comment ) { $memobj->comment ( $comment ) }
+
 
     # make some changes, if we have a grid
     if ( $memobj ) {
-
-#         if ( $use_ntp ) { $memobj->enable_ntp ( $use_ntp ) }
-
-#         if ( $gateway ) { $memobj->gateway ( $gateway ) }
-# 
-#         if ( $vip ) { 
-#             $memobj->mask ( $mask ) ;
-#             $memobj->ipv4addr ( $ip) 
-#         }
 
         # make this an hapair
         if ( $haaddr ) { 
@@ -3867,6 +3984,51 @@ sub cli_add_member {
 
         # push the changes, if we were ok
         &do_func("add",$memobj);
+    }
+    else {
+          my $result = Infoblox->status_code();
+          my $response = Infoblox->status_detail();
+        print "ERR $result , $response\n";
+        }
+
+}
+
+=head2 Removing members
+
+   configure grid Infoblox delete member ns1.foo.com ipaddress 1.2.3.20/24
+
+=cut
+
+sub cli_del_member {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $member)  = $line =~/delete member (\S+)/ ;
+
+    my ($grid)    = $line =~/ grid (\S+)/ ;
+    my ($vip)    = $line =~/ ipaddress (\S+)/ ;
+    my ($gateway)    = $line =~/ gateway (\S+)/ ;
+
+    # break ip into ip and mask
+    my ( $ip , $cidr ) = split ( /\// , $vip ) ;
+    my $mask = &cidr_to_mask( $cidr ) ;
+
+    &debug_cli (2,"delme n($member) ip($ip) m($mask) gw($gateway)");
+
+    # create the object
+    my $memobj = Infoblox::Cluster::Member->new(
+          "cluster" => $grid ,
+          "name" => $member ,
+          "gateway" => $gateway ,
+          "ipv4addr" => $ip ,
+          "mask" => $mask ,
+    );
+
+    # make some changes, if we have a grid
+    if ( $memobj ) {
+
+        # push the changes, if we were ok
+        &do_func("remove",$memobj);
     }
     else {
           my $result = Infoblox->status_code();
@@ -6992,19 +7154,27 @@ my %COMMANDS = (
            func => "cli_mod_grid", },
 
     'configure grid <name> delete' => { 
-           words => "lcd_input|remote_console_access|support_access",
+           words => "member=<name> lcd_input|remote_console_access|support_access",
            func => "cli_mod_grid", },
 
     'configure grid <name> add' => { 
            words => "member=<name> ntp_server=<ip>|lcd_input|remote_console_access|support_access",
            func => "cli_mod_grid", },
 
-    'configure grid <name> dns dhcp add member <name>' => {
+    'configure grid <name> add member <name>' => {
            words => "ipaddress=<n.n.n.n/mm>", },
 
     'configure grid <name> add member <name> ipaddress <n.n.n.n/mm>' => {
-           words => "<cr> hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
+           words => "<cr> comment=<comment>|hapair=<ip,ip>|gateway=<ip>|routerid=<num>",
            func => "cli_add_member", },
+
+    'configure grid <name> delete member <name>' => {
+           words => "ipaddress=<n.n.n.n/mm>", },
+
+    'configure grid <name> delete member <name> ipaddress <n.n.n.n/mm>' => {
+           words => "gateway=<ip>", },
+    'configure grid <name> delete member <name> ipaddress <n.n.n.n/mm> gateway <ip>' => {
+           func => "cli_del_member", },
 
     'configure grid <name> dns' => { 
            words => "add delete", },
@@ -7096,11 +7266,11 @@ my %COMMANDS = (
            words => "add delete modify", },
 
     'configure zone <zone> add' => { 
-           words => "host a_record aaaa bulkhost cname ptr_record mx", },
+           words => "host a_record aaaa bulkhost cname ptr_record srv mx", },
     'configure zone <zone> delete' => { 
-           words => "host a_record aaaa bulkhost cname ptr_record mx", },
+           words => "host a_record aaaa bulkhost cname ptr_record srv mx", },
     'configure zone <zone> modify' => { 
-           words => "host=<name> a_record aaaa bulkhost cname ptr_record mx", },
+           words => "host=<name> a_record aaaa bulkhost cname ptr_record srv mx", },
 
     'configure zone <zone> delete host' => { 
            words => "<name>", },
@@ -7160,13 +7330,13 @@ my %COMMANDS = (
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> shared_record_group=<name>|comment=<comment>|disabled|view=<name>", 
+           words => "<cr> view=<name>|shared_record_group=<name>|comment=<comment>|disabled|view=<name>", 
            func => "cli_add_a_rec", },
 
     'configure zone <zone> add aaaa' => { 
            words => "<name>=<ipv6>", },
     'configure zone <zone> add aaaa <name> <ipv6>' => { 
-           words => "<cr> shared_record_group=<name>|comment=<comment>|disabled", 
+           words => "<cr> view=<name>|shared_record_group=<name>|comment=<comment>|disabled", 
            func => "cli_add_aaaa", },
 
     'configure zone <zone> add bulkhost' => { 
@@ -7178,23 +7348,13 @@ my %COMMANDS = (
     'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
            words => "<cr> addreverse|comment=<comment>|view=<name>", 
            func => "cli_add_bulk", },
-#    'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
-#           words => "<cr> addreverse|comment=<comment>", 
-#           func => "cli_add_bulk", },
-#    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse'=> { 
-#	   words => "<cr> comment=<comment>",
-#           func => "cli_add_bulk", },
-#    'configure zone <zone> add bulkhost <name> <ip> <ip> comment <comment>'=> { 
-#           func => "cli_add_bulk", },
-#    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse comment <comment>'=> { 
-#           func => "cli_add_bulk", },
 
     'configure zone <zone> add cname' => { 
            words => "<name>", },
     'configure zone <zone> add cname <name>' => { 
            words => "<canonical>", },
     'configure zone <zone> add cname <name> <canonical>' => { 
-           words => "<cr> comment=<comment>", 
+           words => "<cr> view=<name>|comment=<comment>", 
            func => "cli_add_cname", },
 
     'configure zone <zone> add mx' => { 
@@ -7202,24 +7362,34 @@ my %COMMANDS = (
     'configure zone <zone> add mx <name>' => { 
            words => "<priority>=<name>", },
     'configure zone <zone> add mx <name> <priority> <name>' => { 
-           words => "<cr> shared_record_group=<name>|comment=<comment>", 
+           words => "<cr> view=<name>|shared_record_group=<name>|comment=<comment>", 
            func => "cli_add_mx", },
+
+    # CBUIJS add_srv
+    'configure zone <zone> add srv' => {
+           words => "<name>=<priority>", },
+    'configure zone <zone> add srv <name> <priority>' => { 
+           words => "<weight>=<port>", },
+    'configure zone <zone> add srv <name> <priority> <weight> <port>' => {
+           words => "<target>", },
+    'configure zone <zone> add srv <name> <priority> <weight> <port> <target>' => { 
+           words => "<cr> shared_record_group=<name>|comment=<comment>|disabled|view=<name>",
+           func => "cli_add_srv_rec", },
+
 
     'configure zone <zone> add ptr_record' => { 
            words => "<ip>", },
     'configure zone <zone> add ptr_record <ip>' => { 
            words => "<name>", },
     'configure zone <zone> add ptr_record <ip> <name>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_add_ptr", },
-    'configure zone <zone> add cname <ip> <name> comment <comment>'=> { 
+           words => "<cr> view=<name>|comment=<comment>", 
            func => "cli_add_ptr", },
 
     'configure network' => { 
            words => "add delete <n.n.n.n/mm> filter=<name>", },
 
     'configure network delete' => { 
-           words => "<n.n.n.n/mm> macfilter=<name> shared=<name>", },
+           words => "<n.n.n.n/mm> fixed=<ip> macfilter=<name> shared=<name>", },
     'configure network delete <n.n.n.n/mm>' => { 
            words => "netmask=<ip>",
            func => "cli_delete_network", },
@@ -7283,6 +7453,7 @@ my %COMMANDS = (
            words => "<cr>|network=<n.n.n.n/mm>",  
            func => "cli_join_network", },
 
+# - fixed addrs with networks -
     'configure network <n.n.n.n/mm> delete fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> delete fixed <ip> <mac>' => { 
@@ -7312,6 +7483,10 @@ my %COMMANDS = (
            words => "<cr> comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
+    'configure network delete fixed <ip>' => { 
+           func => "cli_del_fixed_address", },
+
+#  - ranges
     'configure network <n.n.n.n/mm> add range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
@@ -7412,6 +7587,15 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.31  2008/02/04 21:31:25  horne
+# BugId: 8205
+# Reviewer(s): Chris B
+# Description: added views for other record types
+# added SRV records
+# added comments to views
+# fixed bug in adding members
+# added 'delete' members
+#
 # Revision 3.30  2008/01/28 02:49:23  horne
 # BugId: 8205
 # Reviewer(s): Geoff
