@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.35 2008/07/11 20:49:21 horne Exp $ ;
-my $REV = q$Revision: 3.35 $;
-# $Date: 2008/07/11 20:49:21 $
+my $ID  = q$Id: ibcli,v 3.36 2008/07/23 00:41:24 horne Exp $ ;
+my $REV = q$Revision: 3.36 $;
+# $Date: 2008/07/23 00:41:24 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -398,7 +398,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.35 $.
+$Revision: 3.36 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -5267,7 +5267,6 @@ sub cli_show_view {
 
 =cut
 
-
 sub cli_show_host {
     my ( $line ) = @_ ;
 
@@ -5292,6 +5291,56 @@ sub cli_show_host {
     
     my @hosts = &do_func("search", %opthash );
     &dump_object ( @hosts ) ;
+}
+
+=head2 Showing records
+
+    show record cname www.foo.com
+    show record a_record test.foo.com
+
+=cut
+
+sub cli_show_record {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $type , $name ) = $line =~/ record (\S+)\s+(\S+)/ ;
+    my ( $view ) = $line =~/ view (\S+)/ ;
+
+    # set up the object
+    my $olist = {
+        cname => "Infoblox::DNS::Record::CNAME",
+        a_record => "Infoblox::DNS::Record::A",
+        mx => "Infoblox::DNS::Record::MX",
+        txt => "Infoblox::DNS::Record::TXT",
+        aaaa => "Infoblox::DNS::Record::AAAA",
+        bulkhost => "Infoblox::DNS::BulkHost",
+    } ;
+
+    my $otype = $olist->{"$type"};
+
+    # wildcard the names
+
+    &debug_cli(2,"showr n($name) v($view) t($type) ot($otype)");
+
+    if ( $otype ) {
+
+        # get the host 
+        my %opthash = (
+            "object" => $otype,
+            "name" => $name,
+            );
+        if ( $view ) {
+            %opthash = (
+            "object" => $otype,
+            "name" => $name ,
+            view => $view,
+            );
+        }
+    
+        my @records = &do_func("search", %opthash );
+        &dump_object ( @records ) ;
+    }
 }
 
 =head2 Showing leases
@@ -5486,6 +5535,142 @@ sub cli_show_netstats {
     &dump_object ( shift @nets ) ;
     
 }
+
+=head2 Showing network IPAM
+
+List ALL the used and unused addresses in a subnet
+
+   show network 161.245.254.128/25 ipam
+
+Show just the unused addresses
+
+   show network 161.245.254.128/25 ipam used
+
+=cut
+
+sub cli_show_ipam {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $subnet ) = $line =~/ network (\S+)/ ;
+    my ( $type ) = $line =~/ ipam (\S+)/ ;
+
+    &debug_cli(2,"netipam n($subnet) t($type)");
+
+    # create an hash of used ip addrs
+    my %used_ip ;
+
+    # now get all the ranges in the subnet
+    my @ranges = &do_func("search", (
+                    "object" => "Infoblox::DHCP::Range",
+                    "network" => $subnet,
+                    "start_addr" => ".*",
+                    )
+                 );
+
+    # now walk these, marking the addresses
+    foreach my $robj (@ranges) {
+        # we have to coerce these into relative numbers
+        # or perl complains (arrg the overhead...)
+        my $afip = abs_ip ( $robj->start_addr() ) ;
+        my $alip = abs_ip ( $robj->end_addr() ) ;
+
+        # walk all these addresses
+        foreach my $arip ( 0 .. $alip - $afip ) {
+            # convert this back to absolute
+            my $ip = ip_abs ( $arip + $afip ) ;
+            # mark it used
+            $used_ip{$ip} = "used/range" ;
+        }
+    }
+
+    # now find all the fixed addresses
+    # we have to fix a bug in the API
+    my $snet = $subnet ;
+       $snet =~ s/\//\.\*/;
+
+    my @fixed = &do_func("search", (
+                    "object" => "Infoblox::DHCP::FixedAddr",
+                    "network" => $snet,
+        # ** you can't use wildcard here or searches will break **
+        #           "ipv4addr" => ".*",
+                    )
+                 );
+
+    # walk this list, mark as used...
+    foreach my $fobj ( @fixed ) {
+        my $ip = $fobj->ipv4addr();
+        $used_ip{$ip} = "used/fixed" ;
+    }
+
+
+    # now walk the rest of the addresses looking for used/unused
+    # get the first/last IP for the subnet
+    my ( $network , $bcast ) = netbounds ( $subnet ) ;
+
+    my $fabs = abs_ip( $network ) + 1 ;
+    my $labs = abs_ip( $bcast ) - 1 ;
+
+#     foreach my $asip ( 0 .. 1 ) {
+    foreach my $asip ( 0 .. $labs - $fabs ) {
+        my $sip = ip_abs ( $asip  + $fabs ) ;
+
+        # see if it is in use.
+        if ( exists $used_ip{$sip} and $used_ip{$sip} =~ /used/ ) {
+            next ;
+        }
+
+        # now do some DNS lookups
+        # if $USE_EL is set, we are a unix system
+        my $dns ;
+        if ( $USE_EL ) {
+            chomp ( $dns = `host $sip $MASTER_IP` ) ;
+        }
+        else {
+            # winders
+            chomp ( $dns = `nslookup $sip $MASTER_IP` ) ;
+        }
+    
+        # mark at the results
+        if ( $dns =~ /timed out/i ) {
+            $dns=~s/;//g;
+            $used_ip{$sip} = "Error : $dns";
+            # and DONT continue
+            last ;
+        }
+
+        # unix
+        if ( $dns =~ /domain name/ ) {
+        
+            # this IP has a DNS entry
+            $used_ip{$sip} = "used/dns" ;
+        }
+        # winders nslookup
+        elsif ( ! $USE_EL and $dns =~ /name:/i ) {
+            # this IP has a DNS entry
+            $used_ip{$sip} = "used/dns" ;
+        }
+        else {
+            # free
+            $used_ip{$sip} = "unused" ;
+        }
+
+    }
+
+    # now dump the entire list
+    foreach my $key ( sort by_ip keys %used_ip ) {
+        my $value = $used_ip{$key};
+        # filter out the lists
+        if ( $type and $value !~ /^$type/i ) {
+            next ;
+        }
+        print "    $key : $used_ip{$key}\n";
+    }
+
+#     print Dumper ( \%used_ip ) ;
+
+}
+
 
 =head2 Showing ranges
 
@@ -7540,6 +7725,78 @@ sub abs_ip {
     return ($absval) ;
 }
 
+sub ip_abs {
+    # convert an absval back again to an IP
+    my ( $abs ) = @_ ; 
+    
+    my $o1 = int ( $abs / ( 2 ** 24 ) ) ;
+    my $r1  = $abs % ( 2 ** 24 )  ;
+
+    my $o2 = int ( $r1 / ( 2 ** 16 ) ) ;
+    my $r2  = $abs % ( 2 ** 16 )  ;
+
+    my $o3 = int ( $r2 / ( 2 ** 8 ) ) ;
+    my $o4  = $abs % ( 2 ** 8 )  ;
+
+    my $ip = join ( "." ,  $o1 , $o2 , $o3 , $o4 ) ;
+
+    return ($ip) ;
+}
+
+sub netbounds {
+    my ($subnet) = @_ ;
+    my ($netid,$cidr) = split ( /\// , $subnet ) ;
+
+    # break the network out into octets
+    my @net_octs = split(/\./,$netid) ;
+    my @base_octs = @net_octs ;
+    my @last_octs = @net_octs ;
+
+    # based on the netmask and net_id we can calculate
+    # gateway , broadcast et al ...
+
+    # for any mask we need to determine which octet we're changing
+    # and split the ip up and work on the octets
+    #
+    # /24 -> octet 3 , 0   dvisions
+    # /23 -> octet 2 , 128 divisions 
+    # /22 -> octet 2 , 64  divisions
+    # .....
+    # /16 -> octet 2 , 0   divisions
+    #
+
+    # we're going to use the original network and rewrite
+    # the octets as they relate to the netmask
+    #
+    # we only need to modify octets that are outside the mask ($mod_oct)
+    # we work out the value of that octet is by the delta.
+    #
+    my $delta = 256 / ( 2 ** ( $cidr % 8 ) ) ;
+    my $mod_oct = int ( $cidr / 8 );
+
+    # given this we work the upper and lower limits
+    my $oct_val = $net_octs[$mod_oct] ;
+    my $first_oct = $oct_val - ( $oct_val % $delta ) ;
+    my $last_oct  = $first_oct + $delta - 1 ;
+
+    # then set some temp arrays with potential values
+    foreach my $o_cc ( $mod_oct .. 3 ) {
+       if ( $o_cc == $mod_oct ) {
+          $base_octs[$o_cc] = $first_oct ;
+          $last_octs[$o_cc] = $last_oct ;
+       }
+       else {
+          $last_octs[$o_cc] = 255 ;
+          $base_octs[$o_cc] = 0 ;
+       }
+    }
+    my $fip = join('.',@base_octs);
+    my $lip = join('.',@last_octs);
+
+    return($fip,$lip);
+
+}
+
 sub arpa_to_net {
     my ( $revzone ) = @_ ;
   
@@ -7596,7 +7853,6 @@ sub init_editline {
     
     # continue importing
     import Term::EditLine ;
-
 
     # create the object
     my $el = Term::EditLine->new('progname');
@@ -7730,7 +7986,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "time file server grid admin views zone host network range radius debug",  },
+           words => "record time file server grid admin views zone host network range radius debug",  },
 
     'help' => { 
            words => "all",
@@ -7870,6 +8126,12 @@ my %COMMANDS = (
            words => "<cr>",  
            func => "cli_show_host", },
 
+# show DNS records
+    'show record' => { 
+           words => "cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
+           func => "cli_show_record", },
+
+
     'show zone' => { 
            words => "<cr> <zone>|forward|reverse|shared_record_group|nsgroup|view=<name>",  
            func => "cli_show_zone", },
@@ -7908,7 +8170,8 @@ my %COMMANDS = (
            func => "cli_show_netstats", },
 
     'show network <n.n.n.n/mm> ipam' => { 
-           words => "used unused",  },
+           words => "used unused",
+           func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam used' => { 
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam unused' => { 
@@ -8659,6 +8922,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.36  2008/07/23 00:41:24  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: next_ip and ipam searches
+#
 # Revision 3.35  2008/07/11 20:49:21  horne
 # BugId: 8205
 # Reviewer(s): Geoff
