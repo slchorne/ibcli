@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.1.2.3 2005/08/15 20:44:42 horne Exp $ ;
-my $REV = q$Revision: 3.1.2.3 $;
-# $Date: 2005/08/15 20:44:42 $
+my $ID  = q$Id: ibcli,v 3.1.2.4 2005/09/26 22:16:29 horne Exp $ ;
+my $REV = q$Revision: 3.1.2.4 $;
+# $Date: 2005/09/26 22:16:29 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -183,7 +183,7 @@ my %COMMANDS = (
     'configure zone add' => { 
            words => "<zone>", },
     'configure zone add <zone>' => { 
-           words => "<cr> import=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
+           words => "<cr> import=<ip>|forward_to=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|primary=<ip>|secondary=<ip,ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -502,13 +502,12 @@ if ( $S_ID and $S_PASS and $S_USER ) {
 
 # print a startup message
 print " 
-#####################################################
+#####################################################################
 #
-# the Infoblox CLI demo (this is alpha code, ymmv)
+# the Infoblox CLI $REV (this is alpha code, ymmv)
 #
-#####################################################
+#####################################################################
 
- $NAME : $REV
  ( press <tab> for help )
 ";
 
@@ -550,7 +549,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.1.2.3 $
+$Revision: 3.1.2.4 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -604,9 +603,7 @@ A more detailed example
 
 A complex example, multiple connections
 
-   server ? > conf server 10.0.1.224
-   10.0.1.224 > conf server user admin
-   10.0.1.224 > conf server pass infoblox
+   server ? > conf server 10.0.1.224 user admin pass infoblox
    admin@10.0.1.224 > conf zone add sales.foo.com
 
    # now switch servers
@@ -702,10 +699,7 @@ is the same as
 The cli uses a full line editor with history and the usual bells ans
 whistles. commend completion can be achieved by pressing <tab>
 
-=head2 BATCH processing=head2 TAB completion
-
-The cli uses a full line editor with history and the usual bells ans
-whistles. commend completion can be achieved by pressing <tab>
+=head2 BATCH processing
 
 TBD
 
@@ -762,7 +756,7 @@ sub process_line {
 
        # now go do it
        my $func = $COMMANDS{ $matchline }{"func"} ;
-       &debug_cli (1,"linec call ($func) ($expanded)");
+       &debug_cli (2,"linec call ($func) ($expanded)");
        if ( $func ) {
           # catch undefined arrays
           if ( defined ( &$func ) ) {
@@ -1268,7 +1262,9 @@ sub do_func {
 #     &debug_cli(1,"do_func ($method)");
 
     # [ ] format the data for pretty printing
-#     &print_data($method,@data);
+    if ( $DEBUG >= 2 ) {
+       print Dumper ( \@data ) ;
+    }
 
     my @ret_objects ;
 
@@ -1358,16 +1354,34 @@ sub cli_add_zone {
     my ($pri)   = $line =~/ primary (\S+)/ ;
 
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
+    my (@forwarders) = $line =~/ forward_to (\S+)/g ;
     my (@sec)     = $line =~/ secondary (\S+)/g ;
     my (@ext_sec) = $line =~/ ext_secondary (\S+)/g ;
 
-    &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec)(@ext_sec)");
+    &debug_cli (1,"addz z($zone) i($import) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
 
     # create the zone...
     my $obj = Infoblox::DNS::Zone->new ( "name" => $zone, );
 
+
     # find a member to be the primary (external or otherwise)
-    if ( $pri ) {
+    # or is it a forward zone...
+    if ( @forwarders ) {
+       # external primaries
+       my @fwd_svrs ;
+       foreach my $fwd_ip ( @forwarders ) {
+
+          push @fwd_svrs , Infoblox::DNS::Nameserver->new(
+                             "ipv4addr" => $fwd_ip ,
+                             );
+
+          &debug_cli (2,"addz z($zone) fwd($fwd_ip)");
+       }
+
+       $obj->forward_to( \@fwd_svrs ) ;
+
+    }
+    elsif ( $pri ) {
        # member primary
        my $pri_ns = Infoblox::DNS::Member->new ( 'ipv4addr' => $pri, );
        $obj->primary( $pri_ns ) ;
@@ -1553,7 +1567,7 @@ sub cli_add_a_rec {
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
-    &debug_cli(1,"add1h n($host) n($ip) c($comment)");
+    &debug_cli(1,"add_a n($host) n($ip) c($comment)");
 
     # addit
     &do_func("add",$obj);
@@ -1578,7 +1592,7 @@ sub cli_del_a_rec {
                   "ipv4addr" => "$ip",
     );
 
-    &debug_cli(1,"del1h n($host) n($ip) ");
+    &debug_cli(1,"del_a n($host) n($ip) ");
 
     # addit
     &do_func("remove",$obj);
@@ -2046,21 +2060,26 @@ sub cli_add_dhcp_range {
 
     # add the optional extras
     if ( $comment ) { $obj->comment ( $comment ) }
-    if ( $failover ) { $obj->failover_assoc ( $failover ) }
 
-    # find a member to put this range on
-    if ( $member ) {
-       # not the grid master
-       &debug_cli(2,"addrng mem($member)");
-       my $memobj = Infoblox::DHCP::Member->new("ipv4addr"=>$member);
-       $obj->member ( $memobj ) ;
+    # you can't assign failover and members, you have to choose one.
+    if ( $failover ) { 
+         $obj->failover_assoc ( $failover ) 
     }
-    elsif ( $MASTER_IP ) {
-       &debug_cli(2,"addrng mem($MASTER_IP)");
-       my $DHMASTER = Infoblox::DHCP::Member->new ('ipv4addr' => $MASTER_IP);
-       $obj->member ( $DHMASTER ) ;
+    else {
+       # find a member to put this range on
+       if ( $member ) {
+          # not the grid master
+          &debug_cli(2,"addrng mem($member)");
+          my $memobj = Infoblox::DHCP::Member->new("ipv4addr"=>$member);
+          $obj->member ( $memobj ) ;
+       }
+       elsif ( $MASTER_IP ) {
+          &debug_cli(2,"addrng mem($MASTER_IP)");
+          my $DHMASTER = Infoblox::DHCP::Member->new ('ipv4addr'=>$MASTER_IP);
+          $obj->member ( $DHMASTER ) ;
+       }
+    }
 
-    }
 
     # options
     if ( @options ) {
@@ -2633,6 +2652,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.1.2.4  2005/09/26 22:16:29  horne
+# added support for failover and forwarders
+#
 # Revision 3.1.2.3  2005/08/15 20:44:42  horne
 # added the rest of the perldoc
 #
