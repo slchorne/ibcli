@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.47 2010/06/11 00:08:50 horne Exp $ ;
-my $REV = q$Revision: 3.47 $;
-# $Date: 2010/06/11 00:08:50 $
+my $ID  = q$Id: ibcli,v 3.48 2010/06/11 17:49:08 horne Exp $ ;
+my $REV = q$Revision: 3.48 $;
+# $Date: 2010/06/11 17:49:08 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2009
@@ -131,7 +131,7 @@ my %SPECOPS = (
    );
 
 # Alternate words are set of a global lookup table
-# [ ] GDH - no implemented
+# [ ] GDH - not implemented
 my %ALTERNATES = (
      "configure" => "set",
 );
@@ -209,6 +209,7 @@ my %COMMANDS = &init_commands ;
 # use Term::EditLine qw(CC_EOF CC_REFRESH CC_REDISPLAY);
 
 my $USE_EL = 0 ;
+my $el ;
 
 # define some constants for Editline
 # ( I hope to hell these don't change because they are supposed to be
@@ -220,7 +221,7 @@ use constant CC_EOF => 2 ;
 
 # continue initialising
 # my $el = &init_editline ;
-my ( $USE_EL , $el ) = &init_editline ;
+( $USE_EL , $el ) = &init_editline ;
 
 ##########################################################
 
@@ -280,7 +281,7 @@ if ( -f $conf ) {
     }
 }
 
-# [ ] exec mode
+# exec mode
 # run a single command and exit
 if ( $EXEC ) {
 
@@ -406,7 +407,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.47 $.
+$Revision: 3.48 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -677,7 +678,7 @@ sub process_line {
     # expand the line, drop errors
     my ( $line ) = @_ ;
 
-    # [ ] protect special chars
+    # protect special chars
     $line =~ s/\*/\\\*/g;
 
     # [ ] replace the line with any aliases
@@ -783,9 +784,9 @@ sub expand_line {
     &debug_cli (3,"linex cinput [$line]");
 
     # walk each word ( split on <space> )
-    my $expline ;
-    my $matchline ;
-    my $error ;
+    my $expline = "" ;
+    my $matchline = "" ;
+    my $error = "" ;
     foreach my $thisarg ( split ( /\s+/ , $line ) ) {
 
        &debug_cli (3,"linex ----START arg-----");
@@ -796,15 +797,11 @@ sub expand_line {
 #        &debug_cli (3,"linex partial e[$expline]");
        &debug_cli (3,"linex partial m[$matchline]");
 
-       # hide special chars (stops us exiting)
-       # [ ] GDH redundant with url encoding ??
-#        $thisarg =~ s/\[|\]|\(|\)/!/g;
-
        # we now have the short word, 
        # we have to look at the matchline to get some context
        # then we can expand the word
 
-       # we need the contect so we know what the next word is
+       # we need the context so we know what the next word is
 
        my ( @words ) = get_context ( $matchline ) ;
 
@@ -915,7 +912,7 @@ sub add_context {
        # there should already be a context for $line
        # so we may choose to copy the function
        # ( we DON'T do this for things like the lhs of <word>=<var> )
-       my $func = $COMMANDS{ $copyfrom }{"func"} ;
+       my $func = $COMMANDS{ $copyfrom }{"func"} || "" ;
        if ( $add_func ) {
           $COMMANDS{ $context }{"func"} = $COMMANDS{ $copyfrom }{"func"} ;
        }
@@ -1160,7 +1157,7 @@ sub expand_word {
     my $expword = $abbrevs{ lc($inword) } ;
     my @matches ;
     my $completed = 0 ;
-    my $spectype ;
+    my $spectype = "" ;
 
     if ( $expword ) {
 
@@ -1262,9 +1259,8 @@ sub do_func {
 
         # this is an object and not a search
 
-        # we can;t call the method coz it isn't there on
-        # some objects, so we test if the method is there, then
-        # do something with it
+        # we can't call a method if it isn't valid for an object
+        # so we test if the method is there, then, do something with it
 
         if ( exists $obj->{comment} ) {
             # clean up the comment
@@ -1306,7 +1302,9 @@ sub do_func {
     else {
         # must be a search
         if ( $DEBUG >= 2 ) {
-            print Dumper ( \@data ) ;
+            # coerce it back into a hash for easier reporting
+            my %h = @data ;
+            print Dumper ( \%h ) ;
         }
     }
 
@@ -2054,7 +2052,6 @@ sub cli_add_nsgroup {
     # get the args from the line
     my ($type , $name)     = $line =~/ zone (add|modify) ns_group (\S+)/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
-    my ($lead)      = $line =~/ lead (\S+)/ ;
     my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
     my (@sec)     = $line =~/ secondary (\S+)/g ;
@@ -2066,8 +2063,6 @@ sub cli_add_nsgroup {
 
     # create the zone...
     my $obj;
-
-    # [ ]
 
     if ( $type eq "modify" ) {
         # get the zone 
@@ -2346,7 +2341,6 @@ sub cli_add_host {
             "object" => "Infoblox::DNS::Host", 
             "name" => $name
         );
-        my ( $vname ) = $line =~/ view (\S+)/ ;
         if ( $vname ) {
             $opthash{'view'} = $vname;
         }
@@ -2464,7 +2458,6 @@ sub cli_add_host {
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
     # views
-    my ( $vname )     = $line =~/ view (\S+)/ ;
     if ( $vname ) {
         my $view = Infoblox::DNS::View->new ( name => $vname, );
         $obj->views ( [ $view ] ) ;
@@ -3239,6 +3232,13 @@ sub cli_add_discovery {
         );
 
     if ( $tobj ) {
+
+        # check if a task is already running
+        if ( $tobj->status() =~ /In Progress|Paused/i ) {
+            print "  Error : a job is already running\n";
+            return ;
+        }
+
         # append the subnet
         my @networks = @{ $tobj->networks() } ;
         push @networks , $nobj ;
@@ -3248,7 +3248,7 @@ sub cli_add_discovery {
         &do_func("modify",$tobj);
     }
     else {
-        print "No Discovery task found\n";
+        print "  Error : No Discovery task found\n";
     }
 }
 
@@ -3539,6 +3539,7 @@ sub cli_add_network {
 
     # de-urlencode the comment string
     $comment = &decode_comment ( $comment ) ;
+    $view = &decode_comment ( $view ) ;
 
     &debug_cli (1,"addnet n($network) p($parent) m(@members) o(@options) c($comment)");
 
@@ -3595,7 +3596,7 @@ sub cli_add_network {
     if ( $template ) {
         $net->template( $template );
 
-        # [ ] if we are using templates, we have a different syntax
+        # If we are using templates, we have a different syntax
         my ( $ip , $cidr ) = split ( /\// , $network );
         my $mask = cidr_to_mask ( $cidr );
         $net->ipv4addr( $ip );
@@ -3768,10 +3769,10 @@ sub cli_delete_network {
                    "network" => $network ,
                 );
 
+    # network views
     my ( $view )  = $line =~/ view (\S+)/ ;
-    if ( $view ) {
-        $net->network_view( $view );
-    }
+    $view = &decode_comment ( $view ) ;
+    if ( $view ) { $net->network_view( $view ); }
 
     &debug_cli(1,"delnet n($network) v($view)");
 
@@ -3888,7 +3889,7 @@ sub cli_move_network {
         &debug_cli(2,"movnet f/o m(@fmembers)");
     }
 
-    # [ ] get all the ranges, unset their membership
+    # get all the ranges, unset their membership
     my @ranges = &do_func("search", (
                 "object" => "Infoblox::DHCP::Range",
                 "network" => $network,
@@ -3915,7 +3916,7 @@ sub cli_move_network {
         $rmem = $failover ;
     }
 
-    # [ ] move the network to the new members
+    # move the network to the new members
     if ( @members ) {
         my @memsvrs ;
         foreach my $memval ( @members ) {
@@ -3992,7 +3993,7 @@ sub cli_join_network {
 
     foreach my $snet ( @subnets ) {
 
-        # [ ] get all the ranges
+        # get all the ranges
         my %opthash = (
             "object" => "Infoblox::DHCP::Range", 
             "network" => $snet,
@@ -4004,30 +4005,30 @@ sub cli_join_network {
 
         push @orig_fixed , @robjs ;
 
-        # [ ] get all the fixed addresses
-        my %opthash = (
+        # get all the fixed addresses
+        my %fopthash = (
             "object" => "Infoblox::DHCP::FixedAddr", 
             "network" => $snet,
             "ipv4addr" => ".*",
         );
 
         # get what we need
-        my @robjs = &do_func("search", %opthash );
+        my @fobjs = &do_func("search", %fopthash );
 
-        push @orig_fixed , @robjs ;
+        push @orig_fixed , @fobjs ;
 
 
     }
 
-    # [ ] make a copy of all the ranges and fixed addrs
+    # make a copy of all the ranges and fixed addrs
     my @newobjs = ( @orig_ranges , @orig_fixed ) ;
 
     foreach my $robj ( @newobjs ) {
         # change the parent network for the ranges etc
         $robj->network ( $newnet ) ;
 
-        # [ ] remove the gateway address from all range options
-        # [ ] remove the gateway address from all fixed options
+        # remove the gateway address from all range options
+        # remove the gateway address from all fixed options
         my $options = $robj->options();
         my @new_options ;
         foreach my $oobj ( @{ $options } ) {
@@ -4041,34 +4042,23 @@ sub cli_join_network {
         else { $robj->options( undef ); }
     }
 
-    # [ ] get the current first network
+    # get the current first network
     my %opthash = (
            "object" => "Infoblox::DHCP::Network", 
            "network" => $basenet,
     );
     my ( $nobj ) = &do_func("get", %opthash );
 
-    # [ ] modify it with the new subnet mask
+    # modify it with the new subnet mask
     if ( $nobj ) {
         $nobj->network ( $newnet ) ;
     }
 
-    # [ ] get the current membership;
+    # get the current membership;
     my $memsvrs = $nobj->members();
 
-    # [ ] remove the parent network, if there is one that
-    #     matched the new cidr
-    # [ ] and have the re-parent on delete...
-    # [ ] *** may not have to worry with 3.2r11
-#     my $net = Infoblox::DHCP::Network->new (
-#                    "network" => $subnet ,
-#                 );
-# 
-#     &do_func("remove",$net);
-
-
-    # [ ] remove the child networks
-    # [ ] remove the joined network
+    # remove the child networks
+    # remove the joined network
 
     foreach my $snet ( @subnets ) {
         my $net = Infoblox::DHCP::Network->new (
@@ -4077,8 +4067,8 @@ sub cli_join_network {
         &do_func("remove",$net);
     }
 
-    # [ ] add the joined network
-    #     [ ] if it fails, add add in the old networks etc..
+    # add the joined network
+    #     if it fails, add add in the old networks etc..
 
     my $net = Infoblox::DHCP::Network->new (
                    "network" => $newnet ,
@@ -4087,8 +4077,8 @@ sub cli_join_network {
 
     &do_func("add",$net);
 
-    # [ ] add the ranges
-    # [ ] add the fixed addresses
+    # add the ranges
+    # add the fixed addresses
     foreach my $obj ( @newobjs ) {
         &do_func("add",$obj);
     }
@@ -4397,6 +4387,7 @@ sub cli_add_fixed_address {
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
+    $view = &decode_comment ( $view ) ;
 
     # fix mac addresses that are missing ':'
     unless ( $mac =~ /:/ ) {
@@ -4670,6 +4661,14 @@ sub cli_del_fixed_address {
 #                   "mac" => $mac ,
     );
 
+    # support network_views
+    my ( $view )  = $line =~/ view (\S+)/ ;
+    $view = &decode_comment ( $view ) ;
+    if ( $view ) {
+        my $viewobj = Infoblox::DHCP::View->new("name"=>$view);
+        $obj->network_view ( $viewobj ) ;
+    }
+
     # addit
     &do_func("remove",$obj);
 
@@ -4765,6 +4764,7 @@ sub cli_add_dhcp_range {
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
+    $view = &decode_comment ( $view ) ;
 
     # arrays
     my @exclude  = $line =~/ exclude (\S+)/g ;
@@ -4973,6 +4973,7 @@ sub cli_del_dhcp_range {
     my ( $network ) = $line =~/ network (\S+)/ ;
     my ( $fip , $lip )  = $line =~/ range (\S+) (\S+)/ ;
     my ( $view )  = $line =~/ view (\S+)/ ;
+    $view = &decode_comment ( $view ) ;
 
     &debug_cli (1,"delrng n($network) s($fip) e($lip) v($view)");
 
@@ -4992,9 +4993,8 @@ sub cli_del_dhcp_range {
                 );
     }
 
-    if ( $view ) {
-        $obj->network_view( $view );
-    }
+    # network views
+    if ( $view ) { $obj->network_view( $view ); }
 
     if ( $obj ) {
         &do_func("remove",$obj);
@@ -6640,7 +6640,7 @@ sub cli_del_member {
 
 }
 
-# [ ] dns settings
+# dns settings
 
 =head2 add global DNS settings
 
@@ -6982,11 +6982,13 @@ sub cli_show_zone {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ( $type ) = $line =~/ zone (\S+)/ ;
+    my ( $type ) = $line =~/ zone (\S+)/ || "" ;
     my ( $name ) = $line =~/ zone \S+ (\S+)/ ;
     my ( $view ) = $line =~/ view (\S+)/ ;
     my ( $detailed ) = $line =~/\bdetailed\b/ ;
     my ( $shared ) = $line =~/ shared_record_group (\S+)/ ;
+
+    $view = &decode_comment ( $view ) ;
 
     &debug_cli(1,"showz t($type)");
 
@@ -7449,6 +7451,12 @@ sub cli_show_network {
            "object" => "Infoblox::DHCP::Network", 
            "network" => $search,
     );
+
+    # network views...
+    my ( $view )  = $line =~/ view (\S+)/ ;
+    $view = &decode_comment ( $view ) ;
+    if ( $view ) { $opthash{'network_view'} = $view ; }
+
     my @nets = &do_func("search", %opthash );
 
     # search for containers..
@@ -7459,6 +7467,8 @@ sub cli_show_network {
             "object" => "Infoblox::DHCP::NetworkContainer", 
             "network" => $search,
         );
+        if ( $view ) { $opthash{'network_view'} = $view ; }
+
         my @parents = &do_func("search", %opthash );
         push @nets , @parents ;
     }
@@ -7939,6 +7949,10 @@ sub cli_show_range {
         );
     }
 
+    # network views...
+    my ( $view )  = $line =~/ view (\S+)/ ;
+    $view = &decode_comment ( $view ) ;
+    if ( $view ) { $opthash{'network_view'} = $view ; }
 
     # get what we need
     my @ranges = &do_func("search", %opthash );
@@ -7972,13 +7986,31 @@ sub cli_show_range {
 
 =head2 Showing fixed addresses
 
-Show all fixed addresses in a network
+Show all fixed addresses
 
    show network 45.200.100.128/25 fixed
 
+Show all fixed addresses in a network. 
+
+   show network 45.200.100.128/25 fixed
+
+The Network is optional unless you want to limit your search to just that
+network.  (The network was required in some older versions of NIOS)
+
 Show just a specific fixed address
 
-   show network 45.200.100.128/25 fixed 161.245.254.130
+   show network fixed 161.245.254.130
+
+You can also show fidex addresses by mac address
+
+   show network fixed aa:bb:cc:11:22:33
+
+Show a fixed address(s) in a network view. 
+(the IP or mac must come before the view statement)
+
+   shoe network fixed view internal
+   shoe network fixed 1.2.3.4 view internal
+   shoe network 1.2.3.0/24 fixed view internal
 
 =cut
 
@@ -8002,17 +8034,26 @@ sub cli_show_fixed {
     # workaround some oddnesses in the syntax
     if ( $net eq "fixed" ) { undef $net }
 
-    # get all fixed in a network ( 3.2r9 ? )
-    # to work around a bug, we have to protect the cidr
-    # and wildcard it
-    $net =~ s/\//\.\*/;
-
     my %opthash = (
            "object" => "Infoblox::DHCP::FixedAddr", 
 #            "ipv4addr" => ".*",
     );
 
+    # network views...
+    my ( $view )  = $line =~/ view (\S+)/ ;
+    $view = &decode_comment ( $view ) ;
+    if ( $view ) { $opthash{'network_view'} = $view ; }
+    if ( $fixed =~ /view/ ) { undef $fixed ; }
+
     if ( $net ) {
+        # get all fixed in a network ( 3.2r9 ? )
+        # to work around a bug, we have to protect the cidr
+        # and wildcard it (only for older code)
+
+        unless ( require_api ( "5.0r0-0" ) ) {
+            $net =~ s/\//\.\*/;
+        }
+
         $opthash{"network"} = $net ;
     }
 
@@ -8242,15 +8283,15 @@ sub cli_show_grid {
 
 =head2 Show global Member settings
 
-get a list of all grid members
+Get a list of all grid members
 
    show grid infoblox member
 
-get a list of all grid members matching a REGEX
+Get a list of all grid members matching a REGEX
 
    show grid infoblox member <regex>
 
-get a detailed info about a member of all grid members
+Get detailed info about a member
 
    show grid Infoblox member ns1.test.com detailed
 
@@ -8332,7 +8373,7 @@ sub cli_show_member {
                 if ( $filter ) { 
                     next unless $lobj->type() =~ /$filter/i 
                 }
-                printf ( "%25s %15s : %s %s : %s\n" ,
+                printf( "%25s %15s : %s %s : %s\n" ,
                     $name,
                     $lobj->type(),
                     $lobj->expiry_date(),
@@ -8365,7 +8406,7 @@ sub print_status(){
             }
 
             # walk each of the statusses
-            printf ( "%35s %17s : %10s : %s\n" ,
+            printf( "%35s %17s : %10s : %s\n" ,
                     $tag,
                     $sobj->service(),
                     $sobj->status(),
@@ -8963,11 +9004,11 @@ sub cli_show_file {
 
     }
 
-    # [ ] show file properties ( == cat )
+    # show file properties ( == cat )
     if ( $type eq "properties" ) {
         # show something
         # show the CWD, 
-        # [ ] later accept an additional path
+        # later accept an additional path
         #     ( this requires object recognition, errk)
 #         if ( $value ) {
 #         }
@@ -8980,7 +9021,7 @@ sub cli_show_file {
 
     }
 
-    # [ ] show file nodes ( == ls )
+    # show file nodes ( == ls )
     if ( $type eq "nodes" ) {
 
         # do an ls of the current schema position
@@ -8991,7 +9032,7 @@ sub cli_show_file {
                 foreach my $obj ( sort @{ $SDB{$node} } ) {
                     &list_sdb ( $node , $obj ) ;
                 }
-                # [ ] need to sort these
+                # need to sort these
             }
             else {
                 # or we dump a list of nodes.
@@ -8999,11 +9040,11 @@ sub cli_show_file {
             }
         }
 
-        # [ ] and somehow we push the stack if it is a node
+        # and somehow we push the stack if it is a node
 
     }
 
-    # [ ] show file path ( == pwd )
+    # show file path ( == pwd )
     if ( $type eq "path" ) {
         my $pwd = join ( "/" , @PATH ) ;
         print "    /$pwd\n";
@@ -9270,20 +9311,25 @@ sub require_api {
 sub decode_comment {
     # urldecode a comment string
     my ( $string ) = @_ ;
-    $string =~ s/%(..)/chr ( hex($1) )/ge;
+    if ( $string ) {
+        $string =~ s/%(..)/chr ( hex($1) )/ge;
 
-    # remove leading and training "
-    $string =~ s/^"//;
-    $string =~ s/"$//;
-
-    # also undo quotes in inside the comment
-    $string =~ s/''/"/g;
-
-    # lastly utf encode the string
-    $string = encode ( "utf8", $string );
-
-    debug_cli(2,"dec comment ($string) ");
-    return ( $string ) ;
+        # remove leading and training "
+        $string =~ s/^"//;
+        $string =~ s/"$//;
+    
+        # also undo quotes in inside the comment
+        $string =~ s/''/"/g;
+    
+        # lastly utf encode the string
+        $string = encode ( "utf8", $string );
+    
+        debug_cli(2,"dec comment ($string) ");
+        return ( $string ) ;
+    }
+    else {
+        return ( "" ) ;
+    }
 }
 
 sub dump_summ {
@@ -9318,11 +9364,13 @@ sub dump_data {
     print Dumper ( \$obj ) if $DEBUG > 3 ;
 
     # identify networks or containers
-    if ( $obj->{__type} =~ /Infoblox.DHCP.NetworkContainer/ ) {
-            printf ( "%30s : %s\n", "type" , "NetworkContainer" ) ;
-    }
-    if ( $obj->{__type} =~ /Infoblox.DHCP.Network/ ) {
-            printf ( "%30s : %s\n", "type" , "Network" ) ;
+    if ( $obj->{__type} ) {
+        if ( $obj->{__type} =~ /Infoblox.DHCP.NetworkContainer/ ) {
+                printf ( "%30s : %s\n", "type" , "NetworkContainer" ) ;
+        }
+        if ( $obj->{__type} =~ /Infoblox.DHCP.Network/ ) {
+                printf ( "%30s : %s\n", "type" , "Network" ) ;
+        }
     }
 
     # nasty hack to insert the hostname into a fixed address
@@ -9354,10 +9402,15 @@ sub dump_data {
         next if $key =~ /networks/;
         next if $key =~ /tcp_ports/;
 
-        # and undef
-        unless ( $obj->{$key} eq "0" ) {
-            next if ! $obj->{$key} ;
+        # and undef but not 0 values
+        unless ( exists $obj->{$key} ) {
+            next ;
         }
+#         if ( exists $obj->{$key} ) {
+#             unless ( $obj->{$key} eq "0" ) {
+#                 next if ! $obj->{$key} ;
+#             }
+#         }
 
         my $data ;
 
@@ -9674,11 +9727,12 @@ sub dump_data {
             $data = $obj->{$key} ;
         }
 
-        # strip 'false' settings
-        next if $data eq 'false' ;
-
         # print it
         if ( $data ) {
+
+            # strip 'false' settings
+            next if $data eq 'false' ;
+
             # cleansed
             $data =~ s/&quot;/"/g;
 
@@ -9716,7 +9770,7 @@ sub add_ipam {
         my $cvalue = &decode_comment ( $value ) ;
 
         # and decode the attribute name
-        my $name = &decode_comment ( $name ) ;
+        $name = &decode_comment ( $name ) ;
 
         # and strip the quotes
         $cvalue =~ s/^"//;
@@ -10627,52 +10681,7 @@ my %COMMANDS = (
     'show debug commands detailed' => { 
            func => "debug_commands", },
 
-# -gdhtodo-
-# [ ] port for readline
-
-# [ ] Add a "-r rejectfile" option, which causes any ibcli line that
-# result in error to be written to the file specified by "rejectfile". 
-
-# Then you can fix them and just re-run ibcli with the file
-
-# [x] add a -m|master ( Grid master IP ) for mgmt ports
-#     conf master <ip>
-
-# [ ] exit , bye , quit 
-
-# [x] modify host
-# [x] modify zone
-
-# [ ] add nameserver
-# [ ] remove nameserver
-
-# [ ] join network
-
-# [ ] show license
-# [ ] join member ( drop session, reconnect )
-# [x] show failover
-# [x] show filter xxx
-# [x] show grid xxx dhcp
-# [x] show grid xxx
-# [x] show zone nsgroup
-# [x] show grid xxx member
-# [x] show grid xxx member yyyy
-# [x] show views
-# [x] show range nnn
-# [x] show network
-# [x] show network xxx
-#     list options and ranges
-# [x] show network xxx stats
-#     Infoblox::DHCP::Statistics
-# [x] show network xxx range yyy
-#     Infoblox::DHCP::Range
-#     [x] Infoblox::DHCP::ExclusionRange
-#     [ ] Infoblox::DHCP::FilterRule
-# [x] show network xxx fixed
-# [x] show network xxx fixed yyy
-# [x] show zone (fqdn)
-# [x] show host (fqdn)
-# [x] show admins and groups
+# grid stuff
 
     'show grid' => { 
            words => "<name> schedule attribute device_type",  },
@@ -10837,7 +10846,9 @@ my %COMMANDS = (
            func => "cli_show_dhcp_options", },
 
     'show network <n.n.n.n/mm>' => { 
-           words => "<cr> ipam range fixed statistics",  
+           words => "<cr> view=<name> ipam range fixed statistics",  
+           func => "cli_show_network", },
+    'show network <n.n.n.n/mm> view <name>' => { 
            func => "cli_show_network", },
 
     'show network statistics' => { 
@@ -10857,20 +10868,24 @@ my %COMMANDS = (
 
 
     'show network <n.n.n.n/mm> fixed' => { 
-           words => "<cr> <ip> <mac>",  
+           words => "<cr> <ip>|<mac>|view=<name>",  
            func => "cli_show_fixed", },
-    'show network <n.n.n.n/mm> fixed <ip>' => { 
-           func => "cli_show_fixed", },
-    'show network <n.n.n.n/mm> fixed <mac>' => { 
-           func => "cli_show_fixed", },
+#     'show network <n.n.n.n/mm> fixed <ip>' => { 
+#            func => "cli_show_fixed", },
+#     'show network <n.n.n.n/mm> fixed <mac>' => { 
+#            func => "cli_show_fixed", },
+#     'show network <n.n.n.n/mm> fixed <ip> view=<name>' => { 
+#            func => "cli_show_fixed", },
+#     'show network <n.n.n.n/mm> fixed <mac> view=<name>' => { 
+#            func => "cli_show_fixed", },
 
     'show network fixed' => { 
-           words => "<cr> <ip> <mac>",  
+           words => "<cr> <ip>|<mac>|view=<name>",  
            func => "cli_show_fixed", },
-    'show network fixed <ip>' => { 
-           func => "cli_show_fixed", },
-    'show network fixed <mac>' => { 
-           func => "cli_show_fixed", },
+#     'show network fixed <ip>' => { 
+#            func => "cli_show_fixed", },
+#     'show network fixed <mac>' => { 
+#            func => "cli_show_fixed", },
 
     'show network filter' => { 
            words => "<cr> <name>",  
@@ -10888,17 +10903,17 @@ my %COMMANDS = (
     'show network ranges' => { 
            func => "cli_show_range", },
     'show network <n.n.n.n/mm> range' => { 
-           words => "<cr> <ip>",  
+           words => "<cr> <ip>|view=<name>",  
            func => "cli_show_range", },
-    'show network <n.n.n.n/mm> range <ip>' => { 
-           func => "cli_show_range", },
+#     'show network <n.n.n.n/mm> range <ip>' => { 
+#            func => "cli_show_range", },
 
     # alternate form of show range
     'show range' => { 
-           words => "<cr> <ip>",
+           words => "<cr> <ip>|view=<name>",
            func => "cli_show_range", },
-    'show range <ip>' => { 
-           func => "cli_show_range", },
+#     'show range <ip>' => { 
+#            func => "cli_show_range", },
 
 # - leases -
     'show network lease' => { 
@@ -11057,8 +11072,6 @@ my %COMMANDS = (
 
     'configure grid' => { 
            words => "add <name>", },
-
-# [ ] conf grid <name> modify member <name> enable ntp
 
 # add device types :
 # configure grid add device_type <name> label <orig>=<new-name>
@@ -11638,10 +11651,10 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
-           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=<name>|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
     'configure network <n.n.n.n/mm> modify fixed <ip> <mac>' => { 
-           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=<name>|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     #  - fixed without parent
@@ -11650,10 +11663,10 @@ my %COMMANDS = (
     'configure network modify fixed' => { 
            words => "<ip_or_name>=<mac>",  },
     'configure network add fixed <ip_or_name> <mac>' => { 
-           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=<name>|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
     'configure network modify fixed <ip_or_name> <mac>' => { 
-           words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
+           words => "<cr> view=<name>|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
 #  - ranges
@@ -11781,6 +11794,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.48  2010/06/11 17:49:08  horne
+# more fixes for network views
+#
 # Revision 3.47  2010/06/11 00:08:50  horne
 # more fixes and features, see the relnotes
 #
