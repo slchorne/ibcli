@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.2 2004/12/18 12:10:13 horne Exp $
+#   $Id: ibcli,v 2.3 2004/12/18 12:53:46 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.2 $
-$Date: 2004/12/18 12:10:13 $
+$Revision: 2.3 $
+$Date: 2004/12/18 12:53:46 $
 ';
 $REV =~ s/\$//g;
 
@@ -1037,20 +1037,6 @@ sub NOT_READY {
 # do_pub_conn calls the public function
 # do_priv_conn calls the priv function
 
-# sub do_pub_conn {
-#     my ( $ib_call , @fargs ) = @_ ;
-#     &debug (1,"do_pub_conn ($ib_call) [@fargs]");
-# 
-#     # format the data for pretty printing
-#     my $fstring = &format_ib_func($ib_call,@fargs);
-# 
-#     if ( ! $MAKE ) { 
-#        my $result ;
-# 
-#        ($result, $SESS_CONN) = &$ib_call ( { @fargs } ) ;
-#     }
-# }
-
 #
 # call an infoblox function, ONLY if we're connected
 #
@@ -1063,7 +1049,9 @@ sub do_pub_func {
 
     # format the data for pretty printing
     my $hash_ptr = \%hash ;
-    my $fstring = &format_ib_func($ib_call,$hash_ptr);
+
+#     my $fstring = &format_ib_func($ib_call,$hash_ptr);
+    &print_data($ib_call,$hash_ptr);
 
     if ( ! $MAKE ) {
        # actually try and run it
@@ -1089,7 +1077,8 @@ sub do_priv_func {
     &debug (1,"do_priv_func ($ib_call)");
 
     # format the data for pretty printing
-    my $fstring = &format_ib_func($ib_call,$key_ptr,$mod_ptr);
+#     &print_data($ib_call,$key_ptr);
+    print "DUMPER needs updating for multi hashes...\n";
 
     if ( ! $MAKE ) {
        # actually try and run it
@@ -1110,63 +1099,43 @@ sub do_nothing {
     &debug (1,"do_nothing ($ib_call) [@fargs]");
 
     # format the data for pretty printing
-    my $fstring = &format_ib_func($ib_call,@fargs);
+#     my $fstring = &format_ib_func($ib_call,@fargs);
+    &print_data($ib_call,@fargs);
 
     if ( ! $MAKE ) {
           &err_print("CANNOT EXECUTE - NOT IMPLEMENTED");
     }
 }
 
-sub format_ib_func {
-
-    my ( $ib_call , @fargs ) = @_ ;
-
-#     my $p_args ;
-    my $p_comm ;
-
-#     my %arg_hash = @fargs ;
-#     my $syntax = &dump_hash( 0 , "HASH" , %arg_hash );
-#     my $syntax = &dump_hash( 0 , "ARRAY" , @fargs );
-
-    # V3 code passes args as a hash or many hashes
-
-    my $syntax ;
-    foreach my $ptr ( @fargs ) {
-       my %hash = %{ $ptr } ;
-
-       # format each hash
-       $syntax .= &dump_hash( 0 , "HASH" , %hash );
-    }
-
-#     print "my (\$result, \$message) = $ib_call ( \$SESSION ,\n $syntax";
-    $p_comm = "my \$result = $ib_call ( \$SESSION ,\n $syntax    );\n\n";
-#     print "    );\n\n";
-
-
-#     # format the data if we are V2 or V3
-#     if ( $DNS_VER == 2 ) {
-#        $p_args = join ( '","' , @fargs );
-#        $p_comm = "$ib_call (\"$p_args\")";
+# sub format_ib_func {
+# 
+#     my ( $ib_call , @fargs ) = @_ ;
+# 
+#     my $p_comm ;
+# 
+#     # V3 code passes args as a hash or many hashes
+# 
+#     my $syntax ;
+#     foreach my $ptr ( @fargs ) {
+#        my %hash = %{ $ptr } ;
+# 
+#        # format each hash
+#        $syntax .= &dump_hash( 0 , "HASH" , %hash );
 #     }
-#     if ( $DNS_VER == 3 ) {
-#        my %hargs = @fargs ;
-#        # pretty print a hash (errk)
-#        foreach my $key ( sort keys %hargs ) {
-#           $p_args .= "\t\"$key\"\t=> \"$hargs{$key}\",\n";
-#        }
-#        $p_comm = "$ib_call (\$session, {\n$p_args\t});\n";
+# 
+#     $p_comm = "my \$result = $ib_call ( \$SESSION ,\n $syntax    );\n\n";
+# 
+# 
+#     # do we print out code instead...
+#     if ( $MAKE ) {
+#        print "\nprint '" . $ib_call . "'.\"\\n\";\n" ;
+# 
+#        print "$p_comm ;\n" ;
 #     }
-
-    # do we pring out code instead...
-    if ( $MAKE ) {
-       print "\nprint '" . $ib_call . "'.\"\\n\";\n" ;
-
-       print "$p_comm ;\n" ;
-    }
-
-    # return the formatted string (in case we need it)
-    return ( $p_comm );
-}
+# 
+#     # return the formatted string (in case we need it)
+#     return ( $p_comm );
+# }
 
 
 ###########################################
@@ -2723,8 +2692,9 @@ sub connect {
          if ( $CONN_INFO{'cli_type'} eq 'radius' ) {
             if ( $MAKE ) {
                # pretty print the hash 
-               my $fst = &format_ib_func("RADIUSOne::server_session_create"
-                                          ,%CONN_INFO);
+#                my $fst = &format_ib_func("RADIUSOne::server_session_create"
+#                                           ,%CONN_INFO);
+               &print_data("RADIUSOne::server_session_create",%CONN_INFO);
             }
             else {
                my $res ;
@@ -2738,8 +2708,10 @@ sub connect {
                my $cptr = \%CONN_INFO ;
                my $pptr = \%priv_hash ;
                # format the data for pretty printing
-               my $fst=&format_ib_func("Infoblox::Session->new",$cptr);
-               my $fst=&format_ib_func("Infoblox::InfobloxSession->new",$pptr);
+#          my $fst=&format_ib_func("Infoblox::Session->new",$cptr);
+#          my $fst=&format_ib_func("Infoblox::InfobloxSession->new",$pptr);
+               &print_data("Infoblox::Session->new",$cptr);
+               &print_data("Infoblox::InfobloxSession->new",$pptr);
             }
             else {
                $PUB_SESS = Infoblox::Session->new( %CONN_INFO );
@@ -3282,6 +3254,45 @@ sub cidrfind {
     return($mlook{$cidr}) ;
 }
 
+=head1 More on Debugging :
+
+when the debug level is set high, or if you use the -m (for make) option
+you will get the hash data structure dumped back at you in perl parsable
+syntax.
+
+However, this does rely on you having Data::Dumper installed
+
+=cut
+
+
+sub print_data {
+    # use the data dumper for pretty printing
+    use Data::Dumper ;
+    my ($func , $hash ) = @_ ;
+
+    # extra info for '-m'
+    my $pre_print = "print \"$func \\n\";";
+
+    # terse removes the $VAL
+    # lesser indent and pad x spaces
+    $Data::Dumper::Terse = 1 ;
+    $Data::Dumper::Indent = 1 ;
+    $Data::Dumper::Pad = "     " ;
+
+    # format the hash
+    my $p_hash = Dumper($hash);
+    
+    my $fstring = "my \$result = $func ( \$SESSION ,\n$p_hash   );";
+
+    if ( $MAKE ) {
+       print "$pre_print\n";
+       print "$fstring\n";
+    }
+    else {
+       &debug(3,$fstring);
+    }
+}
+
 sub dump_hash {
     # recursively walk a data structure
     my ($depth,$type,@data) = @_ ;
@@ -3353,6 +3364,10 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.3  2004/12/18 12:53:46  horne
+# Ripped out all the recursive hash print stuff and replaced it with
+# Data::Dumper instead (much cleaner)
+#
 # Revision 2.2  2004/12/18 12:10:13  horne
 # this version has perldoc
 #
