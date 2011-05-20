@@ -1,14 +1,18 @@
+<?xml version="1.0" ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <title>user_guide.html</title>
-<link rev="made" href="mailto:root@b49.apple.com" />
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:_postfix@neige.apple.com" />
 </head>
 
 <body style="background-color: white">
 
-<p><a name="__index__"></a></p>
+
 <!-- INDEX BEGIN -->
+<div name="index">
+<p><a name="__index__"></a></p>
 
 <ul>
 
@@ -68,6 +72,7 @@
 	<li><a href="#dhcp_configuration">DHCP Configuration</a></li>
 	<ul>
 
+		<li><a href="#add_a_network_view">Add a network view</a></li>
 		<li><a href="#add_a_network">Add a network</a></li>
 		<li><a href="#modifying_networks">Modifying Networks</a></li>
 		<li><a href="#remove_a_network">Remove a network</a></li>
@@ -79,6 +84,8 @@
 		<li><a href="#adding_network_to_parents">Adding network to parents</a></li>
 		<li><a href="#add_a_failover_association">Add a failover association</a></li>
 		<li><a href="#add_a_fixed_address">Add a fixed address</a></li>
+		<li><a href="#add_a_roaming_address__that_has_no_ip_addr_">Add a roaming address (that has no IP addr)</a></li>
+		<li><a href="#modify_a_fixed_address">Modify a fixed address</a></li>
 		<li><a href="#remove_a_fixed_address">Remove a fixed address</a></li>
 		<li><a href="#add_a_dhcp_range_to_a_network">Add a dhcp range to a network</a></li>
 		<li><a href="#modifying_ranges">Modifying Ranges</a></li>
@@ -93,6 +100,7 @@
 	<ul>
 
 		<li><a href="#adding_custom_metadata_fields">Adding custom metadata fields</a></li>
+		<li><a href="#showing_attributes_types">Showing attributes types</a></li>
 		<li><a href="#showing_device_types">Showing device types</a></li>
 		<li><a href="#showing_definitions_for_a_device_type">Showing definitions for a device type</a></li>
 	</ul>
@@ -112,14 +120,15 @@
 	<ul>
 
 		<li><a href="#adding_administrator_groups">Adding Administrator groups</a></li>
+		<li><a href="#adding_administrator_roles">Adding Administrator Roles</a></li>
 		<li><a href="#adding_users">Adding users</a></li>
 		<li><a href="#adding_permissions">Adding permissions</a></li>
 		<li><a href="#deleting_or_changing_permissions">Deleting or Changing permissions</a></li>
 		<li><a href="#modifying_permissions">Modifying permissions</a></li>
 		<li><a href="#configure_global_grid_settings">configure global Grid settings</a></li>
 		<li><a href="#configure_member_settings">configure Member settings</a></li>
-		<li><a href="#configure_member_dns_settings">configure Member DNS settings</a></li>
-		<li><a href="#configure_member_dhcp_settings">configure Member DHCP settings</a></li>
+		<li><a href="#configure_member_dns_settings">Configure Member DNS settings</a></li>
+		<li><a href="#configure_member_dhcp_settings">Configure Member DHCP settings</a></li>
 		<li><a href="#adding_members">Adding members</a></li>
 		<li><a href="#removing_members">Removing members</a></li>
 		<li><a href="#add_global_dns_settings">add global DNS settings</a></li>
@@ -139,7 +148,10 @@
 		<li><a href="#showing_records">Showing records</a></li>
 		<li><a href="#showing_leases">Showing leases</a></li>
 		<li><a href="#showing_networks">Showing networks</a></li>
+		<li><a href="#showing_networks_templates">Showing networks templates</a></li>
+		<li><a href="#showing_network_views">Showing Network Views</a></li>
 		<li><a href="#showing_network_failover">Showing network failover</a></li>
+		<li><a href="#showing_network_option_definitions">Showing network option definitions</a></li>
 		<li><a href="#showing_network_statistics">Showing network statistics</a></li>
 		<li><a href="#showing_network_ipam">Showing network IPAM</a></li>
 		<li><a href="#showing_ranges">Showing ranges</a></li>
@@ -169,9 +181,11 @@
 	</ul>
 
 </ul>
+
+<hr name="index" />
+</div>
 <!-- INDEX END -->
 
-<hr />
 <p>
 </p>
 <h1><a name="ibcli">Ibcli</a></h1>
@@ -186,44 +200,46 @@
 <hr />
 <h1><a name="description">Description</a></h1>
 <p>This is 
-$Revision: 3.1 $.
+$Revision: 3.2 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.</p>
+<p>The Ibcli is a simple command line tool that lets you do some (mostly)
+powerful things.  It leverages the Infoblox api but provides a wrapper to
+the more complex (and detailed) API calls that uses more simple command
+line type calls.</p>
+<p>It also lets you create batch scripts that can configure an Infoblox SDB
+without actually writing any perl.</p>
 <p>So why do this, what is this CLI for ? Well there were a few primary
 reasons:</p>
-<p>The Ibcli is a simple command line tool that lets you do some (mostly) powerful things. It
-leverages the Infoblox api but provides a wrapper to the more complex (and detailed) API calls that
-uses more simple command line type calls.</p>
-<p>I also lets you create batch scripts that can configure an Infoblox SDB with actually writing any
-perl.</p>
 <dl>
-<dt><strong><a name="item_quick_changes_are_now_easy_2c">Quick changes are now easy,</a></strong><br />
-</dt>
+<dt><strong><a name="quick_changes_are_now_easy" class="item">Quick changes are now easy,</a></strong>
+
 <dd>
-You don't need to wait for a GUI to start or get the right version
+<p>You don't need to wait for a GUI to start or get the right version
 of java functional, this allows you to quickly get into the database
-and make some simple and efficient changes
+and make some simple and efficient changes</p>
 </dd>
-<p></p>
-<dt><strong><a name="item_abstract_command_set">Abstract command set</a></strong><br />
-</dt>
+</li>
+<dt><strong><a name="abstract_command_set" class="item">Abstract command set</a></strong>
+
 <dd>
-Now you don't need to know the intricacies of the API, a few simple
+<p>Now you don't need to know the intricacies of the API, a few simple
 commands will achieve the same effect, if you are a user that
 doesn't know PERL you can still drive the CLI and get the results
 you need. This may not be an advantage if you are reading data from
 another system to import into an Infoblox unit (since you still need
 to write software to parse the data, eg PERL) but it may still help
 and end user that can convert this data in to the CLI command set
-but not know enough to write PERL.
+but not know enough to write PERL.</p>
 </dd>
-<p></p>
-<dt><strong><a name="item_customers_wanted_it">Customers wanted it</a></strong><br />
-</dt>
+</li>
+<dt><strong><a name="customers_wanted_it" class="item">Customers wanted it</a></strong>
+
 <dd>
-Need I say more ?
+<p>Need I say more ?</p>
 </dd>
-<p></p></dl>
+</li>
+</dl>
 <p>Lastly, why is this called 'ibcli' and not 'DNScli' ? Well, this is just
 a wrapper to any API we like, it is not really DNS specific.</p>
 <p>
@@ -257,23 +273,24 @@ a wrapper to any API we like, it is not really DNS specific.</p>
 <p>It should run 'as is' from a uniz machine.</p>
 <p>If you have a windows OS then you will have a few hurdles to cross:</p>
 <ul>
-<li><strong><a name="item_rename_the_script_to__27ibcli_2epl_27_2e">Rename the script to 'ibcli.pl'.</a></strong><br />
-</li>
-I still don't understand why Windows uses file suffix to type its data
+<li><strong><a name="rename_the_script_to_ibcli_pl" class="item">Rename the script to 'ibcli.pl'.</a></strong>
+
+<p>I still don't understand why Windows uses file suffix to type its data
 rather than doing something intelligent like looking at the contents of
 the file, but then, we are dealing with people who thought 8.3 was all
-you'd ever need as a file namespace and 640K for ram...
-<p></p>
-<li><strong><a name="item_make_sure_you_have_the_necessary_libraries_install">Make sure you have the necessary libraries installed,</a></strong><br />
+you'd ever need as a file namespace and 640K for ram...</p>
 </li>
-you'll need:
+<li><strong><a name="make_sure_you_have_the_necessary_libraries_installed" class="item">Make sure you have the necessary libraries installed,</a></strong>
+
+<p>you'll need:</p>
 <pre>
    o Getopt::Long</pre>
 <pre>
    o Text::Abbrev</pre>
 <pre>
    o Term::EditLine</pre>
-<p></p></ul>
+</li>
+</ul>
 <p>
 </p>
 <hr />
@@ -291,8 +308,8 @@ either order, it just tries to eventually connect when it has enough data.</p>
 <p>Or you can also do this from the initial invocation:</p>
 <pre>
     % ./ibcli -s 10.0.1.230 -u admin -p infoblox</pre>
-<p>``HOLD ON A SEC'', I hear you ask, ``Why am i connecting to a server, isn't
-this CLI running on a console somewhere ?''. No, Grasshopper, the CLI is
+<p>&quot;HOLD ON A SEC&quot;, I hear you ask, &quot;Why am i connecting to a server, isn't
+this CLI running on a console somewhere ?&quot;. No, Grasshopper, the CLI is
 just a wrapper to the Infoblox.pm so you can run it from anywhere in
 the world. This gives you the added advantage of being able to work on
 MANY servers from the one CLI.</p>
@@ -311,47 +328,48 @@ MANY servers from the one CLI.</p>
 <hr />
 <h1><a name="command_line_options">Command line options</a></h1>
 <dl>
-<dt><strong><a name="item__2ds__3cserver_3e">-s &lt;server&gt;</a></strong><br />
-</dt>
+<dt><strong><a name="s_server" class="item">-s &lt;server&gt;</a></strong>
+
 <dd>
-Connect to this server
+<p>Connect to this server</p>
 </dd>
-<p></p>
-<dt><strong><a name="item__2du__3cusername_3e">-u &lt;username&gt;</a></strong><br />
-</dt>
+</li>
+<dt><strong><a name="u_username" class="item">-u &lt;username&gt;</a></strong>
+
 <dd>
-Connect as this user
+<p>Connect as this user</p>
 </dd>
-<p></p>
-<dt><strong><a name="item__2dp__3cpassword_3e">-p &lt;password&gt;</a></strong><br />
-</dt>
+</li>
+<dt><strong><a name="p_password" class="item">-p &lt;password&gt;</a></strong>
+
 <dd>
-Connect with this password
+<p>Connect with this password</p>
 </dd>
-<p></p>
-<dt><strong><a name="item__27_2dw_27">'-w'</a></strong><br />
-</dt>
+</li>
+<dt><strong><a name="w" class="item">'-w'</a></strong>
+
 <dd>
-Print a CGI header instead of the normal header
+<p>Print a CGI header instead of the normal header</p>
 </dd>
-<p></p>
-<dt><strong><a name="item__2de__3ccommand_3e">-e &lt;command&gt;</a></strong><br />
-</dt>
+</li>
+<dt><strong><a name="e_command" class="item">-e &lt;command&gt;</a></strong>
+
 <dd>
-Run a single command and exit. The command must be quoted (for obvious reasons). 
-For example
+<p>Run a single command and exit. The command must be quoted (for obvious reasons). 
+For example</p>
 </dd>
 <dd>
 <pre>
   % ./ibcli -e 'show zone'</pre>
 </dd>
-<p></p>
-<dt><strong><a name="item__2db_7cf__3cfile_3e">-b|f &lt;file&gt;</a></strong><br />
-</dt>
+</li>
+<dt><strong><a name="b_f_file" class="item">-b|f &lt;file&gt;</a></strong>
+
 <dd>
-load a database backup file for browsing
+<p>load a database backup file for browsing</p>
 </dd>
-<p></p></dl>
+</li>
+</dl>
 <p>
 </p>
 <h2><a name="config_file">config file</a></h2>
@@ -377,7 +395,7 @@ certain members you need to append the members to the command arg :</p>
 <h2><a name="laziness">Laziness</a></h2>
 <p>The command parser accepts abbreviations</p>
 <pre>
-    se z a foo.com</pre>
+    co z a foo.com</pre>
 <p>is the same as</p>
 <pre>
     conf zone add foo.com</pre>
@@ -400,7 +418,7 @@ adding it to the command line thus :</p>
 <hr />
 <h1><a name="general_command_reference">GENERAL COMMAND REFERENCE</a></h1>
 <p>The syntax mostly matches the API syntax. Also, since this is based on
-the API (duh) the same restrictions about required arguments applies.
+the API (duh), the same restrictions about required arguments applies.
 Don't expect the cli to work around requiring dumb extra arguments. When
 you look deep into the API you realise why they are there.</p>
 <p>
@@ -415,6 +433,9 @@ you look deep into the API you realise why they are there.</p>
 <p>Add a view disabled :</p>
 <pre>
    conf zone add view internal disabled</pre>
+<p>You can also modify views</p>
+<pre>
+   conf zone modify view internal set match_clients=[1.1.1.1,2.2.2.2]</pre>
 <p>
 </p>
 <h2><a name="remove_a_view_from_dns">Remove a view from dns</a></h2>
@@ -480,7 +501,7 @@ argument of the import source</p>
 <pre>
    conf zone add foo set &lt;method&gt;=&lt;value&gt;
    conf zone add foo set disable_forwarding=FALSE</pre>
-<p>When setting arrays you need special syntax ``[ ]'' and seperate your
+<p>When setting arrays you need special syntax &quot;[ ]&quot; and seperate your
 values by a ',' (This mostly seems to work)</p>
 <pre>
    ... set allow_update=&quot;[10.0.0.0/8,168.147.0.0/24,192.168.114.0/24]&quot;</pre>
@@ -657,6 +678,14 @@ You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
 <h1><a name="dhcp_configuration">DHCP Configuration</a></h1>
 <p>
 </p>
+<h2><a name="add_a_network_view">Add a network view</a></h2>
+<pre>
+  conf net add view internal</pre>
+<p>You can also modify existing views</p>
+<pre>
+  conf net modify view internal set external_ddns_primaries=1.1.1.1,2.2.2.2</pre>
+<p>
+</p>
 <h2><a name="add_a_network">Add a network</a></h2>
 <pre>
    conf network add 1.1.1.0/24</pre>
@@ -682,6 +711,9 @@ master.  If you don't want to assign any members use '0.0.0.0'</p>
 <p>Add a network with comments (comments must come last)</p>
 <pre>
    conf network add 1.1.1.0/24 comment &quot;comment string&quot;</pre>
+<p>Add a network with IPAM info</p>
+<pre>
+   conf network add 1.1.1.0/24 info &lt;field&gt;=&quot;&lt;Value&gt;&quot;</pre>
 <p>Add a network and set any additional parameters. (the setting
 must match a method in the API)</p>
 <pre>
@@ -696,8 +728,13 @@ must match a method in the API)</p>
 <pre>
    conf network modify 1.1.1.0/24 option 82=&quot;some data&quot;</pre>
 <p>if you change things like options arrays, ALL the existing values will be
-replaced by the new list. 'modify' does not append to existing lists, it
-does a complete replacement of it.</p>
+replaced by the new list. See 'addoption' below if you want to just apend
+new options to the list :</p>
+<p>If you want to just append a new option to an existing list, (or change
+one of the current options you can use 'addoption'. This will KEEP the
+current options array intact.</p>
+<pre>
+   conf network modify 1.1.1.0/24 addoption 82=&quot;some data&quot;</pre>
 <p>
 </p>
 <h2><a name="remove_a_network">Remove a network</a></h2>
@@ -771,12 +808,27 @@ the parent network. All other options are the same as for adding networks</p>
 <h2><a name="add_a_fixed_address">Add a fixed address</a></h2>
 <pre>
    conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33</pre>
+<p>The 'network' is actually optional, this syntax also works :</p>
+<pre>
+   conf network add fixed 10.0.1.4 aa:bb:cc:11:22:33</pre>
 <p>Add a fixed address with a Fixed Address Template</p>
 <pre>
    conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 template mytemp</pre>
 <p>Add a fixed address with comments</p>
 <pre>
    conf net 10.0.1.0/24 add fixed 10.0.1042 aa:bb:cc:11:22:33 comment &quot;comment string&quot;</pre>
+<p>
+</p>
+<h2><a name="add_a_roaming_address__that_has_no_ip_addr_">Add a roaming address (that has no IP addr)</a></h2>
+<p>You will need to specify the name instad of the IP address</p>
+<pre>
+   conf network add fixed myroamer aa:bb:cc:11:22:33</pre>
+<p>
+</p>
+<h2><a name="modify_a_fixed_address">Modify a fixed address</a></h2>
+<p>You can also modify existing addresses with the same syntax</p>
+<pre>
+   conf network 10.0.1.0/24 modify fixed 10.0.1.4 aa:bb:cc:11:22:33 ...</pre>
 <p>
 </p>
 <h2><a name="remove_a_fixed_address">Remove a fixed address</a></h2>
@@ -808,6 +860,9 @@ master.  If you don't want to assign any members use '0.0.0.0'</p>
 <p>You can also add filters to a range (multiples are allowed)</p>
 <pre>
    conf net 10.1.1.1/24 add range 10... macfilter &lt;name&gt;=&lt;permission&gt;</pre>
+<p>And add new filters to an existing range</p>
+<pre>
+   conf net 10.1.1.1/24 mod range 10... macfilter &lt;name&gt;=&lt;permission&gt;</pre>
 <p>
 </p>
 <h2><a name="modifying_ranges">Modifying Ranges</a></h2>
@@ -823,7 +878,8 @@ does a complete replacement of it.</p>
 </p>
 <h2><a name="remove_a_dhcp_range">Remove a dhcp range</a></h2>
 <pre>
-   conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40</pre>
+   conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40
+   conf net delete range 1.1.1.20 1.1.1.40</pre>
 <p>
 </p>
 <h2><a name="add_a_dhcp_filter">Add a DHCP filter</a></h2>
@@ -843,6 +899,61 @@ does a complete replacement of it.</p>
 <p>Add a mac address to a filter with comments</p>
 <pre>
     conf network filter my_filter add mac aa:bb:cc:11:22:33 comment &quot;my comment&quot;</pre>
+<p>Modify a filter entry</p>
+<pre>
+    conf network filter my_filter modify mac aa:bb:cc:11:22:33 comment &quot;my comment&quot;
+=cut</pre>
+<p>sub cli_add_macfilteraddr {
+    my ( $line ) = @_ ;</p>
+<pre>
+    # get the args from the line
+    my ( $name ) = $line =~/ filter (\S+)/ ;
+    my ( $type, $mac ) = $line =~/ (add|modify) macaddress (\S+)/ ;
+    my ( $comment ) = $line =~/ comment &quot;?([^&quot;]+)&quot;?/ ;</pre>
+<pre>
+    # de-urlencode the name string
+    $comment = &amp;decode_comment ( $comment ) ;
+    $name = &amp;decode_comment ( $name ) ;</pre>
+<pre>
+    # fix mac addresses that are missing ':'
+    unless ( $mac =~ /:/ ) {
+        $mac =~ s/(..)/$1:/g;
+        $mac =~ s/:$//;
+    }</pre>
+<pre>
+    &amp;debug_cli (1,&quot;addmaddr f($name) m($mac) c($comment)&quot;);</pre>
+<pre>
+    # get or add ?
+    my $obj ;
+    if ( $type eq 'modify' ) {
+        # get the current network
+        my %opthash = (
+            &quot;object&quot; =&gt; &quot;Infoblox::DHCP::MAC&quot;, 
+            &quot;filter&quot; =&gt; $name ,
+            &quot;mac&quot; =&gt; $mac ,
+        );</pre>
+<pre>
+        ( $obj ) = &amp;do_func(&quot;get&quot;, %opthash );</pre>
+<pre>
+        # check errors
+        if ( ! $obj ) {
+            print &quot;  mac $mac is not in the filter $name\n&quot;;
+            return ;
+        }
+    }
+    else {</pre>
+<pre>
+        $obj = Infoblox::DHCP::MAC-&gt;new (
+                   &quot;filter&quot; =&gt; $name ,
+                   &quot;mac&quot; =&gt; $mac ,
+#                    &quot;comment&quot; =&gt; $comment ,
+                );
+    }
+    if ( $comment ) { $obj-&gt;comment ( $comment ) }</pre>
+<pre>
+    # make the change
+    &amp;do_func($type,$obj);</pre>
+<p>}</p>
 <p>
 </p>
 <h2><a name="remove_a_mac_address_from_a_filter">remove a mac address from a filter</a></h2>
@@ -880,6 +991,13 @@ does a complete replacement of it.</p>
    configure grid add attribute &lt;name&gt; required</pre>
 <pre>
    configure grid add attribute &lt;name&gt; multiple</pre>
+<p>
+</p>
+<h2><a name="showing_attributes_types">Showing attributes types</a></h2>
+<pre>
+   show grid attribute</pre>
+<pre>
+   show grid attribute &lt;name&gt;</pre>
 <p>
 </p>
 <h2><a name="showing_device_types">Showing device types</a></h2>
@@ -940,6 +1058,79 @@ You can also add a comment</pre>
 <h2><a name="adding_administrator_groups">Adding Administrator groups</a></h2>
 <pre>
    configure admin add admin_group locals</pre>
+<p>make them superuser</p>
+<pre>
+   configure admin add admin_group locals superuser</pre>
+<p>Add roles to the group</p>
+<pre>
+   configure admin add admin_group locals role &quot;DNS Admin&quot;</pre>
+<p>You can also modify admin groups (to add roles or perms)
+This will ADD to the current list(s), not replace it</p>
+<pre>
+   configure admin modify admin_group locals role &quot;DNS Admin&quot;
+=cut</pre>
+<p>sub cli_add_admin_group {
+    my ( $line ) = @_ ;</p>
+<pre>
+    # get the args from the line
+    my ( $type , $name ) = $line =~/ (add|modify) admin_group (\S+)/ ;
+    my ( $su ) = $line =~/\b(superuser)\b/ ;
+    my ( $disable ) = $line =~/\b(disabled)\b$/ ;</pre>
+<pre>
+    &amp;debug_cli (1,&quot;addgrp g($name)&quot;);</pre>
+<pre>
+    my $obj ;
+    if ( $type eq &quot;modify&quot; ) {
+        # this might become a subroutine
+        # get the object 
+        my %opthash = (
+            &quot;object&quot; =&gt; &quot;Infoblox::Grid::Admin::Group&quot;, 
+            &quot;name&quot; =&gt; $name
+        );
+        ( $obj ) = &amp;do_func(&quot;get&quot;, %opthash );</pre>
+<pre>
+        unless ( $obj ) {
+            print &quot;  Error : $name : No group found\n&quot;;
+            # exit here
+            return
+        }
+    }
+    else {
+        $obj = Infoblox::Grid::Admin::Group-&gt;new (
+                   &quot;name&quot; =&gt; $name ,
+                );
+    }</pre>
+<pre>
+    # de-urlencode the comment string
+    # and add an optional comment
+    my ( $comment ) = $line =~/comment &quot;?([^&quot;]+)&quot;?/ ;
+    $comment = &amp;decode_comment ( $comment ) ;
+    if ( $comment ) { $obj-&gt;comment ( $comment ) }</pre>
+<pre>
+    if ( $su ) { $obj-&gt;superuser ( &quot;TRUE&quot; ) }
+    if ( $disable ) { $obj-&gt;disabled ( &quot;TRUE&quot; ) }</pre>
+<pre>
+    # set some roles
+    my ( @roles ) = $line =~/\brole\s+(\S+)/g ;
+    if ( @roles ) {
+        my @rvalues ;
+        # get current settings
+        if ( $type eq 'modify' ) {
+            @rvalues = @{ $obj-&gt;roles() };
+        }
+        foreach my $rstring ( @roles ) {
+            push @rvalues , &amp;decode_comment ( $rstring ) ;
+        }
+        $obj-&gt;roles( \@rvalues ) ;
+    }</pre>
+<pre>
+    &amp;do_func($type,$obj);</pre>
+<p>}</p>
+<p>
+</p>
+<h2><a name="adding_administrator_roles">Adding Administrator Roles</a></h2>
+<pre>
+   configure admin add role locals</pre>
 <p>
 </p>
 <h2><a name="adding_users">Adding users</a></h2>
@@ -949,8 +1140,25 @@ You can also add a comment</pre>
 <p>
 </p>
 <h2><a name="adding_permissions">Adding permissions</a></h2>
-<p>Permissions can be any of 'read' 'write' or 'deny', and ar applied to an
-admin group or an admin</p>
+<p>Permissions can be any of 'read' 'write' or 'deny', and are applied to an
+admin group or an admin or an admin_role</p>
+<pre>
+  conf admin add permission &lt;perm&gt; &lt;type&gt; &lt;name&gt; group &lt;group_name&gt;</pre>
+<pre>
+  conf admin add perm write zone foo.com group dns_admins
+  conf admin add perm read network 45.0.0.0/24 group dhcp_guys</pre>
+<pre>
+  conf admin add perm read range 45.0.0.10-45.0.0.20 group dhcp_guys
+(ranges actually only need the 'start_addr' )
+  conf admin add perm read range 45.0.0.10 group dhcp_guys</pre>
+<p>Add permissions to a role</p>
+<pre>
+  conf admin add perm write zone foo.com role &quot;AAA Admin&quot;</pre>
+<p>You can also add resource_types :</p>
+<pre>
+  conf admin add perm write type &quot;All DHCP Templates&quot; group dhcp_guys
+  conf admin add perm write type &quot;All DHCP Templates&quot; role &quot;DHCP Admin&quot;</pre>
+<p>In some cases you can also do this when configuring the object :</p>
 <pre>
   conf zone &lt;zone&gt; add permission &lt;perm&gt; group &lt;name&gt;</pre>
 <pre>
@@ -1008,6 +1216,10 @@ them modify it, thus you need :
 <p>Disable the NTP service</p>
 <pre>
    configure grid Infoblox disable ntp</pre>
+<p>or set a random API method</p>
+<pre>
+   configure grid Infoblox set &lt;method&gt;=&lt;value&gt;
+   configure grid Infoblox set query_comm_string=public</pre>
 <p>
 </p>
 <h2><a name="configure_member_settings">configure Member settings</a></h2>
@@ -1018,14 +1230,16 @@ them modify it, thus you need :
 <p>Change the IP address</p>
 <pre>
     conf grid Infoblox modify member infoblox.localdomain ipaddress 10.64.128.40/24</pre>
+<p>change the name</p>
+<pre>
+    conf grid Infoblox modify member infoblox.localdomain ipaddress 10.64.128.40/24 name dns1.myzone.com</pre>
 <p>Make this an HA pair</p>
 <pre>
     conf grid blox modify member foo.com hapair 10.64.128.41,10.64.128.42,10.64.128.43,10.64.128.44 routerid 40</pre>
 <p>
 </p>
-<h2><a name="configure_member_dns_settings">configure Member DNS settings</a></h2>
-<p>Set a value
-</p>
+<h2><a name="configure_member_dns_settings">Configure Member DNS settings</a></h2>
+<p>Set a value</p>
 <pre>
 
    conf member ns1.lab.com dns set ...</pre>
@@ -1033,12 +1247,11 @@ them modify it, thus you need :
    conf member ns1.lab.com dns set forwarders=&quot;[1.1.1.1,4.2.2.2]&quot;</pre>
 <p>
 </p>
-<h2><a name="configure_member_dhcp_settings">configure Member DHCP settings</a></h2>
+<h2><a name="configure_member_dhcp_settings">Configure Member DHCP settings</a></h2>
 <p>Set an option</p>
 <pre>
    conf member ns1.lab.com dhcp option 82=&quot;some data&quot;</pre>
-<p>Set a value
-</p>
+<p>Set a value</p>
 <pre>
 
    conf member ns1.lab.com dhcp set ...</pre>
@@ -1133,12 +1346,18 @@ them modify it, thus you need :
 <p>Show all zones</p>
 <pre>
     show zone</pre>
+<p>Show all zones with details</p>
+<pre>
+    show zone detailed</pre>
 <p>Show all forward zones</p>
 <pre>
     show zone forward</pre>
 <p>Show all reverse zones</p>
 <pre>
     show zone reverse</pre>
+<p>Show all secondary (external_primary) zones</p>
+<pre>
+    show zone secondary</pre>
 <p>Show just 1 zone</p>
 <pre>
     show zone foo.com</pre>
@@ -1158,9 +1377,17 @@ them modify it, thus you need :
 <p>Show all views</p>
 <pre>
     show views</pre>
+<pre>
+    or</pre>
+<pre>
+    show zone view</pre>
 <p>Show just One view</p>
 <pre>
-    show view default</pre>
+    show views default</pre>
+<pre>
+    or</pre>
+<pre>
+    show zone view default</pre>
 <p>
 </p>
 <h2><a name="showing_hosts">Showing hosts</a></h2>
@@ -1191,9 +1418,30 @@ them modify it, thus you need :
    show network 45.200.100.128/25</pre>
 <p>
 </p>
+<h2><a name="showing_networks_templates">Showing networks templates</a></h2>
+<pre>
+   show network template</pre>
+<pre>
+   show network template &lt;name&gt;</pre>
+<p>
+</p>
+<h2><a name="showing_network_views">Showing Network Views</a></h2>
+<p>Show all views</p>
+<pre>
+    show network view</pre>
+<p>Show just One view</p>
+<pre>
+    show network view default</pre>
+<p>
+</p>
 <h2><a name="showing_network_failover">Showing network failover</a></h2>
 <pre>
    show network failover</pre>
+<p>
+</p>
+<h2><a name="showing_network_option_definitions">Showing network option definitions</a></h2>
+<pre>
+   show network options</pre>
 <p>
 </p>
 <h2><a name="showing_network_statistics">Showing network statistics</a></h2>
@@ -1251,6 +1499,9 @@ them modify it, thus you need :
 <p>Get a list of all grid members</p>
 <pre>
    show grid Infoblox member</pre>
+<p>Get a detailed list of all grid members</p>
+<pre>
+   show grid Infoblox member detailed</pre>
 <p>Get specific member details</p>
 <pre>
    show grid Infoblox member 45.0.12.20</pre>
@@ -1261,6 +1512,8 @@ them modify it, thus you need :
    show admin user &lt;name&gt;</pre>
 <pre>
    show admin admin_group &lt;name&gt;</pre>
+<pre>
+   show admin role &lt;name&gt;</pre>
 <p>
 </p>
 <hr />
@@ -1290,8 +1543,7 @@ have a ember assignment</p>
 <p>Alternatively, you can add it as a keyword to the 'conf server' command :</p>
 <pre>
     conf server 10.0.1.230 user admin pass infoblox master 45.0.12.20</pre>
-<p>You can also do this from the command line :
-</p>
+<p>You can also do this from the command line :</p>
 <pre>
 
     ibcli -m &lt;ip&gt;</pre>
@@ -1340,7 +1592,10 @@ have a ember assignment</p>
 </p>
 <h2><a name="upload_the_dhcp_expert_mode_configuration">Upload the DHCP expert mode configuration</a></h2>
 <pre>
-    upload dhcp_conf &lt;file&gt;</pre>
+    upload expert_dhcp_conf &lt;file&gt;</pre>
+<p>Or you can push the conf file to a specific member :</p>
+<pre>
+    upload expert_dhcp_conf &lt;file&gt; member &lt;menber&gt;</pre>
 <p>
 </p>
 <h2><a name="browse_and_load_a_datbase_backup">Browse and load a datbase backup</a></h2>
@@ -1371,9 +1626,7 @@ have a ember assignment</p>
   configure debug &lt;level&gt;</pre>
 <p>The higher the debug level, the more junk gets spat to the tty. You
 probably don't want anything higher than (2) unless you are debugging the
-completion control parser.
-
-</p>
+completion control parser.</p>
 
 </body>
 
