@@ -53,12 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.8 2005/04/22 20:09:17 horne Exp $
-my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.8 $
-$Date: 2005/04/22 20:09:17 $
-';
-$REV =~ s/\$//g;
+my $ID  = q$Id: ibcli,v 2.9 2005/07/13 05:07:06 horne Exp $ ;
+my $REV = q$Revision: 2.9 $;
+my $RDATE = q$Date: 2005/07/13 05:07:06 $;
+
 
 # uncomment the following two lines to see what the options hash contains
 use Data::Dumper;
@@ -80,6 +78,10 @@ BEGIN {
 
 #
 # $Log: ibcli,v $
+# Revision 2.9  2005/07/13 05:07:06  horne
+# major fixes of some of the parser bits
+# added additional functions to add zone
+#
 # Revision 2.8  2005/04/22 20:09:17  horne
 # *** empty log message ***
 #
@@ -114,6 +116,7 @@ my $MAKE ;
 my $LIST_COMM ;
 my $GET_VERSION ;
 my @LIST_BRANCH ;
+my @DOT_BRANCH ;
 
 my $GOOD_COMMAND ;
 my $LINE ;
@@ -222,7 +225,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 2.8 $
+$Revision: 2.9 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -478,6 +481,8 @@ my %commands = (
             'get' => 'show_commands' ,
             'exit' => 'do_exit' ,
             'quit' => 'do_exit' ,
+            # serial commands
+            'reset' => 'do_nothing' ,
 ) ;
    
 # read the lines
@@ -492,8 +497,14 @@ my %commands = (
 # if we were called with a "-c" we are dumping the command parsing tree
 if ( $LIST_COMM ) {
    print "$REV\n";
+   print "The Non Exhaustive list of CLI commands\n\n";
+
+   &debug_cli(1,"dot : digraph CLI {");
 
    &walk_tree(%commands) ;
+
+   &debug_cli(1,"dot : }");
+
    exit ;
 }
 
@@ -683,25 +694,68 @@ sub rd_line {
 sub walk_tree {
    my ( %commands ) = @_ ;
 
+   # wow - even i have no idea what i was doing here..
+   # ok - lets look at this again,
+   #
+   # ahh, then a list of args is passed to the command parser, we firts
+   # check if $LIST_COMM is set. If it is then we drop out of the arg
+   # parser and fall into here instead
+   #
+   # lather, rinse , repeat
+
    foreach my $cmd ( sort keys %commands ) {
       my $call = $commands{$cmd};
 
-      &debug_cli(1,"arg : $cmd => ($call) [@LIST_BRANCH] [$cmd]");
+      # so, we do a bit of debugging here to see wher we were and where
+      # we are going.
+      #
+      # we pased to this routine the list of next possible commands.
+      # so there should be a way to
+      #  - print this out better
+      #  - sput out some sort of stuff we can give to graphvis
+
+      &debug_cli(1,"arg : $cmd => ($call) cli=[@LIST_BRANCH]");
+
+      # and, on the way in , print out where we were and where we are
+      # going
+      my $last = $LIST_BRANCH[$#LIST_BRANCH];
+      my $parent = $DOT_BRANCH[$#DOT_BRANCH];
 
       # a few sanity checks
-      if ( $cmd eq "" ) { $cmd = "<value>" ; }
+      if ( $cmd eq "" ) { $cmd = "<${last}value>" ; }
       if ( $cmd eq "set" ) { next ; }
+      if ( $cmd eq "get" ) { next ; }
+      if ( $cmd eq "dhcp" ) { next ; }
       if ( $cmd eq "remove" ) { next ; }
 
+      # if we're going deeper, add to the 'cli' string
       push ( @LIST_BRANCH , $cmd ) ;
 
+
+      # print out dot stuff and ensure uniqieness
+      my $child = "$last$cmd" ;
+         $child =~ s/<|>//g;
+
+      push ( @DOT_BRANCH , $child ) ;
+
+      if ( $last ) {
+         &debug_cli(1,"dot : $parent -> $child");
+      }
+      else {
+         &debug_cli(1,"dot : $child");
+      }
+
+      # and recurse..
       if ( $call =~ /commands/ ) {
          &$call("foo","foo");
       }
 
+      # on the way out, print the line
       if ( @LIST_BRANCH ) { print "@LIST_BRANCH\n"; }
 
+      # pop the stacks
       pop @LIST_BRANCH ;
+      pop @DOT_BRANCH ;
    }
 }
 
@@ -714,6 +768,10 @@ sub show_commands {
                 'network' => 'show_network',
                 'host' => 'show_host',
                 'version' => 'show_version',
+                # serial cli
+                'interface' => 'do_nothing',
+                'logs' => 'do_nothing',
+                'network' => 'do_nothing',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -747,12 +805,16 @@ sub set_commands {
    my %commands = ( 
                 'debug' => 'set_debug',
                 'server' => 'add_server',
-#                 'system' => 'system_commands',
+                'system' => 'system_commands',
 #                 'password' => 'add_pass',
                 'zone' => 'zone_commands',
                 'realm' => 'realm_commands',
                 'network' => 'network_commands',
+#                 'network' => 'do_nothing',
                 'dhcp' => 'network_commands',
+                # serial commands
+                'interface' => 'do_nothing',
+
         ) ;
    &shift_arg($arg,%commands);
 
@@ -763,7 +825,17 @@ sub system_commands {
    &debug_cli (4,"sub = system_commands");
    my ( $arg ) = shift @WORDS ;
    my %commands = ( 
-#                 "default" => 'erase_data',
+                "add" => 'cluster_add_commmands',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : conf system add xxx
+sub cluster_add_commmands {
+   &debug_cli (4,"sub = cluster_add");
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                "member" => 'cluster_add_member',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -802,8 +874,20 @@ sub network_commands {
                 "add" => 'cli_add_network',
                 "delete" => 'cli_remove_network',
                 "remove" => 'cli_remove_network',
-#                 "global" => 'mod_global_dhcp',
+                "global" => 'mod_global_dhcp',
                 "" => 'set_network_commands',
+        ) ;
+   &shift_arg($arg,%commands);
+}
+
+# PARSER : conf network global xxx
+sub mod_global_dhcp {
+   &debug_cli (4,"sub = glob network_commands");
+   my ( $arg ) = shift @WORDS ;
+   my %commands = ( 
+                "add" => 'cli_add_global_dhcp',
+                "delete" => 'cli_del_global_dhcp',
+                "remove" => 'cli_del_global_dhcp',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -1025,12 +1109,14 @@ sub do_func {
     # format the data for pretty printing
     &print_data($method,@data);
 
+    my @ret_objects ;
+
     if ( ! $MAKE ) {
        # actually try and run it
        if ( $CONNECTED ) {
           
           # call by indirection
-          $SESSION->$method ( @data ) ;
+          @ret_objects = $SESSION->$method ( @data ) ;
 
           # get errors
           my $result = $SESSION->status_code();
@@ -1039,7 +1125,6 @@ sub do_func {
           if ( $result > 0 ) {
              # We got error...
              print "failed [$result] $response\n";
-             return $result
           }
           else {
              $MADE_CHANGES = "*" ;
@@ -1051,6 +1136,8 @@ sub do_func {
        }
 
     }
+
+    return ( @ret_objects ) ;
 }
 
 # sub do_priv_func {
@@ -1217,7 +1304,11 @@ Add a reverse zone
 
 Add a zone to specific members
 
-   conf zone add foo.com members 1.2.3.4,1.2.3.5,1.2.3.6
+   conf zone add foo.com mem 1.2.3.4 mem 1.2.3.5 mem 1.2.3.6
+
+Add a zone with external primary
+
+   conf zone add foo.com primary ns1.foo.com 1.2.3.4 
 
 =head2 Import a zone
 
@@ -1246,43 +1337,73 @@ sub cli_add_zone {
     # 
     # for the moment we'll not bother to validate
 
-    my ( $zone , $type , @type_opts) = @_ ;
+    my ( $zone , @type_opts) = @_ ;
 
     if ( ! $zone ) { &missing_arg("<zone>") ; return }
 
-    &debug_cli(2,"addz n($zone) t($type) oo(@type_opts)");
+    &debug_cli(2,"addz n($zone) oo(@type_opts)");
 
-    #
-    # etype is the expanded version of whatever we typed for $type
-    # We'll only allow authorative zones for present
-    #
-    my $etype ;
-    if ( $type ) {
-       my @opts = ( "import" );
-       my %optlist = abbrev ( @opts ) ;
-       $etype = $optlist{ lc($type) } ;
+    # what are allowed options ?
+    my @opts = ( "import" , "primary" , "member" );
+    my %optlist = abbrev ( @opts ) ;
+
+    # if we don't have any args we do the default...
+    my $obj = Infoblox::DNS::Zone->new (
+                     "name" => $zone,
+                     "primary" => $MASTER ,
+          );
+
+    # remember secondaries
+    my @secondaries ;
+
+    # walk the options
+    while ( my $type = shift @type_opts ) {
+       my $value = shift @type_opts ;
+       my $etype = $optlist{ lc($type) } ;
 
        if ( ! $etype ) { 
           &missing_arg(@opts);
           return ;
        }
+
+       &debug_cli(2,"addz o($type) v($value) oo(@type_opts)");
+
+       # internal or external primary ?
+       if ( $etype eq "primary" ) {
+          # we override with an external primary
+          my $nsname = $value ;
+          my $ip = shift @type_opts ;
+
+          my $primary = Infoblox::DNS::Nameserver->new ( 
+                        'name' => $nsname, 
+                        'ipv4addr' => $ip, 
+                      );
+
+          $obj = Infoblox::DNS::Zone->new (
+                     "name" => $zone,
+                     "primary" => [ $primary ] ,
+          );
+       }
+
+       # do we add grid secondaries ?
+       if ( $etype eq "member" ) {
+          # push them to the array , only use ip address
+          push @secondaries , Infoblox::DNS::Member->new(
+#                              "name" => $value ,
+                             "ipv4addr" => $value ,
+                             );
+       }
+
+       # do we import ?
+       if ( $etype eq "import" ) {
+          $obj->import_from ( $value ) ;
+       }
     }
-    else { ( $etype = "" ) ; }
 
-    # format the type opts
-    # ..... (code goes here) ...
-
-    # are we forward or reverse - we don't care (yet)
-    my $obj = Infoblox::DNS::Zone->new (
-                  "name" => $zone,
-                  "primary" => $MASTER ,
-    );
-
-    # do we import ?
-    if ( $etype eq "import" ) {
-       $obj->import_from ( shift @type_opts ) ;
-    }
-
+    # add any secondaries we found parsing the args
+    $obj->secondaries ( \@secondaries ) ;
+   
+    # now add the damn thing
     &do_func("add",$obj);
 
 }
@@ -1591,46 +1712,170 @@ sub del_zone_ptr {
 
 }
 
-=head2 Modify global DHCP settings
+=head2 add global DHCP settings
 
-TBD
+   conf network global add lease-time 3600
+   /* conf network global add authority true */
+
+Custom optons
+
+   conf network global add custom_option 82 "opt 82 string" 
+
+Set the type for a custom option
+   
+   conf network global add custom_option 82 type IPADDRESS
+
+Remove a custom option
+
+   conf network global delete custom_option 82
 
 =cut
 
-# sub mod_global_dhcp {
-#     my ( $opt , $val , @extra ) = @_ ;
-#     if ( (! $val ) or ( ! $opt ) ) {
-#        &missing_arg("<option> <value>")  ;
-#        return ;
-#     }
-#     # clean up any custom option args
-#     my $custom= join ( '","' , @extra );
+###########
+# my $option1 = Infoblox::DHCP::Option->new(
+#                    "type" => "lease-time",
+#                    "seconds" => "50"
+#                    );
+# my $option1 = Infoblox::DHCP::Option->new(
+#                    "type" => "routers",
+#                    "ipv4addrs" => [ "1.4.1.1" , "2.2.2.2" ],
+#                    );
 # 
-#     # clean some options
-#     $val=~s/["']*//g ;
-#     $custom=~s/""/"/g ;
+# my $option2 = Infoblox::Cluster::DHCP::Custom_option->new(
+#                    "num" => "1",
+#                    "type" => "ip-address",
+#                    "value" => "255.0.0.0",
+#                    );
 # 
-#     &debug_cli(2,"modglob o($opt) v($val) c($custom)");
-# 
-#     #
-#     # GLOBAL custom props have to ALL be on one line, or stuff gets dropped
-#     #
-#     # ib_modify_global_dhcp_options
-#     #         ("10.34.8.0","255.255.252.0","router","10.34.8.1");
-#     # OR
-#     # ib_modify_global_dhcp_options
-#     #         ("10.54.0.0","255.255.252.0","custom_option",
-#     #           "netbios-name-servers","","10.23.60.20");
-#     my $comm="ib_modify_global_dhcp_options";
-#     my @function=($comm,$opt,$val);
-# 
-#     if ( $opt eq "custom_option" ) {
-#        @function=($comm,"custom_option",$val,$custom);
-#     }
-#        
-# 
-#     &do_func(@function);
-# 
+# $dhcp->options( [ $option1 , $option2 ] );
+###########
+
+sub cli_add_global_dhcp {
+
+    my ( $opt , $val , $type , @extra ) = @_ ;
+    if ( (! $opt ) or ( ! $val ) ) {
+       &missing_arg("<option> <'type'|value>")  ;
+       return ;
+    }
+
+    # all these custom opts are conditional, damn
+    my @opts = ( "lease-time","custom_option",
+                 "routers","nameservers","domain-name",
+                 "broadcast",
+                );
+
+    # but we can at least abbrev them.
+    my %optlist = abbrev ( @opts ) ;
+    my $eopt = $optlist{ lc($opt) } ;
+    # sput error
+    if ( ! $eopt ) { 
+          &missing_arg(@opts );
+          return ;
+    }
+
+    # look for 'type' (or anything else)
+    # we don't abbrev to avoid namespace conflicts
+    # if we find it, we shuffle the args
+
+    my $etype ;
+    if ( $eopt eq "custom_option" ) {
+       if ( $type =~ /^type$/i ) {
+          $etype = $type ;
+       }
+       else {
+          unshift @extra , $type ;
+       }
+    }
+
+    # now match quoted strings ( $etype will be undef )
+    my ( $data , @extra ) = &get_comment ( @extra ) ;
+
+    &debug_cli(2,"modglob o($eopt) v($val) t($etype) d($data)");
+
+    # ok , now we have the conditional loop to build the options
+    my $obj ;
+
+    if ( $eopt eq "lease-time" ) {
+       $obj = Infoblox::DHCP::Option->new(
+                      "type" => "lease-time",
+                      "seconds" => $val,
+                   );
+    }
+    elsif ( $eopt eq "routers" ) {
+       my @iplist = split ( "," , $val ) ;
+       $obj = Infoblox::DHCP::Option->new(
+                      "type" => "routers",
+                      "ipv4addrs" => \@iplist,
+                   );
+    }
+    elsif ( $eopt eq "nameservers" ) {
+       my @iplist = split ( "," , $val ) ;
+       $obj = Infoblox::DHCP::Option->new(
+                      "type" => "nameservers",
+                      "ipv4addrs" => \@iplist,
+                   );
+    }
+    elsif ( $eopt eq "broadcast" ) {
+       $obj = Infoblox::DHCP::Option->new(
+                      "type" => "broadcast",
+                      "ipv4addr" => $val,
+                   );
+    }
+    elsif ( $eopt eq "domain-name" ) {
+       $obj = Infoblox::DHCP::Option->new(
+                      "type" => "domain-name",
+                      "name" => $val,
+                   );
+    }
+
+    # customss
+    elsif ( $eopt eq "custom_option" ) {
+       if ( $etype ) {
+          # just set the type
+          &debug_cli(2,"modglob adding custom type");
+          $obj = Infoblox::Cluster::DHCP::Custom_option->new(
+                   "num" => $val,
+                   "type" => $data,
+                   "value" => "",
+                   );
+       }
+       else {
+          &debug_cli(2,"modglob adding custom value");
+          $obj = Infoblox::DHCP::Option->new(
+                      "type" => $val,
+                      "value" => $data,
+                   );
+       }
+    }
+
+    # now we have to get the global props and re-set them.
+    # [GDH] - unhardcode the cluster name
+    my %args = (
+                         "object" => "Infoblox::Cluster::DHCP",
+                         "cluster" => "Infoblox",
+    );
+
+    
+    my ( $cluster ) = &do_func("get", %args ) ;
+
+    if ( $cluster ) {
+        # add the option, make the changes;
+        $cluster->options( [ $obj ] ) ;
+    print Dumper ( \$cluster ) ;
+        &do_func("modify", $cluster ) ;
+    }
+
+
+}
+
+=head2 Remove a custom option
+
+   conf network global delete custom_option 82
+   conf network global delete lease_time
+
+=cut
+
+# sub cli_del_global_dhcp {
 # }
 
 =head2 Add a network
@@ -2537,7 +2782,7 @@ sub add_server {
     if ( ! $etype ) { 
        # must be a servername
        $server = $type ;
-       $CONN_INFO{'Host'} = $server ;
+#        $CONN_INFO{'Host'} = $server ;
        $CONN_INFO{'master'} = $server ;
        &debug_cli(3,"conf server s($server)");
     }
@@ -2582,14 +2827,14 @@ between different servers
        if ( $earg eq "user" ) {
           $user = shift @args ;
           $CONN_INFO{'username'} = $user ;
-          $CONN_INFO{'UserName'} = $user ;
+#           $CONN_INFO{'UserName'} = $user ;
           &debug_cli(3,"conf server arg($arg) u($user)");
        }
        # grab the password
        if ( $earg eq "password" ) {
           $pass = shift @args ;
           $CONN_INFO{'password'} = $pass ;
-          $CONN_INFO{'UserPassword'} = $pass ;
+#           $CONN_INFO{'UserPassword'} = $pass ;
           &debug_cli(3,"conf server arg($arg) p($pass)");
        }
 
@@ -2625,18 +2870,18 @@ sub connect {
     &debug_cli(3,"conn $conhash");
     
     # try and set the prompt anyway
-    if ( $CONN_INFO{'Host'} ) {
-        $PROMPT = "$CONN_INFO{'Host'} > " ;
+    if ( $CONN_INFO{'master'} ) {
+        $PROMPT = "$CONN_INFO{'master'} > " ;
     }
 
     # otherwise try and connect
-      if ( $CONN_INFO{'Host'} 
-           && $CONN_INFO{'UserName'}
-           && $CONN_INFO{'UserPassword'} ) {
+      if ( $CONN_INFO{'master'} 
+           && $CONN_INFO{'username'}
+           && $CONN_INFO{'password'} ) {
 
          # set the prompt
          $MADE_CHANGES = " " ;
-         $PROMPT = "$CONN_INFO{'UserName'}\@$CONN_INFO{'Host'} > " ;
+         $PROMPT = "$CONN_INFO{'username'}\@$CONN_INFO{'master'} > " ;
 
          &debug_cli(1,"connect -> $PROMPT");
 
@@ -2714,8 +2959,8 @@ sub restart {
     &debug_cli(2,"restart t($eopt) [$timer]");
 
     my %opthash ;
-    $opthash{'protocol_type'}=$service;
-    $opthash{'delay'}=0;
+    $opthash{'service'}=$service;
+    $opthash{'when'}=0;
 
     # delay ?
     my $edel ;
@@ -2738,7 +2983,7 @@ sub restart {
        }
     }
 
-    my @function=("restart_service",%opthash);
+    my @function=("restart",%opthash);
     &do_func(@function);
 
     $MADE_CHANGES = " " ;
@@ -2829,7 +3074,7 @@ sub show_host {
 
     &debug_cli(2,"showing zone [@_]");
 
-    &do_dig($CONN_INFO{'Host'},$query,$verbose);
+    &do_dig($CONN_INFO{'master'},$query,$verbose);
 
 
 }
@@ -2849,7 +3094,7 @@ sub show_zone {
 
     if ( ! $type ) { $type = "SOA" }
 
-    &do_dig($CONN_INFO{'Host'},$query,$type,$verbose);
+    &do_dig($CONN_INFO{'master'},$query,$type,$verbose);
 }
 
 sub show_network {
@@ -2869,7 +3114,7 @@ sub show_network {
 
     # force a revrse lookup
     $verbose = "reverse" ;
-    &do_dig($CONN_INFO{'Host'},$query,$type,$verbose);
+    &do_dig($CONN_INFO{'master'},$query,$type,$verbose);
 }
 
 sub do_dig {
@@ -2942,7 +3187,7 @@ exit ; \n";
 }
 
 sub show_version {
-    print "$REV\n";
+    print "\n$BASE/$NAME\n$REV\n$RDATE\n\n";
 }
 
 
@@ -3407,6 +3652,10 @@ sub debug_cli {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.9  2005/07/13 05:07:06  horne
+# major fixes of some of the parser bits
+# added additional functions to add zone
+#
 # Revision 2.8  2005/04/22 20:09:17  horne
 # *** empty log message ***
 #
