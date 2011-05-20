@@ -53,14 +53,16 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
+#   $Id: ibcli,v 1.13 2004/02/13 20:11:21 horne Exp $
+my $REV = "\n$BASE/$NAME" . '
+$Revision: 1.13 $
+$Date: 2004/02/13 20:11:21 $
+';
+$REV =~ s/\$//g;
+
 sub show_version {
-    #   $Id: ibcli,v 1.12 2003/11/26 01:29:09 horne Exp $
-    my $REV = '
-    $Revision: 1.12 $
-    $Date: 2003/11/26 01:29:09 $
-    ';
-    $REV =~ s/\$//g;
-    print "\n    $BASE/$NAME $REV\n";
+
+    print "$REV\n";
 
     exit ;
 }
@@ -91,11 +93,12 @@ my $SERVER_PASS ;
 my $CONNECTED ;
 my $CONFIG ;
 my $MAKE ;
-my $TREE ;
+my $LIST_COMM ;
+my @LIST_BRANCH ;
 
 my $GOOD_COMMAND ;
 my $LINE ;
-# my $NO_COMMAND ;
+
 my $SAVE_HIST ;
 my @CLIST ;
 my @WORDS ;
@@ -140,12 +143,39 @@ GetOptions(
       "p=s" => \$S_PASS ,
       "f=s" => \$CONFIG ,
       "d=s" => \$DEBUG ,
-      "m+" => \$MAKE ,
-      "t+" => \$TREE ,
+      "m+"  => \$MAKE ,
+      "c+"  => \$LIST_COMM ,
       "v|V"   => \&show_version ,
    );
 
    #
+
+# set the first level command set
+my %commands = ( 
+            'history' => 'show_history',
+            'commit' => 'commit',
+            'connect' => 'connect',
+            'disconnect' => 'disconnect',
+            'download' => 'download_commands',
+            'upload' => 'upload_commands',
+            'set' => 'set_commands' ,
+            'configure' => 'set_commands' ,
+            'show' => 'show_commands' ,
+            'get' => 'show_commands' ,
+            'exit' => 'do_exit' ,
+            'quit' => 'do_exit' ,
+) ;
+
+# catch fools who forget to do a '-f'
+if ( @ARGV ) { $CONFIG = shift ; }
+
+# if we were called with a "-c" we are dumping the command parsing tree
+if ( $LIST_COMM ) {
+   print "$REV\n";
+
+   &walk_tree(%commands) ;
+   exit ;
+}
 
 # are we in make mode ?
 if ( $MAKE ) { &script_header }
@@ -243,20 +273,6 @@ while (<>) {
    @P_ARGS = () ;
    my $arg = shift @WORDS ;
 
-   my %commands = ( 
-                'history' => 'show_history',
-                'commit' => 'commit',
-                'connect' => 'connect',
-                'disconnect' => 'disconnect',
-                'download' => 'download_commands',
-                'upload' => 'upload_commands',
-                'set' => 'set_commands' ,
-                'configure' => 'set_commands' ,
-                'show' => 'show_commands' ,
-                'get' => 'show_commands' ,
-                'exit' => 'do_exit' ,
-        ) ;
-
    &shift_arg($arg,%commands);
 
    # history - if kosher
@@ -309,6 +325,9 @@ sub shift_arg {
 
    my ( $arg , %commands ) = @_ ;
 
+   if ( $LIST_COMM ) { &walk_tree(%commands) ; return ; }
+
+
    @CLIST = sort keys %commands ;
    my %clookup = abbrev ( @CLIST ) ;
 
@@ -340,6 +359,59 @@ sub shift_arg {
       &missing_arg(@CLIST)  ;
    }
 }
+
+# parse a line, this is called EVERYTIME we press <cr> so we can
+# do things like print the prompt
+# we abstract this to keep it in one place
+#
+sub rd_line {
+
+    # we're passed :
+    #  the subroutine to call
+    #  the subroutine arguments
+    #
+    #  if we are eating more of the args, we append to savehistory...
+
+    my ($command) = @_ ;
+
+    &debug (4,"rd_line b: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
+    &debug (4,"           p_args[@P_ARGS] words[@WORDS]");
+
+    # call the command (and any prev args...)
+    &$command(@P_ARGS,@WORDS);
+
+    #
+    &debug (4,"rd_line a: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
+    &debug (4,"           p_args[@P_ARGS] words[@WORDS]");
+
+
+}
+
+sub walk_tree {
+   my ( %commands ) = @_ ;
+
+   foreach my $cmd ( sort keys %commands ) {
+      my $call = $commands{$cmd};
+
+      &debug(1,"arg : $cmd => ($call) [@LIST_BRANCH] [$cmd]");
+
+      # a few sanity checks
+      if ( $cmd eq "" ) { $cmd = "<zone>" ; }
+      if ( $cmd eq "set" ) { next ; }
+      if ( $cmd eq "remove" ) { next ; }
+
+      push ( @LIST_BRANCH , $cmd ) ;
+
+      if ( $call =~ /commands/ ) {
+         &$call("foo","foo");
+      }
+
+      if ( @LIST_BRANCH ) { print "@LIST_BRANCH\n"; }
+
+      pop @LIST_BRANCH ;
+   }
+}
+
 
 # PARSER : show xxx
 sub show_commands {
@@ -409,7 +481,7 @@ sub zone_commands {
                 "add" => 'add_zone',
                 "delete" => 'remove_zone',
                 "remove" => 'remove_zone',
-                "" => 'mod_zone',
+                "" => 'mod_zone_commands',
         ) ;
    &shift_arg($arg,%commands);
 }
@@ -422,27 +494,27 @@ sub network_commands {
                 "add" => 'add_network',
                 "delete" => 'remove_network',
                 "remove" => 'remove_network',
-                "" => 'mod_network',
+                "" => 'mod_network_commands',
         ) ;
    &shift_arg($arg,%commands);
 }
 
 # PARSER : set network <n.n.n.n/mm> xxx
-sub mod_network {
+sub mod_network_commands {
    &debug (4,"sub = mod_net ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
                 "split" => 'split_network',
-                "add" => 'add_to_network',
-                "remove" => 'delete_from_network',
-                "delete" => 'delete_from_network',
+                "add" => 'add_to_network_commands',
+                "remove" => 'delete_from_network_commands',
+                "delete" => 'delete_from_network_commands',
         ) ;
    &shift_arg($arg,%commands);
 }
 
 # PARSER : set network <n.n.n.n/mm> add xxx
-sub add_to_network {
+sub add_to_network_commands {
    &debug (4,"sub = add_to_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
@@ -456,7 +528,7 @@ sub add_to_network {
 }
 
 # PARSER : set network <n.n.n.n/mm> delete xxx
-sub delete_from_network {
+sub delete_from_network_commands {
    &debug (4,"sub = delete_from_network ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
@@ -469,14 +541,14 @@ sub delete_from_network {
 }
 
 # PARSER : set zone <zone> xxx
-sub mod_zone {
+sub mod_zone_commands {
    &debug (4,"sub = mod_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
    my %commands = ( 
-                "add" => 'add_to_zone',
-                "delete" => 'remove_from_zone',
-                "remove" => 'remove_from_zone',
+                "add" => 'add_to_zone_commands',
+                "delete" => 'remove_from_zone_commands',
+                "remove" => 'remove_from_zone_commands',
                 "import" => 'import_to_zone',
         ) ;
    &shift_arg($arg,%commands);
@@ -484,7 +556,7 @@ sub mod_zone {
 }
 
 # PARSER : set zone <zone> add xxx
-sub add_to_zone {
+sub add_to_zone_commands {
    &debug (4,"sub = add_to_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
@@ -499,7 +571,7 @@ sub add_to_zone {
 }
 
 # PARSER : set zone <zone> remove xxx
-sub remove_from_zone {
+sub remove_from_zone_commands {
    &debug (4,"sub = remove_from_zone ($SAVE_HIST)(@P_ARGS)(@WORDS)");
 
    my $arg  = shift @WORDS ;
@@ -1040,33 +1112,6 @@ sub del_dhcprange {
 ###########################################3
 #
 
-# parse a line, this is called EVERYTIME we press <cr> so we can
-# do things like print the prompt
-# we abstract this to keep it in one place
-#
-sub rd_line {
-
-    # we're passed :
-    #  the subroutine to call
-    #  the subroutine arguments
-    #
-    #  if we are eating more of the args, we append to savehistory...
-
-    my ($command) = @_ ;
-
-    &debug (4,"rd_line b: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
-    &debug (4,"           p_args[@P_ARGS] words[@WORDS]");
-
-    # call the command (and any prev args...)
-    &$command(@P_ARGS,@WORDS);
-
-    #
-    &debug (4,"rd_line a: c[$command] h[$SAVE_HIST] , go_c [$GOOD_COMMAND]");
-    &debug (4,"           p_args[@P_ARGS] words[@WORDS]");
-
-
-}
-
 sub missing_arg {
     &debug(4,"MISS ARG call");
     if ( $CLI ) {
@@ -1388,6 +1433,7 @@ sub script_header {
 # AUTOGENERATED from $NAME 
 #
 use InfoBloxDNS ;
+
 ib_open_connection(\$SERVER_IP,\$SERVER_PASS);
 
 \n";
@@ -1461,6 +1507,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 1.13  2004/02/13 20:11:21  horne
+# added the command lister
+#
 # Revision 1.12  2003/11/26 01:29:09  horne
 # *** empty log message ***
 #
