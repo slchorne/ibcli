@@ -53,10 +53,10 @@
 use FindBin qw($Bin $Script);
 my ($BASE,$NAME)=($Bin,$Script) ;
 
-#   $Id: ibcli,v 2.6 2005/03/05 19:27:15 horne Exp $
+#   $Id: ibcli,v 2.7 2005/03/22 01:01:18 horne Exp $
 my $REV = "\n$BASE/$NAME" . '
-$Revision: 2.6 $
-$Date: 2005/03/05 19:27:15 $
+$Revision: 2.7 $
+$Date: 2005/03/22 01:01:18 $
 ';
 $REV =~ s/\$//g;
 
@@ -75,7 +75,7 @@ use Text::Abbrev ;
 # this is done at compile time so we need to use a method...
 use lib "$FindBin::Bin";
 
-use Infoblox::InfobloxDNS;
+# use Infoblox::InfobloxDNS;
 use Infoblox::RADIUSOne ;
 use Infoblox;
 use MIGRATION;
@@ -210,7 +210,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 2.6 $
+$Revision: 2.7 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1759,9 +1759,9 @@ TBD
 
 Add a network with members
 
-   conf network add 1.1.1.0/24 members 1.1.1.2,1.1.1.3,1.1.1.4
+   conf network add 1.1.1.0/24 member 1.1.1.2 mem 1.1.1.3 mem 1.1.1.4
 
-Add a network with comments
+Add a network with comments (comments must come last)
 
    conf network add 1.1.1.0/24 comment "comment string"
 
@@ -1773,7 +1773,7 @@ the parent network. All other options are the same as for adding networks
 =cut
 
 sub add_sub_network {
-    my ( $network , $subnet ) = @_ ;
+    my ( $network , $subnet , @type_opts ) = @_ ;
     if ( ! $subnet ) { &missing_arg("<n.n.n.n/mm>") ; return }
 
     &debug (2,"addsn pn($network) n($subnet)");
@@ -1781,6 +1781,66 @@ sub add_sub_network {
     my %opthash ;
     $opthash{'network'}=$subnet;
     $opthash{'network_container'}=$network;
+
+    # set the list of acceptable options
+    my @opts = ( "member" , "comment" , "option" );
+    my %optlist = abbrev ( @opts ) ;
+
+    # build the rest as name value pairs
+    while ( my $type = shift @type_opts ) {
+       my $value = shift @type_opts ;
+       my $etype = $optlist{ lc($type) } ;
+
+       &debug (3,"addnet t($type) et($etype) v($value) oo(@type_opts)");
+
+       if ( ! $etype || ! $value ) { 
+          &missing_arg(@opts );
+          return ;
+       }
+
+       # check for custom options ?
+       if ( $etype eq "comment" ) {
+          # comments need a special handler
+          ( $value , @type_opts ) = &get_comment ( $value , @type_opts) ;
+       }
+
+       if ( $etype eq "option" ) {
+          # set some custom options;
+          # split on the FIRST '='
+          my ( $opt , $val ) = $value =~  /^(.*?)=(.*)/ ;
+
+          &debug (3,"addrng o($opt) v($val) oo(@type_opts)");
+
+          my ($key,$item)=make_dhcp_option($DEBUG,$opt,$val) ;
+
+          # add a custom option to the hash
+          if ( $key =~ /^Option / ) {
+                 push @{ $opthash{'custom_options'} } , $item ;
+          }
+          # general options are returned as the full object
+          elsif ( $key ) {
+                 $opthash{$key}=$item ;
+          }
+
+       }
+       # multiple members
+       elsif ( $etype eq "member" ) {
+          &debug (3,"addrng mem($value) oo(@type_opts)");
+
+          push @{ $opthash{"members"} } , {( "member" , $value )};
+       }
+
+       else {
+          # just set the hash
+          $opthash{$etype}=$value;
+       }
+
+    }
+
+    # add to the default member, if required
+    if ( ! $opthash{'members'} ) {
+       push @{ $opthash{"members"} } , {( "member" , $S_ID )};
+    }
 
     my @function=("add_subnetwork",%opthash);
     &do_pub_func(@function);
@@ -1809,7 +1869,7 @@ sub cli_add_network {
        my $value = shift @type_opts ;
        my $etype = $optlist{ lc($type) } ;
 
-       &debug (3,"addrng t($type) et($etype) v($value) oo(@type_opts)");
+       &debug (3,"addnet t($type) et($etype) v($value) oo(@type_opts)");
 
        if ( ! $etype || ! $value ) { 
           &missing_arg(@opts );
@@ -1817,6 +1877,11 @@ sub cli_add_network {
        }
 
        # check for custom options ?
+       if ( $etype eq "comment" ) {
+          # comments need a special handler
+          ( $value , @type_opts ) = &get_comment ( $value , @type_opts) ;
+       }
+
        if ( $etype eq "option" ) {
           # set some custom options;
           # split on the FIRST '='
@@ -2090,11 +2155,15 @@ sub cli_add_dhcp_range {
           return ;
        }
 
+       # comments need a special handler
+       if ( $etype eq "comment" ) {
+          ( $value , @type_opts ) = &get_comment ( $value , @type_opts) ;
+       }
+
        # check for custom options ?
        if ( $etype eq "option" ) {
           # set some custom options;
           # split on the FIRST '='
-#           my ( $opt , $val ) = split ( /=/ , $value ) ;
           my ( $opt , $val ) = $value =~  /^(.*?)=(.*)/ ;
 
           &debug (3,"addrng o($opt) v($val) oo(@type_opts)");
@@ -3470,6 +3539,40 @@ sub rename_custom_option {
 
 }
 
+sub get_comment {
+    # strip a comment string out of an array.
+    # comments look like this 
+    #   "this is a comment"
+    #
+    # but in the array, it will look likt this
+    #  ( "this , is , a , comment" )
+    #
+    #  so we have to aggressively look ahead and massage
+    # options array
+
+    # input an array , return ( value , array )
+
+    my ( $val , @opts ) = @_ ;
+
+    &debug (3,"getcomm v($val) oo(@opts)");
+    if ( $val =~ /^"/ ) {
+       # slurp the rest of the line ,  or quotes
+       while ( my $tval = shift @opts ) {
+          # append it
+          $val .= " $tval" ;
+          &debug (3,"getcomm v($val) oo(@opts)");
+
+          # exit at the next quote
+          last if $tval =~ /"$/ ;
+       }
+       $val =~ s/"//g;
+
+    }
+
+    return ( $val , @opts ) ;
+
+}
+
 
 sub cidrfind {
     # match up netmasks to cidr syntax
@@ -3620,6 +3723,9 @@ sub debug {
 ###########################################################
 
 # $Log: ibcli,v $
+# Revision 2.7  2005/03/22 01:01:18  horne
+# *** empty log message ***
+#
 # Revision 2.6  2005/03/05 19:27:15  horne
 # added support for custom options
 #
