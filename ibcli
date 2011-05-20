@@ -1,0 +1,428 @@
+#!/usr/bin/perl
+#
+# (c) Copyright: Geoff horne, SLC 2001
+#               All rights reserved
+#
+# THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS `AS IS' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE. So there...
+#
+# THIS TICKET IS SOLD SUBJECT TO THE SELLERS CONDITIONS OF SALE OF COPY
+# WHICH IS AVAILABLE FOR INSPECTION AT TIME OF PURCHASE AND/OR CONDITIONS
+# OF THIS TICKET AND ALSO (TO THE EXTENT THAT THEY ARE NOT INCONSISTENt
+# WITH THE SELLERS CONDITIONS OF SALE) THE FOLLOWING:
+# 
+# 1: A CHANGE IN CONDITIONS OF THE PURCHASER DOES NOT ENTITLE THE PURCHASER
+#    TO RETURN OR EXCHANGE TICKET.
+# 
+# 2: THE SELLER RESERVES THE RIGHT TO:
+#    - ADD, WITHDRAW OR SUBSTITUTE ARTISTS
+#    - VARY ADVERTISED PROBRAMMES, SEATING ARRANGEMENT AND AUDIENCE
+#      CAPACITY , AND:
+#    - REFUSE ADMISSION WITH REASONABLE CAUSE
+#
+# 3: CAMERAS AND TAPE RECORDERS MAY NOT BE PERMITTED. LATE ARRIVALS MAY
+#    RESULT IN NON-ADMITTANCE UNTIL A SUITABLE BREAK IN PERFORMANCE. THE
+#    SELLER REQUESTS THAT ALL PAGERS AND MOBILE PHONES BE TURNED OFF BEFORE
+#    ENTRY.
+#
+# 4: IF AN OUTDOOR PERFORMANCE IS CANCELLED DUE TO ADVERSE WEATHER OR ANy
+#    OTHER CAUSE REASONABLY BEYOND THE SELLERS CONTROL, THERE IS NO RIGHT 
+#    TO A REFUND OR EXCHANGE, AND THE SELLER IS NOT OBLIGED TO ARRANGE A 
+#    SUBSTITUTE SERVICE, EVENT OR PERFORMANCE
+#
+# StreetLevel Communications
+#
+#			support@slc.com.au
+#			ph: +1-650-483-0998
+#
+###############################################################################
+
+
+# $Id: ibcli,v 1.1 2003/08/11 23:31:57 horne Exp $
+# $Revision: 1.1 $
+# $Date: 2003/08/11 23:31:57 $
+#
+# $Log: ibcli,v $
+# Revision 1.1  2003/08/11 23:31:57  horne
+# *** empty log message ***
+#
+# Revision 1.9  2001/06/07 16:45:47  horne
+# major rewrite of the arg parser - ripped out all the RE's to a much better
+# process.
+# delete commands disabled
+#
+# Revision 1.8  2001/05/31 05:28:15  horne
+# *** empty log message ***
+#
+# Revision 1.7  2001/05/24 00:17:54  horne
+# Added RE's to handle shortened commant words, not however that this is
+# still buggy, typos, as long as they are unique will still work. thus
+#  - password, p , pa , ps , pdfgt = password
+# I need to find a better command parser
+#
+# Revision 1.6  2001/05/23 19:39:11  horne
+# working version - waiting for updates from infoblox to see if they have
+# changed the API syntax
+#
+# Revision 1.5  2001/05/19 06:08:13  horne
+# iblox ready version, but no connections to servers work
+#
+# Revision 1.4  2001/05/19 04:59:19  horne
+# All base commands are being parsed and netmasks are being applied.
+# Now we need to hit the infoblox engine for real
+#
+# Revision 1.3  2001/05/19 03:43:45  horne
+# added the DEBUG option before i started to drown in a lot of messy print
+# statements
+#
+# Revision 1.2  2001/05/19 03:34:34  horne
+# Basic version, config file parsing is functional.
+#
+# Revision 1.1  2001/05/19 03:33:56  horne
+# *** empty log message ***
+#
+
+# Perl CGI common chunks
+#
+use strict ;
+
+# include infoblox
+use InfoBloxDNS ;
+
+#### work out where i am
+# these 3 varables can then be used to find config files
+# and keep the code portable
+
+use FindBin qw($Bin $Script);
+my ($BASE,$NAME)=($Bin,$Script) ;
+
+######################
+#
+# define some globals
+#
+my $DEBUG = 0 ;
+my $server_id ;
+my $server_pass ;
+my $connected ;
+my $no_command ;
+my @history ;
+
+#
+#####################
+
+# read the lines
+# the datastructure is kinda nested, but the command set is still small
+# enough to avoid some sort of lexical overhead subroutine
+
+## NOTE - to make a better CLI version we should have a wrapper loop that
+#  checks if you are coming in as a file or STD in. The primary loop in
+#  either case should pass to the actual arg parser
+
+while (<>) {
+   # strip blanks, comments etc
+   next if /^\s*#/ ;
+   next if /^\s*$/ ;
+   $no_command = 1;
+
+   chomp ;
+   # now break the commandline into components
+   my ($command,@words) = split /\s+/ ;
+
+   #    &debug(1,"words : [$command] @words");
+
+   # you know, a case statement would work well here...
+   
+      # DEBUG
+   if ($command =~ /^DEB\w*/i)  { $DEBUG = $words[0]   ; &addhistory($_) }
+      # SERVER
+   if ($command =~ /^SE\w*/i)   { &add_server(@words)  ; &addhistory($_) }
+      # password
+   if ($command =~ /^P\w*/i)    { &add_pass(@words)    ; &addhistory($_) }
+      # commit
+   if ($command =~ /^CO\w*/i)  { &commit          ; &addhistory($_) }
+
+      # split
+   if ($command =~ /^SP\w*/i) {
+      my $command = shift @words ;
+      # network
+      if ($command =~ /^N\w*/i) { &split_net(@words)  ; &addhistory($_) }
+   }
+
+   # add
+   if ($command =~ /^A\w*/i) {
+      &debug(1,"[$command]=add");
+	  my $command = shift @words ;
+      # zone
+      if ($command =~ /^Z\w*/i)   { &add_zone(@words)   ; &addhistory($_) }
+      # network
+      if ($command =~ /^N\w*/i)   { &add_net(@words)    ; &addhistory($_) }
+      # subnet
+      if ($command =~ /^S\w*/i)   { &add_sub(@words)    ; &addhistory($_) }
+      # host
+      if ($command =~ /^H\w/i)    { &add_host(@words)   ; &addhistory($_) }
+   }
+
+   # delete
+   if ($command =~ /^DEL\w*/i) {
+	  my $command = shift @words ;
+      # network
+      if ($command =~ /^N\w*/i)  { &remove_net(@words)   ; &addhistory($_) }
+      # host
+      if ($command =~ /^H\w*/i)  { &remove_host(@words)  ; &addhistory($_) }
+      # zone
+      if ($command =~ /^Z\w*/i)  { &remove_zone(@words)  ; &addhistory($_) }
+   }
+
+
+   if ( $no_command ) {
+      print "UNRECOGNISED :: $_\n";
+   }
+
+}
+
+# just in case
+if ( $connected ) { &disconnect } ;
+
+##########################################################
+#
+# An important thing to note :
+#
+# what happens if you issue commands and you do NOT have a connection in
+# place yet ? do we rely on the infoblox module to generate errors or
+# should we assume the worst ? we don't want to re-invent the wheel
+# here...
+#
+#
+
+
+# show the history:
+# &show_history ;
+
+###########################################3
+
+sub addhistory {
+    my ($line) = @_ ;
+
+	#cleanup spacing
+	$line =~ s/^\s*//;
+	$line =~ s/\s+/ /g;
+	$line =~ tr/A-Z/a-z/;
+
+	push @history , $line ;
+
+	# we history all GOOD commands
+    # flag that this command is kosjer
+    $no_command = 0 ;
+}
+
+sub show_history {
+    my $lineno = 1 ;
+
+	# walk through the history array and print what we input
+	print "\n-- COMMAND HISTORY --\n";
+    foreach my $command ( @history ) {
+	   print "-- $lineno\t$command\n";
+	   $lineno ++ ;
+    }
+	print "\n";
+
+}
+
+sub split_net {
+    # this one assumes there is a parent
+	# and thus requires some funky netmasking
+	# so it takes more args , newmask
+
+#     my ($net,$cidr) = split(/\//,$_[0] );
+    my ($oldnet,$ncidr) = @_ ;
+    my ($net,$cidr) = split(/\//,$oldnet );
+    $ncidr =~ s/\/// ;
+	my $mask = &cidrfind($cidr) ;
+	my $bitshift = $ncidr - $cidr ;
+	&debug (2,"split net [$net] [$cidr] [$ncidr] ($bitshift)\n");
+
+    &debug (1,"splitting network [$net , $mask] to add [$bitshift] bits");
+
+	# ib_split_network("10.0.0.0", "255.255.0.0", 8);
+	ib_split_network("$net", "$mask", "$bitshift");
+}
+
+sub remove_net {
+    # the split is done here in case we want to change the syntax
+    my ($net,$cidr) = split(/\//,$_[0] );
+	my $mask = &cidrfind($cidr) ;
+    &debug (1,"removing network [$net] mask: [$mask]");
+
+	ib_remove_network("$net","$mask");
+}
+
+sub add_net {
+    # the split is done here in case we want to change the syntax
+    my ($net,$cidr) = split(/\//,$_[0] );
+    &debug (2,"adding network [$net] cidr: [$cidr]");
+
+	my $mask = &cidrfind($cidr) ;
+    &debug (1,"adding network [$net] mask: [$mask]");
+	# add net now requires a bogus parent
+	# not that this will add it at the root level. you need to
+	# use add subnet for anything else
+	ib_insert_network("$net","$mask","0.0.0.0","0.0.0.0");
+}
+
+sub add_sub {
+    # add a subnet to a parent network ;
+#     my ($net,$cidr) = split(/\//,$_[0] );
+    my ($net,$cidr,$parent,$pcidr) = $_[0] =~ /(\S+)\/(\d+)\s+(\S+)\/(\d+)/ ;
+    &debug (2,"adding subnet [$net] cidr: [$cidr]");
+    &debug (2,"  to parent subnet [$parent] cidr: [$pcidr]");
+
+	my $mask = &cidrfind($cidr) ;
+	my $pmask = &cidrfind($pcidr) ;
+    &debug (1,"NOOP adding subnet [$net, $mask] to: [$parent, $pmask]");
+
+	ib_insert_network("$net","$mask","$parent","$pmask");
+}
+
+sub add_host {
+    my ($name,$ip) = @_ ;
+    &debug (1,"adding host [$name] [$ip]");
+	ib_insert_host("$name","$ip");
+}
+
+sub remove_host {
+    my ($name) = @_ ;
+    &debug (1,"remove host [$name]");
+	ib_remove_host("$name");
+}
+
+sub add_zone {
+    # zones can be authoritative or not, we look to see
+	# if the command has the 'auth' keyword after it
+    my $isauth = "false" ;
+    my ($zone,$auth) = @_ ;
+	if ( $auth =~ /^aut/ ) { $isauth = "true" }
+
+    &debug (1,"adding zone [$zone] [$isauth]");
+ 	ib_insert_zone("$zone","$isauth");
+}
+sub remove_zone {
+    my ($zone) = @_ ;
+    &debug (1,"removing zone [$zone]");
+    ib_remove_zone("$zone");
+}
+
+
+sub add_server {
+    my ($arg) = @_ ;
+    # save the server id and see if we have enough info to connect
+    &debug (2,"adding server [$arg]");
+	$server_id = $arg ;
+	&connect ;
+}
+
+sub add_pass {
+    my ($arg) = @_ ;
+    # save the server password and see if we have enough info to connect
+    &debug (2,"adding passwd [$arg]");
+	$server_pass = $arg ;
+	&connect ;
+}
+
+sub connect {
+    # make a connection
+	# unless we have both server and password die
+	if ( $server_id && $server_pass ) {
+       &debug (1,"connecting to server [$server_id] [$server_pass]");
+
+       print "SERVER :: connecting \n";
+# 	   ib_open_connection($server_id,$server_pass) ;
+
+       my $ibc='ib_open_connection($server_id,$server_pass)';
+	   &debug (3,"ibc [$ibc]");
+	   eval $ibc ;
+
+	   $connected = 1 ;
+    }
+	else {
+	   &debug (3,"NOOP - incomplete details for server connection");
+    }
+
+}
+
+sub disconnect {
+    if ( $connected ) {
+       &commit ;
+       print "SERVER :: disconnecting \n";
+	   ib_close_connection();
+	   $connected = 0 ;
+	}
+	else {
+	   print "CANNOT COMMIT - no connection is in place\n";
+	}
+
+}
+
+sub commit {
+	&debug (1,"comitting changes");
+	print "Saving Changes .. ";
+    ib_update_server();
+	print "DONE.\n";
+}
+
+############################################3
+
+sub cidrfind {
+    # match up netmasks to cidr syntax
+    my ($cidr) = @_ ;
+	my %mlook = (
+	   8 =>  '255.0.0.0' ,
+	   9 =>  '255.128.0.0' ,
+	   10 => '255.192.0.0' ,
+	   11 => '255.224.0.0' ,
+	   12 => '255.240.0.0' ,
+	   13 => '255.248.0.0' ,
+	   14 => '255.252.0.0' ,
+	   15 => '255.254.0.0' ,
+	   16 => '255.255.0.0' ,
+	   17 => '255.255.128.0' ,
+	   18 => '255.255.192.0' ,
+	   19 => '255.255.224.0' ,
+	   20 => '255.255.240.0' ,
+	   21 => '255.255.248.0' ,
+	   22 => '255.255.252.0' ,
+	   23 => '255.255.254.0' ,
+	   24 => '255.255.255.0' ,
+	   25 => '255.255.255.128' ,
+	   26 => '255.255.255.192' ,
+	   27 => '255.255.255.224' ,
+	   28 => '255.255.255.240' ,
+	   29 => '255.255.255.248' ,
+	   30 => '255.255.255.252' ,
+    ) ;
+
+	&debug(2,"CIDR is [$cidr]");
+	&debug(2,"MASK is [$mlook{$cidr}]");
+
+	return($mlook{$cidr}) ;
+}
+
+sub debug {
+    # we're passed a message and a level
+	# if this level is <= the CURRENT DEBUG level 
+	# we print the data
+    my $level = shift @_ ;
+    if ($level <= $DEBUG) {
+           print "DEBUG : @_\n";
+    }
+
+}
+
