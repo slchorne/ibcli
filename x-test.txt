@@ -1,6 +1,8 @@
 This is a test file
-my $ID  = q$Id:$
-my $REV = q$Revision:$
-# $Date: 2010/06/11 17:49:08 $
+my $ID  = q$Id$
+my $REV = q$Revision$
+# $Date$
 
 some more text
+
+and
