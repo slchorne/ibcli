@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.27 2007/06/07 19:31:47 horne Exp $ ;
-my $REV = q$Revision: 3.27 $;
-# $Date: 2007/06/07 19:31:47 $
+my $ID  = q$Id: ibcli,v 3.28 2008/01/02 23:17:04 horne Exp $ ;
+my $REV = q$Revision: 3.28 $;
+# $Date: 2008/01/02 23:17:04 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2007
@@ -335,7 +335,7 @@ print "
 #####################################################################
 # perldoc goes here
 
-=head1 NAME
+=head1 Ibcli
 
 The INFOBLOX CLI, a users guide
 
@@ -346,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.27 $.
+$Revision: 3.28 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -354,6 +354,14 @@ So why do this, what is this CLI for ? Well there were a few primary
 reasons:
 
 =over
+
+The Ibcli is a simple command line tool that lets you do some (mostly) powerful things. It
+leverages the Infoblox api but provides a wrapper to the more complex (and detailed) API calls that
+uses more simple command line type calls.
+
+I also lets you create batch scripts that can configure an Infoblox SDB with actually writing any
+perl.
+
 
 =item Quick changes are now easy,
 
@@ -1504,12 +1512,14 @@ sub cli_add_zone {
     } # not a forward ?
 
     # do we add it to a view ?
-    my @view_objs ;
-    foreach my $vname ( @views ) {
-        my $view = Infoblox::DNS::View->new ( "name" => $vname );
-        push @view_objs , $view ;
+    if ( @views ) {
+        my @view_objs ;
+        foreach my $vname ( @views ) {
+            my $view = Infoblox::DNS::View->new ( "name" => $vname );
+            push @view_objs , $view ;
+        }
+        $obj->views ( \@view_objs ) ;
     }
-    $obj->views ( \@view_objs ) ;
 
     # email
     if ( $email ) {
@@ -1586,6 +1596,10 @@ mac address with ':<mac>' to the ipaddress
 
    conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03,1.2.3.5
 
+Add hosts with aliases (CNAMES)
+
+   conf zone foo.com add host test 1.2.3.4 alias www alias ftp
+
 Adding hosts with IPAM information ( quotes may be required )
 You add multiple fields with additional 'info <name=value>' pairs
 
@@ -1609,6 +1623,7 @@ sub cli_add_host {
     my ( $disable ) = $line =~/add host \S+.* \b(disabled)\b/ ;
     my ( $ttl )     = $line =~/ttl (\d+)/ ;
 
+    my @settings  = $line =~/ set (\S+)/g ;
     my @aliases  = $line =~/ alias (\S+)/g ;
     my @ipam  = $line =~/ info (\S+)/g ;
 
@@ -1672,6 +1687,23 @@ sub cli_add_host {
                         "ipv4addr" => $fip ,
                         "mac" => $mac ,
                         );
+
+            # add setting to the fixed addr
+            if ( @settings ) {
+
+                foreach my $setval ( @settings ) {
+                    # set some custom options;
+                    # split on the ','
+                    my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+   
+                    &debug_cli(2,"addhfix s($set) v($val)");
+   
+                    # and set this on the object
+                    $fobj->$set ( $val ) ;
+                }
+
+            }
+
             # add the ip to the list
             push @iplist , $fobj ;
         }
@@ -2168,7 +2200,7 @@ Add a network witwith a reverse zone
 
 Add a network with members
 
-   conf network add 1.1.1.0/24 member 10.1.1.20,10.1.1.40
+   conf network add 1.1.1.0/24 member 10.1.1.20 member 10.1.1.40
 
 Add a network with options
 
@@ -2637,7 +2669,7 @@ sub cli_split_network {
 
 }
 
-=head2
+=head2 Adding network to parents
 
 When you split a network and want to add children you just add them to
 the parent network. All other options are the same as for adding networks
@@ -2758,13 +2790,12 @@ sub cli_add_fixed_address {
     # settings - these are additional fields that the API supports
     if ( @settings ) {
 
-       my @set_list ;
        foreach my $setval ( @settings ) {
           # set some custom options;
           # split on the ','
           my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
    
-          &debug_cli(2,"addnet s($set) v($val)");
+          &debug_cli(2,"addfix s($set) v($val)");
    
           # and set this on the object
           $obj->$set ( $val ) ;
@@ -2907,7 +2938,7 @@ sub cli_add_dhcp_range {
 
        my @exc_list ;
        foreach my $excval ( @exclude ) {
-          # set some custom options;
+          # set some exclusions;
           # split on the ','
           my ( $efip , $elip ) = $excval =~  /^(.*?),(.*)/ ;
    
@@ -3115,6 +3146,110 @@ sub cli_del_macfilteraddr {
 
 }
 
+# Radius functions
+
+=head1 RADIUS Configuration
+
+=head2 Adding Radius users
+
+   configure radius add user bob password changeme
+
+=cut
+
+sub cli_add_radius_user {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ user (\S+)/ ;
+    my ( $pass ) = $line =~/ password (\S+)/ ;
+
+    my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+    # de-urlencode the name string
+    $comment = &decode_comment ( $comment ) ;
+
+    &debug_cli (1,"addRuser n($name) p($pass) c($comment)");
+
+    my $obj = Infoblox::RADIUS::User->new (
+                   "name" => $name ,
+                   "password" => $pass ,
+                   "comment" => $comment ,
+                );
+
+    &do_func("add",$obj);
+
+}
+
+=head2 Deleting Radius users
+
+   configure radius del user bob
+
+=cut
+
+sub cli_del_radius_user {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ user (\S+)/ ;
+
+    &debug_cli (1,"delRuser n($name)");
+
+    my $obj = Infoblox::RADIUS::User->new (
+                   "name" => $name ,
+                );
+
+    &do_func("remove",$obj);
+
+}
+
+=head2 Showing Radius users
+
+   show radius user bob
+
+=cut
+
+sub cli_show_radius_user {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ user (\S+)/ ;
+
+    &debug_cli(2,"showu n($name)");
+
+    my @users ;
+    if ( $name ) {
+        # get the user 
+        my %opthash = (
+            "object" => "Infoblox::RADIUS::User", 
+            "name" => $name
+        );
+        @users = &do_func("get", %opthash );
+    }
+    else {
+        # get ALL users
+        # get the user 
+        my %opthash = (
+            "object" => "Infoblox::RADIUS::User", 
+            "name" => ".*",
+        );
+        @users = &do_func("search", %opthash );
+    }
+
+    &dump_object ( @users ) ;
+
+}
+
+=head2 Adding Radius devices
+
+   configure radius add device
+
+=cut
+
+sub cli_add_radius_device {
+#     Infoblox::RADIUS::NAS
+}
+sub cli_show_radius_device {
+}
+
 # admins and users
 
 =head1 Grid Configuration
@@ -3209,6 +3344,7 @@ Modify some basic grid values
    configure grid Infoblox modify vpn_port 1194
    configure grid Infoblox modify shared_secret test
    configure grid Infoblox modify session_timeout 14400
+   configure grid Infoblox modify prefer_resolver 127.0.0.1
 
 Add ntp servers ( and enable NTP at the same time )
 
@@ -3228,6 +3364,7 @@ sub cli_mod_grid {
     ( my $gridname)  = $line =~/configure grid (\S+)/ ;
 
     ( my $timeout)  = $line =~/session_timeout (\S+)/ ;
+    ( my $resolver)  = $line =~/resolver (\S+)/ ;
     ( my $vpn_port)  = $line =~/vpn_port (\S+)/ ;
     ( my $secret)  = $line =~/shared_secret (\S+)/ ;
     ( my $newname)  = $line =~/grid_name (\S+)/ ;
@@ -3262,7 +3399,8 @@ sub cli_mod_grid {
     # make some changes, if we have a grid
     if ( $grid ) {
 
-        if ( $timeout ) { $grid->session_timeout ( $timeout ) }
+        if ( $timeout ) { $grid->prefer_resolver ( $resolver ) }
+        if ( $resolver ) { $grid->session_timeout ( $timeout ) }
         if ( $secret ) { $grid->secret ( $secret ) }
         if ( $vpn_port ) { $grid->vpn_port ( $vpn_port ) }
         if ( $newname ) { $grid->name ( $newname ) }
@@ -3463,19 +3601,19 @@ DNS ACLs
 
 =head2 add global DHCP settings
 
-   conf grid <name> add dhcp option lease-time=3600
+   conf grid <name> add network option lease-time=3600
 
-Custom optons
+Custom options
 
-   conf grid <name> add dhcp option 82="opt 82 string" 
+   conf grid <name> add network option 82="opt 82 string" 
 
 Set the type for a custom option
    
-   conf grid <name> add dhcp typeoption 82=IPADDRESS
+   conf grid <name> add definition 82=IPADDRESS
 
 Remove a custom option
 
-   conf grid <name> delete dhcp option 82
+   conf grid <name> delete network option 82
 
 =cut
 
@@ -3526,6 +3664,31 @@ sub cli_add_grid_dhcp {
 =cut
 
 sub cli_del_global_dhcp {
+}
+
+=head2 Show global custom options
+
+   show grid <name> dhcp
+
+=cut
+
+sub cli_show_grid_dhcp {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/show grid (\S+)/ ;
+
+    # get the grid
+    my %opthash = (
+          "object" => "Infoblox::Cluster::DHCP",
+          "cluster" => $gridname ,
+    );
+    my ( $grid ) = &do_func("get", %opthash );
+
+    if ( $grid ) {
+        &dump_object ( $grid ) ;
+    }
+
 }
 
 =head2 modify a network
@@ -3836,13 +3999,13 @@ sub cli_show_network {
         # sput a sumary list
 
         my @netlist ;
-        my $num = @nets + 1 ;
+        my $num = @nets ;
         foreach my $nobj (@nets) {
             my $name = $nobj->network();
             my $comm = $nobj->comment();
 
             $name = "$name ($comm)";
-
+            
             # get the membership as well
             foreach my $sobj ( @{ $nobj->{'members'} } ) {
                 my $sname = $sobj->{'name'};
@@ -4051,7 +4214,7 @@ sub cli_show_fixed {
 
     my %opthash = (
            "object" => "Infoblox::DHCP::FixedAddr", 
-           "ipv4addr" => ".*",
+#            "ipv4addr" => ".*",
     );
 
     if ( $net ) {
@@ -4072,6 +4235,7 @@ sub cli_show_fixed {
 
     # get what we need
     my @fixobjs = &do_func("search", %opthash );
+#     my @fixobjs = &do_func("get", %opthash );
 
     # dump the fixed or all the list
     if ( $fixed ) {
@@ -4103,7 +4267,11 @@ Show all macfilter lists
 
 Show the entries in a filter
 
-   show network filter my_filter
+   show network filter my_filter entries
+
+Show the details of a filter entry in a filter
+
+   show network filter my_filter mac aa:aa:aa:11:22:33
 
 =cut
 
@@ -4555,7 +4723,7 @@ sub cli_download_dhcp {
     # get the args from the line
     ( my $dest)  = $line =~/dhcp_conf (\S+)/ ;
     ( my $member)  = $line =~/member (\S+)/ ;
-    ( my $type)  = $line =~/(export_dhcp_conf)/ ;
+    ( my $type)  = $line =~/(expert_dhcp_conf)/ ;
 
 
     # set the defaults ;
@@ -4574,7 +4742,7 @@ sub cli_download_dhcp {
     }
 
     # pick the file type
-    if ( $type eq "export_dhcp_conf" ) {
+    if ( $type eq "expert_dhcp_conf" ) {
         $opthash{"type"} = "dhcp_expert_mode_config",
     }
     else {
@@ -4745,10 +4913,13 @@ To show the details of a path
 # debug state
 sub debug_file {
     # dump all types in the sdb
+    my $rec_count ;
     foreach my $type ( sort keys %SDB ) {
         my $count = @{ $SDB{$type} };
+        $rec_count += $count ;
         print "$count\t$type\n";
     }
+    print "$rec_count\t Total records in database\n";
 }
 
 sub debug_pwd {
@@ -5093,6 +5264,7 @@ sub dump_data {
         # ignore privates
         next if $key =~ /^__/;
         next if $key =~ /FUNCTION/;
+        next if $key =~ /RETURN_FIELDS/;
         next if ! $obj->{$key} ;
 
         my $data ;
@@ -5285,10 +5457,6 @@ sub dump_data {
 
 }
 
-# sub make_dhcp_option {
-#     print "  OPTIONS not supported\n";
-# }
-
 # DHCP functions
 sub make_dhcp_option {
     my ( $DEBUG, $opt , $val ) = @_ ;
@@ -5304,7 +5472,16 @@ sub make_dhcp_option {
     # we have to convert all options to both a name and a number
     # this will save us pain in the long run
 
+    # strip the vendor from the option name
+    my $class ;
+    if ( $opt =~ /(.*)\.(.*)/ ) {
+        $class = $1 ;
+        $opt = $2 ;
+        debug_cli(4,"mkdh: vendor class c($class) o($opt)");
+    }
+        
     my ( $onum , $oname ) = &get_custom_options ( $DEBUG , $opt ) ;
+
 
     debug_cli(4,"mkdh: took option o($opt) > ($onum)($oname)=($val)");
 
@@ -5334,12 +5511,13 @@ sub make_dhcp_option {
                  )
     }
     elsif ( $oname eq "domain-name" ) {
-        # conditional case for 4.1r2 options
+       # conditional case for 4.1r2 options
        $option = Infoblox::DHCP::Option->new (
                     "type" => "domain-name",
                     "name" => $val,
                  );
-        if ( $niosrev =~ /4.1r[3-9]/ ) {
+        if ( $niosrev =~ /4.1r[3-9]/ 
+             or $niosrev =~ /4.[2-9]/ ) {
             $option = Infoblox::DHCP::Option->new (
                     "name" => "domain-name",
                     "value" => $val,
@@ -5367,6 +5545,11 @@ sub make_dhcp_option {
                  )
     }
 
+    # lastly hack in the vendor class
+    if ( $class ) {
+        $option->vendor_class ( $class ) ;
+    }
+
     # return the object and the name of the object
     return ( $option , $oname ) ;
 
@@ -5383,6 +5566,7 @@ sub get_custom_options {
          "time-servers" => "Option   4: time-servers",
          "ien116-name-servers" => "Option   5: ien116-name-servers",
          "domain-name-servers" => "Option   6: domain-name-servers",
+         "nameservers" => "Option   6: domain-name-servers",
          "log-servers" => "Option   7: log-servers",
          "cookie-servers" => "Option   8: cookie-servers",
          "lpr-servers" => "Option   9: lpr-servers",
@@ -5988,7 +6172,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "time file server grid=<name> admin views lease zone host network range debug",  },
+           words => "time file server grid=<name> admin views lease zone host network range radius debug",  },
 
     'help' => { 
            words => "all",
@@ -6061,7 +6245,7 @@ my %COMMANDS = (
 # [x] show admins and groups
 
     'show grid <name>' => { 
-           words => "<cr> member",  
+           words => "<cr> dhcp member",  
            func => "cli_show_grid", },
 
     'show grid <name> member' => { 
@@ -6071,6 +6255,9 @@ my %COMMANDS = (
     'show grid <name> member <name>' => { 
 #            words => "<name>",  
            func => "cli_show_member", },
+
+    'show grid <name> dhcp' => { 
+           func => "cli_show_grid_dhcp", },
 
 # show admins
     'show admin' => { 
@@ -6111,11 +6298,14 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> <n.n.n.n/mm> failover fixed filter",  
+           words => "<cr> <n.n.n.n/mm> options failover fixed filter",  
            func => "cli_show_network", },
 
     'show network failover' => { 
            func => "cli_show_failover", },
+
+    'show network options' => { 
+           func => "cli_show_dhcp_options", },
 
     'show network <n.n.n.n/mm>' => { 
            words => "<cr> range fixed statistics",  
@@ -6177,17 +6367,17 @@ my %COMMANDS = (
 
 # uploads
     'upload' => { 
-           words => "export_dhcp_conf=<file>",  },
+           words => "expert_dhcp_conf=<file>",  },
 
-    'upload export_dhcp_conf <file>' => { 
+    'upload expert_dhcp_conf <file>' => { 
            words => "member=<ip>",
            func => "cli_upload_dhcp", },
-    'upload export_dhcp_conf <file> member <ip>' => { 
+    'upload expert_dhcp_conf <file> member <ip>' => { 
            func => "cli_upload_dhcp", },
 
 # downloads
     'download' => { 
-           words => "support_bundle=<file> merge_log=<file> export_dhcp_conf=<file> dhcp_conf=<file> database",  },
+           words => "support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
 
     'download database' => { 
            words => "<file>",  },
@@ -6208,7 +6398,7 @@ my %COMMANDS = (
            words => "member=<ip>|<cr>",
            func => "cli_download_dhcp", },
 
-    'download export_dhcp_conf <file>' => { 
+    'download expert_dhcp_conf <file>' => { 
            words => "member=<ip>|<cr>",
            func => "cli_download_dhcp", },
 
@@ -6222,7 +6412,7 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "admin debug file server zone network grid member" , },
+           words => "admin debug file server zone network radius grid member" , },
 
     'configure file' => { 
            words => "load=<file> path=<name>", },
@@ -6292,7 +6482,7 @@ my %COMMANDS = (
            func => "cli_mod_grid", },
 
     'configure grid <name> modify' => { 
-           words => "member grid_name=<name>|session_timeout=<value>|vpn_port=<value>|shared_secret=<value>",
+           words => "member grid_name=<name>|resolver=<ip>|session_timeout=<value>|vpn_port=<value>|shared_secret=<value>",
            func => "cli_mod_grid", },
 
     'configure grid <name> delete' => { 
@@ -6442,7 +6632,7 @@ my %COMMANDS = (
     'configure zone <zone> add host' => { 
            words => "<name>=<ip,ip>", },
     'configure zone <zone> add host <name> <ip,ip>' => { 
-           words => "<cr> view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
+           words => "<cr> view=<name>|set=<name=value>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled", 
            func => "cli_add_host", },
 
     'configure zone <zone> add a_record' => { 
@@ -6600,6 +6790,28 @@ my %COMMANDS = (
            words => "<cr> comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
+    # radius comm
+    'configure radius' => { 
+           words => "add delete",  },
+
+    'configure radius add' => { 
+           words => "user=<name> device=<ip>",  },
+    'configure radius add user <name>' => { 
+           words => "password=<name>|comment=<comment>",
+           func => "cli_add_radius_user", },
+
+    'configure radius delete' => { 
+           words => "user=<name>",  },
+    'configure radius delete user <name>' => { 
+           func => "cli_del_radius_user", },
+
+    'show radius' => { 
+           words => "user",  },
+    'show radius user' => { 
+           words => "<cr> <name>",
+           func => "cli_show_radius_user", },
+    'show radius user <name>' => { 
+           func => "cli_show_radius_user", },
    );
 
 # print Dumper ( \%COMMANDS ) ;
@@ -6672,6 +6884,14 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.28  2008/01/02 23:17:04  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: fixed doc bugs
+# fixed bugs for 4.2 API
+# added RADIUS commands
+# added some other random features
+#
 # Revision 3.27  2007/06/07 19:31:47  horne
 # BugId: 8205
 # Reviewer(s): Geoff
