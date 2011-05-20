@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 2.11 2005/08/14 23:13:11 horne Exp $ ;
-my $REV = q$Revision: 2.11 $;
-# $Date: 2005/08/14 23:13:11 $
+my $ID  = q$Id: ibcli,v 3.1 2005/08/14 23:14:23 horne Exp $ ;
+my $REV = q$Revision: 3.1 $;
+# $Date: 2005/08/14 23:14:23 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -2344,6 +2344,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.1  2005/08/14 23:14:23  horne
+# Bumped the rev#
+#
 # Revision 2.11  2005/08/14 23:13:11  horne
 # *** empty log message ***
 #
