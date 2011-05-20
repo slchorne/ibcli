@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.12 2006/07/30 23:37:21 horne Exp $ ;
-my $REV = q$Revision: 3.12 $;
-# $Date: 2006/07/30 23:37:21 $
+my $ID  = q$Id: ibcli,v 3.13 2006/08/06 19:08:40 milli Exp $ ;
+my $REV = q$Revision: 3.13 $;
+# $Date: 2006/08/06 19:08:40 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.12 $.
+$Revision: 3.13 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1595,6 +1595,10 @@ sub cli_del_mx {
 
    conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20
 
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 addreverse
+
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 view "foo"
+
    conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 comment "bah"
 
 =cut
@@ -1605,6 +1609,7 @@ sub cli_add_bulk {
     # get the args from the line
     my ( $zone )     = $line =~/zone (\S+)/ ;
     my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
+    my ( $addrev ) = $line =~/ addreverse/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
@@ -1617,9 +1622,12 @@ sub cli_add_bulk {
                    "prefix" => $prefix ,
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
+		   "reverse" => "FALSE"
     );
 
     if ( $comment ) { $obj->comment ( $comment ) }
+
+    if ( $addrev ) { $obj->reverse ( "TRUE" ) }
 
     # addit
     &do_func("add",$obj);
@@ -4422,9 +4430,14 @@ my %COMMANDS = (
     'configure zone <zone> add bulkhost <name> <ip>' => { 
            words => "<ip>", },
     'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
-           words => "<cr> comment=<comment>", 
-           func => "cli_del_bulk", },
+           words => "<cr> addreverse|comment=<comment>", 
+           func => "cli_add_bulk", },
+    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse'=> { 
+	   words => "<cr> comment=<comment>",
+           func => "cli_add_bulk", },
     'configure zone <zone> add bulkhost <name> <ip> <ip> comment <comment>'=> { 
+           func => "cli_add_bulk", },
+    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse comment <comment>'=> { 
            func => "cli_add_bulk", },
 
     'configure zone <zone> add cname' => { 
@@ -4604,6 +4617,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.13  2006/08/06 19:08:40  milli
+# BugId: 8205
+# Reviewer(s): milli
+# Description: conf zone add bulkhost .. ... addreverse
+#
 # Revision 3.12  2006/07/30 23:37:21  horne
 # BugId: 8205
 # Reviewer(s): Geoff
