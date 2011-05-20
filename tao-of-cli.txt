@@ -1,6 +1,6 @@
 = The Tao of the CLI =
 
-
+A document
 
 == How does a CLI work ? ==
 
