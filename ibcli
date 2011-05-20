@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.46 2010/03/22 02:32:45 horne Exp $ ;
-my $REV = q$Revision: 3.46 $;
-# $Date: 2010/03/22 02:32:45 $
+my $ID  = q$Id: ibcli,v 3.47 2010/06/11 00:08:50 horne Exp $ ;
+my $REV = q$Revision: 3.47 $;
+# $Date: 2010/06/11 00:08:50 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2009
@@ -406,7 +406,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.46 $.
+$Revision: 3.47 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1555,6 +1555,12 @@ Add a zone to specific members
 
    conf zone add foo.com primary 1.2.3.4 secondary 1.2.3.5 sec 1.2.3.6
 
+Add a zone with extensible attributes
+
+You can add multiple attributes by having multiple 'info' pairs
+
+   conf zone add foo.com ... info <name>=<value>
+
 Add a zone with external primary
 
    conf zone add foo.com ext_primary ns1.foo.com,1.2.3.4 
@@ -1567,7 +1573,7 @@ Add a zone with stealth primary or secondary
 
 Add a zone with an nsgroup
 
-   conf zone add foo.com nsgroup mygroup
+   conf zone add foo.com ns_group mygroup
 
 Add a shared record group to a zone
 
@@ -1623,7 +1629,7 @@ sub cli_add_zone {
     my ($nonauthorative)   = $line =~ /\bnonauthorative\b/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
     my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
-    my ($nsgroup)  = $line =~/ nsgroup (\S+)/ ;
+    my ($nsgroup)  = $line =~/ ns_group (\S+)/ ;
     my ($email)    = $line =~/ email (\S+)/ ;
     my ($serial)    = $line =~/ serial (\S+)/ ;
     my ($mname)    = $line =~/ mname (\S+)/ ;
@@ -1640,6 +1646,7 @@ sub cli_add_zone {
     my (@stealth_ext_sec) = $line =~/ stealth_ext_secondary (\S+)/g ;
     my (@views) = $line =~/ view (\S+)/g ;
     my (@shared_groups)  = $line =~/ shared_record_group (\S+)/g ;
+    my @ipam  = $line =~/ info (\S+)/g ;
 
     my @settings  = $line =~/ set (\S+)/g ;
 
@@ -1813,6 +1820,7 @@ sub cli_add_zone {
 
     # using ns groups ?
     elsif ( $nsgroup ) {
+       $nsgroup = &decode_comment ( $nsgroup ) ;
        $obj->ns_group( $nsgroup ) ;
     }
     # or normal nameservers ?
@@ -1956,6 +1964,9 @@ sub cli_add_zone {
         $obj->views ( \@view_objs ) ;
     }
 
+    # now add IPAM info
+    $obj = add_ipam( $obj , @ipam ) ;
+
     # do we add it a shared record group ?
     if ( @shared_groups ) {
         $obj->shared_record_groups ( \@shared_groups ) ;
@@ -2022,11 +2033,11 @@ sub cli_delete_zone {
 
 =head2 Add a NS group
 
-    conf zone add nsgroup internal primary 45.0.12.20 secondary 45.0.128.20
+    conf zone add ns_group internal primary 45.0.12.20 secondary 45.0.128.20
 
 You can also call this as a grid command
 
-    conf grid Infoblox dns add nsgroup internal ...
+    conf grid Infoblox dns add ns_group internal ...
 
 =cut
 
@@ -2041,7 +2052,7 @@ sub cli_add_nsgroup {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ($type , $name)     = $line =~/ zone (add|modify) nsgroup (\S+)/ ;
+    my ($type , $name)     = $line =~/ zone (add|modify) ns_group (\S+)/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
     my ($lead)      = $line =~/ lead (\S+)/ ;
     my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
@@ -2219,11 +2230,11 @@ sub cli_add_nsgroup {
 
 =head2 Delete a NS group
 
-    conf zone del nsgroup internal
+    conf zone del ns_group internal
 
 You can also call this as a grid command
 
-    conf grid Infoblox dns del nsgroup internal
+    conf grid Infoblox dns del ns_group internal
 
 =cut
 
@@ -2231,7 +2242,7 @@ sub cli_del_nsgroup {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    ( my $name)     = $line =~/ zone delete nsgroup (\S+)/ ;
+    ( my $name)     = $line =~/ zone delete ns_group (\S+)/ ;
     &debug_cli(1,"remnsg n($name)");
 
     my $obj = Infoblox::Grid::DNS::Nsgroup->new (
@@ -2335,6 +2346,11 @@ sub cli_add_host {
             "object" => "Infoblox::DNS::Host", 
             "name" => $name
         );
+        my ( $vname ) = $line =~/ view (\S+)/ ;
+        if ( $vname ) {
+            $opthash{'view'} = $vname;
+        }
+
         my @hosts = &do_func("get", %opthash );
 
         if ( $#hosts > 0 ) {
@@ -3196,6 +3212,71 @@ sub cli_del_ptr {
 
 }
 
+=head1 IPAM Configuration
+
+=head2 Add a network to a discovery job
+
+Each network gets added to the current discovery job
+
+  configure ipam discovery add network 1.2.3.0/24
+
+=cut
+
+sub cli_add_discovery {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $net )     = $line =~/ add network (\S+)/ ;
+
+    # create the network opject handle
+    my $nobj = Infoblox::DHCP::Network->new (
+                "network" => $net
+    );
+
+    # get the current discovery task
+    my ( $tobj ) = &do_func("get" ,
+            "object" => "Infoblox::IPAM::DiscoveryTask", 
+        );
+
+    if ( $tobj ) {
+        # append the subnet
+        my @networks = @{ $tobj->networks() } ;
+        push @networks , $nobj ;
+        $tobj->networks( \@networks ) ;
+
+        # now save the change
+        &do_func("modify",$tobj);
+    }
+    else {
+        print "No Discovery task found\n";
+    }
+}
+
+=head2 Show adiscovery job
+
+  show ipam discovery
+
+=cut
+
+sub cli_show_discovery {
+    my ( $line ) = @_ ;
+
+#     # get the args from the line
+#     my ( $net )     = $line =~/ add network (\S+)/ ;
+
+    # get the current discovery task
+    my ( $tobj ) = &do_func("get" ,
+            "object" => "Infoblox::IPAM::DiscoveryTask", 
+        );
+
+    if ( $tobj ) {
+        dump_object( $tobj ) ;
+    }
+    else {
+        print "No Discovery task found\n";
+    }
+}
+
 =head1 DHCP Configuration
 
 =head2 Add a network view
@@ -3260,7 +3341,7 @@ sub cli_add_network_view {
     if ( @settings ) {
 
         foreach my $setval ( @settings ) {
-            # set some custom options;
+            # set some custom api methods;
             # split on the ','
             my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
             $val = &decode_comment ( $val ) ;
@@ -3340,6 +3421,16 @@ must match a method in the API)
    conf network add 1.1.1.0/24 set <method=value>
    conf network add 1.1.1.0/24 set enable_ddns=FALSE
 
+If the method requires an ARRAY you have to specify this in the
+value by putting the values onside '[]' :
+
+   conf network ... set domain-name-servers="[10.216.2.8,10.204.3.162]"
+
+even if you only have a single value, you still need to pass the
+value as an array :
+
+   conf network ... set routers="[10.216.2.8]"
+
 =head2 Modifying Networks
 
 You cannot renumber a network, only modify the contents of it.
@@ -3354,8 +3445,8 @@ the view to find the network to modify
    conf network modify 1.1.1.0/24 view default
 
 If you change things like options arrays, ALL the existing values will be
-replaced by the new list. See 'addoption' below if you want to just apend
-new options to the list :
+replaced by the new list.  See 'addoption' below if you want to just
+append new options to the list :
 
 If you want to just append a new option to an existing list, (or change
 one of the current options you can use 'addoption'. This will KEEP the
@@ -3369,6 +3460,60 @@ current options array intact.
 # [-] lease_time , domain_name , etc etc
 # let the serverside handle this or i will end up hardcoding keywords
 # in too many places
+
+=head2 Add a network container
+
+   conf network add container 1.1.1.0/24
+
+Network containers can only have a view, comment, Extensible Attributes,
+or be disabled.
+
+You probably only need this function when you want to add a container
+OVER some existing networks. In most other cases (with NIOS 5x) you can
+just add networks and the right thing will happen.
+
+=cut 
+
+sub cli_add_network_container {
+    my ( $line ) = @_ ;
+
+    my ( $type , $network ) = $line =~/ network (add|modify) (\S+)/ ;
+    my ( $view )  = $line =~/ view (\S+)/ ;
+    my ( $disable ) = $line =~/\b(disabled)\b/ ;
+    my ( $comment ) = $line =~/comment (\S+)/ ;
+    my @ipam  = $line =~/ info (\S+)/g ;
+
+    # members are not required for containers
+
+    # cleanup some stuff
+    $comment = &decode_comment ( $comment ) ;
+
+    &debug_cli (1,"addnetc n($network) v($view) c($comment)");
+
+        # create the object
+     my $net = Infoblox::DHCP::NetworkContainer->new (
+                   "network" => $network ,
+            );
+
+    # comment
+    if ( $comment ) { $net->comment( $comment ); }
+    
+    # disabled
+    if ( $disable ) { $net->disable ( "TRUE" ) }
+
+    # network view
+    if ( $view ) {
+        my $viewobj = Infoblox::DHCP::View->new("name"=>$view);
+        $net->network_view ( $viewobj ) ;
+    }
+
+    # add ipam, EA stuff
+    $net = add_ipam( $net , @ipam ) ;
+
+    # add the container
+    &do_func('add',$net);
+
+}
 
 sub cli_add_network {
     # essentially all options are passed as name value pairs
@@ -3385,7 +3530,6 @@ sub cli_add_network {
 #     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my ( $comment ) = $line =~/comment (\S+)/ ;
     my ( $addrev ) = $line =~/ (addreverse)/ ;
-    my ( $disable ) = $line =~/\b(disabled)\b/ ;
     my ( $disable ) = $line =~/\b(disabled)\b/ ;
 
     my @options  = $line =~/ option (\S+)/g ;
@@ -3620,11 +3764,16 @@ sub cli_delete_network {
         $network = "$network/$cidr";
     }
 
-    &debug_cli(1,"delnet n($network)");
-
     my $net = Infoblox::DHCP::Network->new (
                    "network" => $network ,
                 );
+
+    my ( $view )  = $line =~/ view (\S+)/ ;
+    if ( $view ) {
+        $net->network_view( $view );
+    }
+
+    &debug_cli(1,"delnet n($network) v($view)");
 
     &do_func("remove",$net);
 
@@ -4518,7 +4667,7 @@ sub cli_del_fixed_address {
     my $obj = Infoblox::DHCP::FixedAddr->new (
                   "network" => $network ,
                   "ipv4addr" => $ip ,
-                  "mac" => $mac ,
+#                   "mac" => $mac ,
     );
 
     # addit
@@ -4579,6 +4728,8 @@ And add new filters to an existing range
 
    conf net 10.1.1.1/24 mod range 10... macfilter <name>=<permission>
 
+   conf net 10.1.1.0/24 add range 10... optfilter <name>=<permission>
+
 =head2 Modifying Ranges
 
 You cannot renumber a range, only modify the contents of it.
@@ -4619,6 +4770,7 @@ sub cli_add_dhcp_range {
     my @exclude  = $line =~/ exclude (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
     my @macfilters  = $line =~/ macfilter (\S+)/g ;
+	my @optfilters  = $line =~/ filter_option (\S+)/g ;
 
     &debug_cli (1,"addrng n($network) s($fip) e($lip) o(@options)");
     &debug_cli (1,"addrng n($network) m($member) c($comment) f($failover)");
@@ -4680,7 +4832,9 @@ sub cli_add_dhcp_range {
 
     # you can't assign failover and members, you have to choose one.
     if ( $failover ) { 
-         $obj->failover_assoc ( $failover ) 
+        # support spaces in the failover name
+        $failover = &decode_comment ( $failover ) ;
+        $obj->failover_assoc ( $failover ) 
     }
     else {
        # find a member to put this range on
@@ -4750,6 +4904,37 @@ sub cli_add_dhcp_range {
 
     }
 
+    # optfilters - SBE quick & dirty copy/paste of the mac filter
+    # current behavior with modify is to append filter to existing ones 
+    # future enhancement could be to have a replace & a modify 
+    if ( @optfilters ) {
+
+       my @ofilters ;
+       # get the current list
+       if ( $type eq 'modify' ) {
+            @ofilters = @{ $obj->filters() }
+       }
+       foreach my $filter ( @optfilters ) {
+          # split on the '='
+          my ( $fname , $perm ) = $filter =~  /^(.*?)=(.*)/ ;
+          if ( $perm =~ /allow/i ) { $perm = "grant" }
+   
+          &debug_cli(2,"addfil f($fname) p($perm)");
+   
+          my $ofil_obj = Infoblox::DHCP::FilterRule::Option->new(
+                            filter_name => $fname,
+                            permission => $perm,
+                            );
+
+          push @ofilters , $ofil_obj ;
+       }
+
+       $obj->filters ( \@ofilters ) ;
+
+    }
+
+
+
     # options
     if ( @options ) {
 
@@ -4787,8 +4972,9 @@ sub cli_del_dhcp_range {
     # get the args from the line
     my ( $network ) = $line =~/ network (\S+)/ ;
     my ( $fip , $lip )  = $line =~/ range (\S+) (\S+)/ ;
+    my ( $view )  = $line =~/ view (\S+)/ ;
 
-    &debug_cli (1,"delrng n($network) s($fip) e($lip)");
+    &debug_cli (1,"delrng n($network) s($fip) e($lip) v($view)");
 
     my $obj ;
     if ( $network ) {
@@ -4804,6 +4990,10 @@ sub cli_del_dhcp_range {
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
                 );
+    }
+
+    if ( $view ) {
+        $obj->network_view( $view );
     }
 
     if ( $obj ) {
@@ -5577,7 +5767,7 @@ sub cli_add_user {
             return ;
         }
 
-        my $obj = Infoblox::Grid::Admin::User->new (
+        $obj = Infoblox::Grid::Admin::User->new (
                    "name" => $user ,
                    "password" => $pass ,
                    "admin_group" => $group ,
@@ -6457,7 +6647,7 @@ sub cli_del_member {
    conf grid <name> dns add default_ttl <num>
    conf grid <name> dns add recursion
 
-   conf grid <name> dns add nsgroup <name>
+   conf grid <name> dns add ns_group <name>
 
 DNS ACLs
 
@@ -6772,9 +6962,9 @@ Show just 1 zone
 
 Show NameServer Groups
 
-    show zone nsgroup
+    show zone ns_group
 
-    show zone nsgroup <name>
+    show zone ns_group <name>
 
 Show Shared Record Groups
 
@@ -6867,21 +7057,38 @@ sub cli_show_zone {
         # now sort both forward and reverse
         foreach my $fz ( sort by_dom keys %forzones ) {
              my $name = $forzones{$fz}{'name'} ;
-             push @fsummary , "  $name view $forzones{$fz}{'view'}\n";
+             my $v = "view $forzones{$fz}{'view'}" ;
+             my $info = "  $name $v";
+
+             my $ng = $forzones{$fz}{'obj'}->ns_group() ;
+             if ( $ng ) {
+                $info .= " ns_group $ng";
+             }
+
+             # push @fsummary , "  $name view $forzones{$fz}{'view'}\n";
+             push @fsummary , "$info\n";
              push @fobjects , $forzones{$fz}{'obj'} ;
 
 #              print "z[$fz] ($forzones{$fz}{'sec'})\n";
 
              if ( $forzones{$fz}{'sec'} == 1 ) {
-                push @ssummary , "  $name view $forzones{$fz}{'view'}\n";
+                push @ssummary , "$info\n";
              }
         }
         foreach my $rz ( sort by_ip keys %revzones ) {
              my $name = $revzones{$rz}{'name'} ;
-             push @rsummary , "  $name view $revzones{$rz}{'view'}\n";
+             my $v = "view $revzones{$rz}{'view'}" ;
+             my $info = "  $name $v";
+
+             my $ng = $revzones{$rz}{'obj'}->ns_group() ;
+             if ( $ng ) {
+                $info .= " ns_group $ng";
+             }
+
+             push @rsummary , "$info\n";
              push @robjects , $revzones{$rz}{'obj'} ;
              if ( $revzones{$rz}{'sec'} == 1 ) {
-                push @ssummary , "  $name view $revzones{$rz}{'view'}\n";
+                push @ssummary , "$info\n";
              }
         }
 
@@ -6923,7 +7130,7 @@ sub cli_show_zone {
         }
     
     }
-    elsif ( $type eq "nsgroup" ) {
+    elsif ( $type eq "ns_group" ) {
         # get nsgroup info
         my $search = ".*" ;
         if ( $name ) { $search = $name }
@@ -7270,12 +7477,16 @@ sub cli_show_network {
             my $name = $nobj->network();
             my $comm = $nobj->comment();
 
+
             my $view ;
             if ( require_api ( "4.3r5-0" ) ) {
                 $view = $nobj->network_view->name();;
             }
 
-            $name = "$name ($comm) ($view)";
+            $name = " $name ($comm) ($view)";
+            if (  $nobj->{'__type'}  =~ /NetworkContainer/ ) {
+                $name =~ s/^ /+/;
+            }
             
             # get the membership as well
             foreach my $sobj ( @{ $nobj->{'members'} } ) {
@@ -8031,18 +8242,33 @@ sub cli_show_grid {
 
 =head2 Show global Member settings
 
-Get a list of all grid members
+get a list of all grid members
 
-   show grid Infoblox member
+   show grid infoblox member
 
-Get a detailed list of all grid members
+get a list of all grid members matching a REGEX
 
-   show grid Infoblox member detailed
+   show grid infoblox member <regex>
 
-Get specific member details
+get a detailed info about a member of all grid members
 
-   show grid Infoblox member 45.0.12.20
+   show grid Infoblox member ns1.test.com detailed
+
+Get service status or licenses for a member
+
+   show grid Infoblox member ns1.test.com status
+   show grid Infoblox member ns1.test.com licenses
+
+You can also filter this for a particular value
+(the value has to match something reported by the API)
    
+   show grid Infoblox member ns1.test.com status memory
+   show grid Infoblox member ns1.test.com license KeystoneDVS
+
+You can also use this to get a single status from ALL the grid members
+
+   show grid Infoblox license KeystoneDVS
+   show grid Infoblox status KeystoneDVS
 
 =cut
 
@@ -8055,44 +8281,98 @@ sub cli_show_member {
 
     my ( $show_mems ) = $line =~/\b(member)\b/ ;
     my ( $member ) = $line =~/member (\S+)/ ;
-    my ( $detailed ) = $line =~/\bdetailed\b/ ;
+    my ( $info ) = $line =~/\b(detailed|status|licenses)\b/ ;
+    my ( $filter ) = $line =~/$info\s*(\S+)\b/ ;
 
-    &debug_cli (2,"sgm g($gridname) sm($show_mems) m($member)");
+#     my $detailed = $info ;
+#     my ( $status ) = $line =~/\bstatus\b/ ;
+#     my ( $license ) = $line =~/\blicenses\b/ ;
+
+    &debug_cli (2,"sgm g($gridname) sm($show_mems) m($member) i($info) fi($filter)");
+
+    if ( $info =~ /status|licenses/ ) {
+        unless ( require_api ( "5.0r0-0" ) ) {
+            print "   '$info' not supported in NIOS 4x\n";
+        }
+    }
 
     # get all grid members
     my %opthash = (
           "object" => "Infoblox::Grid::Member",
-          "name" => $gridname ,
+          "name" => '.*'
 #           "Grid" => $gridname ,
     );
 
-    # get all members
-    if ( $show_mems ) {
-        $opthash{'name'} = '.*'
-    }
-
-    # or get a member
-    if ( $member ) {
+    # or get a member (some odd rules here):
+    if ( $member && $member ne $info ) {
         # then be specific
         $opthash{'name'} = $member ;
     }
 
-    # get the member list
+    # get the data
     my @mems = &do_func("search", %opthash );
 
-    if ( $detailed ) {
-        &dump_object ( @mems ) ;
-    }
-    else {
-        if ( @mems ) {
-            foreach my $mobj ( @mems ) {
-                my $mname = $mobj->name();
-                my $mip = $mobj->ipv4addr();
-                print "  $mname : $mip\n";
+    # now walk the list of ALL the members we found and retusn the results
+    # then do some conditional stuff
+    foreach my $mobj ( @mems ) {
+        my $name = $mobj->name();
+
+        if ( $info =~ /status/i ) {
+            # get the list of statuses
+            print_status( "$name member" , $mobj->service_status() , $filter ) ;
+            print_status( "$name  node1" , $mobj->node1_service_status() , $filter ) ;
+            print_status( "$name  node2" , $mobj->node2_service_status() , $filter ) ;
+        }
+        elsif ( $info =~ /license/i ) {
+            # get the list of statuses
+            foreach my $lobj ( 
+                    @{ $mobj->node1_licenses() } , 
+                    @{ $mobj->node2_licenses() } 
+                ) {
+                if ( $filter ) { 
+                    next unless $lobj->type() =~ /$filter/i 
+                }
+                printf ( "%25s %15s : %s %s : %s\n" ,
+                    $name,
+                    $lobj->type(),
+                    $lobj->expiry_date(),
+                    $lobj->expiry_time(),
+                    $lobj->key(),
+                    );
+#              print Dumper ( $lobj ) ;
             }
         }
+        elsif ( $info =~ /detailed/i ) {
+            # detailed view
+            &dump_object ( $mobj ) ;
+        }
+        else {
+                my $mname = $mobj->name();
+                my $mip = $mobj->ipv4addr();
+                my $mco = $mobj->comment();
+                printf ( "%35s %s \%s\n", $mname , $mip , $mco );
+        }
     }
+}
 
+sub print_status(){
+    my ( $tag, $statref , $filter ) = @_ ;
+    if ( $statref ) {
+        foreach my $sobj ( @{ $statref } ) {
+            # filter the results
+            if ( $filter ) { 
+                next unless $sobj->service() =~ /$filter/i 
+            }
+
+            # walk each of the statusses
+            printf ( "%35s %17s : %10s : %s\n" ,
+                    $tag,
+                    $sobj->service(),
+                    $sobj->status(),
+                    $sobj->description(),
+                    );
+        }
+    }
 }
 
 # showing users
@@ -9068,6 +9348,11 @@ sub dump_data {
         next if $key =~ /FUNCTION/;
         next if $key =~ /CHANGED/;
         next if $key =~ /RETURN_FIELDS/;
+        # and some stuff we view through other processes
+        next if $key =~ /service_status/;
+        next if $key =~ /license/;
+        next if $key =~ /networks/;
+        next if $key =~ /tcp_ports/;
 
         # and undef
         unless ( $obj->{$key} eq "0" ) {
@@ -9268,6 +9553,21 @@ sub dump_data {
             $data = "@values";
             $data = join " " , @values ;
               
+        }
+        # hash arrays by key 'object_name'
+        elsif ( $key eq "changed_objects" 
+              ) {
+            my @values ;
+            # find all the names only
+            foreach my $sobj ( @{ $obj->{$key} } ) {
+#                 push @values , $sobj->{'name'};
+                my $name = $sobj->{object_name};
+                my $type = $sobj->{object_type};
+                push @values , "$type : $name" ;
+            }
+
+            # remember it
+            $data = "@values";
         }
         # hash arrays by key 'name'
         elsif ( $key eq "zone_association" 
@@ -10293,7 +10593,7 @@ my %COMMANDS = (
     'history' => { 
            func => "cli_history", },
     'show' => { 
-           words => "template record time file server grid admin views zone host network range radius debug",  },
+           words => "ipam template record time file server grid admin views zone host network range radius debug",  },
 
     'help' => { 
            words => "all",
@@ -10397,11 +10697,37 @@ my %COMMANDS = (
            func => "cli_show_grid", },
 
     'show grid <name> member' => { 
-           words => "<cr> <name>",  
+           words => "<cr> <name> licenses status",  
+           func => "cli_show_member", },
+
+    'show grid <name> member licenses' => { 
+           words => "<cr> <value>",  
+           func => "cli_show_member", },
+    'show grid <name> member status' => { 
+           words => "<cr> <value>",  
+           func => "cli_show_member", },
+
+    'show grid <name> member licenses <value>' => { 
+           func => "cli_show_member", },
+    'show grid <name> member status <value>' => { 
            func => "cli_show_member", },
 
     'show grid <name> member <name>' => { 
-#            words => "<name>",  
+           words => "detailed status licenses",  
+           func => "cli_show_member", },
+
+    'show grid <name> member <name> detailed' => { 
+           func => "cli_show_member", },
+    'show grid <name> member <name> licenses' => { 
+           words => "<cr> <value>",  
+           func => "cli_show_member", },
+    'show grid <name> member <name> status' => { 
+           words => "<cr> <value>",  
+           func => "cli_show_member", },
+
+    'show grid <name> member <name> licenses <value>' => { 
+           func => "cli_show_member", },
+    'show grid <name> member <name> status <value>' => { 
            func => "cli_show_member", },
 
     'show grid <name> dhcp' => { 
@@ -10453,16 +10779,16 @@ my %COMMANDS = (
            func => "cli_show_record", },
 
     'show zone' => { 
-           words => "<cr> <zone>|secondary|detailed|forward|reverse|shared_record_group|nsgroup|view=<name>",  
+           words => "<cr> <zone>|secondary|detailed|forward|reverse|shared_record_group|ns_group|view=<name>",  
            func => "cli_show_zone", },
 
     'show zone view' => { 
            func => "cli_show_view", },
 
-    'show zone nsgroup' => { 
+    'show zone ns_group' => { 
            words => "<name>",
            func => "cli_show_zone", },
-    'show zone nsgroup <name>' => { 
+    'show zone ns_group <name>' => { 
            func => "cli_show_zone", },
 
     'show zone shared_record_group' => { 
@@ -10636,7 +10962,7 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "admin debug master=<ip> file server template zone network radius grid member" , },
+           words => "ipam admin debug master=<ip> file server template zone network radius grid member" , },
 
     'configure master <ip>' => { 
            func => "cli_add_master", },
@@ -10800,23 +11126,23 @@ my %COMMANDS = (
            words => "add delete", },
 
     'configure grid <name> dns add' => { 
-           words => "<cr> default_ttl=<num>|recursion|nsgroup=<name> acl",
+           words => "<cr> default_ttl=<num>|recursion|ns_group=<name> acl",
            func => "cli_mod_dns", },
 
 # - NS groups -
-# configure grid foo dns add nsgroup foo
-# configure zone add nsgroup foo
+# configure grid foo dns add ns_group foo
+# configure zone add ns_group foo
 
-    'configure grid <name> dns add nsgroup <name>' => { 
+    'configure grid <name> dns add ns_group <name>' => { 
            words =>
            "stealth_ext_secondary=<name,ip>|lead=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_nsgroup", },
-    'configure zone add nsgroup <name>' => { 
+    'configure zone add ns_group <name>' => { 
            words =>
            "stealth_ext_secondary=<name,ip>|lead=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_nsgroup", },
 
-    'configure zone delete nsgroup <name>' => { 
+    'configure zone delete ns_group <name>' => { 
            func => "cli_del_nsgroup", },
 
 # - Grid DNS acls -
@@ -10858,13 +11184,13 @@ my %COMMANDS = (
            words => "add delete modify <zone>", },
 
     'configure zone delete' => { 
-           words => "<zone>|nsgroup=<name>|view=<name>|shared_record_group=<name>", },
+           words => "<zone>|ns_group=<name>|view=<name>|shared_record_group=<name>", },
     'configure zone delete <zone>' => { 
            words => "<cr> view=<name>",
            func => "cli_delete_zone", },
 
     'configure zone add' => { 
-           words => "<zone>|nsgroup=<name>|view=<name>|shared_record_group=<name>", },
+           words => "<zone>|ns_group=<name>|view=<name>|shared_record_group=<name>", },
     'configure zone modify' => { 
            words => "<zone>|view=<name>", },
 
@@ -10890,12 +11216,12 @@ my %COMMANDS = (
 
     'configure zone modify <zone>' => { 
            words => "<cr>
-           nonauthorative|lead=<ip>|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           info=<name=value>|nonauthorative|lead=<ip>|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|ns_group=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone add <zone>' => { 
            words => "<cr>
-           nonauthorative|lead=<ip>|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           info=<name=value>|nonauthorative|lead=<ip>|set=<name=value>|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|shared_record_group=<name>|ns_group=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|stub_from=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -11123,6 +11449,21 @@ my %COMMANDS = (
     'configure template delete fixed <name>' => { 
            func => "cli_del_fixed_template", },
 
+# IPAM and discovery objects
+    'show ipam' => { 
+           words => "discovery", },
+    'show ipam discovery' => { 
+           func => "cli_show_discovery", },
+
+    'configure ipam' => { 
+           words => "discovery", },
+    'configure ipam discovery' => { 
+           words => "add", },
+    'configure ipam discovery add' => { 
+           words => "network=<n.n.n.n/mm>", },
+    'configure ipam discovery add network <n.n.n.n/mm>' => { 
+           func => "cli_add_discovery", },
+
 # network objects
     'configure network' => { 
            words => "move=<n.n.n.n/mm> add modify delete <n.n.n.n/mm> filter=<name>", },
@@ -11130,13 +11471,13 @@ my %COMMANDS = (
     'configure network delete' => { 
            words => "range <n.n.n.n/mm> fixed=<ip_or_name> macfilter=<name> shared=<name>", },
     'configure network delete <n.n.n.n/mm>' => { 
-           words => "netmask=<ip>",
+           words => "netmask=<ip>|view=<name>",
            func => "cli_delete_network", },
     'configure network delete <n.n.n.n/mm> netmask <ip>' => { 
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "view=<name> <n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
+           words => "parent=<n.n.n.n/mm> container=<n.n.n.n/mm> view=<name> <n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed", },
     'configure network modify' => { 
            words => "fixed <n.n.n.n/mm>", },
 
@@ -11192,9 +11533,17 @@ my %COMMANDS = (
     'configure network filter <name> delete macaddress <mac>' => { 
            func => "cli_del_macfilteraddr", },
 
+# - containers
+    'configure network add parent <n.n.n.n/mm>' => { 
+           words => "<cr> view=<name>|info=<name=value>|disabled|comment=<comment>",  
+           func => "cli_add_network_container", },
+    'configure network add container <n.n.n.n/mm>' => { 
+           words => "<cr> view=<name>|info=<name=value>|disabled|comment=<comment>",  
+           func => "cli_add_network_container", },
+
 # - sharednetworks -
     'configure network add shared <name>' => { 
-           words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
+           words => "<cr> view=<name>|child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
     'configure network add <n.n.n.n/mm>' => { 
            words => "<cr> view=<name>|info=<name=value>|template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|addoption=<name=value>|option=<name=value>",  
@@ -11238,19 +11587,44 @@ my %COMMANDS = (
            words => "<cr>|network=<n.n.n.n/mm>",  
            func => "cli_join_network", },
 
-# - fixed addrs with networks -
+# [ ] do i need the  MAC addr for deleting a network
+# - delete networks and stuff -
+
+#     'configure network <n.n.n.n/mm> delete fixed' => { 
+#            words => "<ip>=<mac>",  },
+#     'configure network <n.n.n.n/mm> delete fixed <ip> <mac>' => { 
+#            words => "view=<name>", 
+#            func => "cli_del_fixed_address", },
+
     'configure network <n.n.n.n/mm> delete fixed' => { 
-           words => "<ip>=<mac>",  },
+           words => "<ip_or_name>|<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> delete fixed <ip> <mac>' => { 
+           words => "<cr> view=<name>", 
            func => "cli_del_fixed_address", },
+    'configure network <n.n.n.n/mm> delete fixed <ip_or_name>' => { 
+           words => "view=<name>", 
+           func => "cli_del_fixed_address", },
+
+    'configure network delete fixed' => { 
+           words => "<ip_or_name>|<ip>=<mac>",  },
+    'configure network delete fixed <ip_or_name>' => { 
+           words => "<cr> view=<name>", 
+           func => "cli_del_fixed_address", },
+    'configure network delete fixed <ip> <mac>' => { 
+           words => "<cr> view=<name>", 
+           func => "cli_del_fixed_address", },
+
 
     'configure network <n.n.n.n/mm> delete range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> delete range <ip> <ip>' => { 
+           words => "<cr> view=<name>", 
            func => "cli_del_dhcp_range", },
+
     'configure network delete range' => { 
            words => "<ip>=<ip>",  },
     'configure network delete range <ip> <ip>' => { 
+           words => "<cr> view=<name>", 
            func => "cli_del_dhcp_range", },
 
     'configure network <n.n.n.n/mm> add network' => { 
@@ -11282,19 +11656,16 @@ my %COMMANDS = (
            words => "<cr> view=name|template=<name>|comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
-    'configure network delete fixed <ip_or_name>' => { 
-           func => "cli_del_fixed_address", },
-
 #  - ranges
     'configure network <n.n.n.n/mm> add range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> add range <ip> <ip>' => { 
-           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value> view=<name>",
+           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>|view=<name>",
            func => "cli_add_dhcp_range", },
     'configure network <n.n.n.n/mm> modify range' => { 
            words => "<ip>=<ip>",  },
     'configure network <n.n.n.n/mm> modify range <ip> <ip>' => { 
-           words => "<cr> view=name|disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|macfilter=<name=value>",  
+           words => "<cr> view=<name>|disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
     # radius comm
@@ -11410,6 +11781,9 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.47  2010/06/11 00:08:50  horne
+# more fixes and features, see the relnotes
+#
 # Revision 3.46  2010/03/22 02:32:45  horne
 # *** empty log message ***
 #
