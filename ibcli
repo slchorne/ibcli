@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.23 2007/04/27 19:22:30 horne Exp $ ;
-my $REV = q$Revision: 3.23 $;
-# $Date: 2007/04/27 19:22:30 $
+my $ID  = q$Id: ibcli,v 3.24 2007/06/01 18:28:42 horne Exp $ ;
+my $REV = q$Revision: 3.24 $;
+# $Date: 2007/06/01 18:28:42 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -346,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.23 $.
+$Revision: 3.24 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2193,6 +2193,7 @@ sub cli_add_network {
 
     # get the args from the line
     my ( $network ) = $line =~/ network add (\S+)/ ;
+    my ( $netmask ) = $line =~/ netmask (\S+)/ ;
     my ( $parent )  = $line =~/ parent (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my ( $addrev ) = $line =~/ (addreverse)/ ;
@@ -2209,6 +2210,13 @@ sub cli_add_network {
 
     # create the network object :
 
+    # corece a netmask into a cidr
+    if ( $netmask ) {
+        my $cidr = mask_to_cidr ( $netmask ) ;
+        $network = "$network/$cidr";
+    }
+
+    # create the object
     my $net = Infoblox::DHCP::Network->new (
                    "network" => $network ,
                    "comment" => $comment ,
@@ -2456,11 +2464,11 @@ sub cli_join_network {
 
 Add a network with options
 
-   conf network add shared foo option 82,"some data"
+   conf network add shared foo option 82="some data"
 
-Add a network with comments (comments must come last)
+Add a network with comments 
 
-   conf network add shared comment "comment string"
+   conf network add shared my_shared ... comment "comment string"
 
 =cut
 
@@ -2656,6 +2664,7 @@ sub cli_add_fixed_address {
     my ( $network ) = $line =~/configure network ($REcidr)/ ;
     my ( $ip , $mac ) = $line =~/ add fixed (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+    my @settings  = $line =~/ set (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
     my @ipam  = $line =~/ info (\S+)/g ;
 
@@ -2727,6 +2736,23 @@ sub cli_add_fixed_address {
 
         # and set these directly
         $obj->$name ( $cvalue );
+    }
+
+    # settings - these are additional fields that the API supports
+    if ( @settings ) {
+
+       my @set_list ;
+       foreach my $setval ( @settings ) {
+          # set some custom options;
+          # split on the ','
+          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addnet s($set) v($val)");
+   
+          # and set this on the object
+          $net->$set ( $val ) ;
+       }
+
     }
 
     # addit
@@ -3283,7 +3309,7 @@ sub cli_mod_member {
 
     # break ip into ip and mask
     my ( $ip , $cidr ) = split ( /\// , $address ) ;
-    my $mask = &cidrtomask( $cidr ) ;
+    my $mask = &cidr_to_mask( $cidr ) ;
 
     &debug_cli (2,"modme ip($ip) m($mask) gw($gateway) ha($haaddr)");
 
@@ -3350,7 +3376,7 @@ sub cli_add_member {
 
     # break ip into ip and mask
     my ( $ip , $cidr ) = split ( /\// , $vip ) ;
-    my $mask = &cidrtomask( $cidr ) ;
+    my $mask = &cidr_to_mask( $cidr ) ;
 
     &debug_cli (2,"addme ip($ip) m($mask) gw($gateway) ha($haaddr)");
 
@@ -3807,7 +3833,7 @@ sub cli_show_network {
         }
 
         # now print them (sorted)
-        print sort @netlist ; 
+        print sort by_ip @netlist ; 
     }
     
 }
@@ -4003,10 +4029,15 @@ sub cli_show_fixed {
     if ( $fixed ) {
         %opthash = (
            "object" => "Infoblox::DHCP::FixedAddr", 
-#            "network" => $net,
-           "ipv4addr" => $fixed,
-#            "ip_address" => $fixed,
         );
+
+        # and we check for IP or MAC
+        if ( $fixed =~ /:/ ) {
+            $opthash{"mac"} = $fixed ;
+        }
+        else {
+            $opthash{"ipv4addr"} = $fixed ;
+        }
     }
 
     # get what we need
@@ -4029,6 +4060,105 @@ sub cli_show_fixed {
 
         # now print them (sorted)
         print sort @fixedlist ; 
+
+    }
+    
+}
+
+=head2 Showing MAC filters
+
+Show all macfilter lists
+
+   show network filter
+
+Show the entries in a filter
+
+   show network filter my_filter
+
+=cut
+
+sub cli_show_filter {
+    #
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ filter (\S+)/ ;
+    my ( $mac ) = $line =~/ mac (\S+)/ ;
+    my ( $comm ) = $line =~/ comment (\S+)/ ;
+    my ( $entries ) = $line =~/ filter \S+ (entries)/ ;
+
+    &debug_cli(2,"showf n($name) e($entries) m($mac)");
+
+#     # To get get ALL filters
+#     my %opthash = (
+#            "object" => "Infoblox::DHCP::Filter::MAC",
+#            "name" => ".*",
+#     );
+
+    my %opthash = (
+           "object" => "Infoblox::DHCP::Filter::MAC",
+           "name" => ".*",
+    );
+
+    # if we want to be specific, we get an actual filter
+    if ( $name ) {
+        %opthash = (
+           "object" => "Infoblox::DHCP::Filter::MAC", 
+           "name" => $name,
+        );
+    }
+
+    # are we instead searching mac addrs ?
+    if ( $entries ) {
+        %opthash = (
+           "object" => "Infoblox::DHCP::MAC", 
+           "filter" => $name,
+           "mac" => ".*",
+        );
+    }
+    if ( $mac ) {
+        %opthash = (
+           "object" => "Infoblox::DHCP::MAC", 
+           "filter" => $name,
+           "mac" => $mac,
+        );
+    }
+    if ( $comm ) {
+        %opthash = (
+           "object" => "Infoblox::DHCP::MAC", 
+           "filter" => $name,
+           "comment" => $comm,
+        );
+    }
+
+    # get what we need
+    my @filters = &do_func("search", %opthash );
+
+    # dump the filter or all the list, odd conditions here
+    if ( $mac ) {
+        &dump_object ( @filters ) ;
+    }
+    elsif ( $name and ! $entries ) {
+        &dump_object ( @filters ) ;
+    }
+    else {
+
+        # display all
+        my @flist ;
+        foreach my $nobj (@filters) {
+            my $name ;
+            if ( $entries ) {
+                $name = $nobj->mac() ;
+            }
+            else {
+                $name = $nobj->name();
+            }
+            push @flist , "  $name\n";
+        }
+
+        # now print them (sorted)
+        print sort @flist ; 
 
     }
     
@@ -4321,6 +4451,42 @@ sub cli_restart {
 
 }
 
+=head2 Export log files
+
+    download merge_log <file>
+
+=cut
+
+sub cli_download_log {
+
+    # we can probably make this generic
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $type )  = $line =~/download (\S+)/ ;
+    ( my $dest )  = $line =~/$type (\S+)/ ;
+    ( my $member)  = $line =~/member (\S+)/ ;
+
+    my %opthash = (
+          "path" => $dest ,
+          "type" => $type ,
+          "format" => "tar",
+    );
+
+    # grab a log from a member
+    if ( $member ) {
+        $opthash{'member'} = $member ;
+    }
+
+
+    print "DOWNLOADING $type as $dest ...\n";
+
+    my @function=("export_data",%opthash);
+    &do_func(@function);
+
+    print "DONE\n";
+}
+
 =head2 Export the database
 
     download database <file>
@@ -4441,7 +4607,16 @@ sub cli_load_db {
     # get the args from the line
     ( my $file)  = $line =~/load (\S+)/ ;
 
-    open ( DB , $file ) or print "Cannot load file '$file'\n";
+    # untar the file
+    my $tmp_xml = ".ibcli-ondeb.xml";
+
+    print "Unpacking the database backup...\n";
+    use Archive::Tar;
+    my $tar = Archive::Tar->new ;
+    $tar->read($file) or die "Cannot load database : $file";
+    $tar->extract_file ( 'onedb.xml' , $tmp_xml );
+
+    open ( DB , $tmp_xml ) or print "Cannot load file '$file'\n";
 
     # reset the count
     $SDBCOUNT = 0 ;
@@ -4467,6 +4642,11 @@ sub cli_load_db {
         debug_cli(5,"sdb node ($type) ");
 
     }
+
+    # trash the xml file
+    unlink ( $tmp_xml ) ;
+
+    print "Done\n";
 
     # also define a schema for moving around
     # this is kinda funky because in some cases it is a node
@@ -4495,6 +4675,10 @@ sub cli_load_db {
                     ranges => "",
                     fixed_addr =>"",
                 },
+            },
+            '.com.infoblox.dns.cluster_dhcp_properties' => {
+                '.com.infoblox.dns.member_dhcp_properties' => {
+                }
             },
             shared_networks => {},
             filters => {},
@@ -4585,7 +4769,7 @@ sub cli_show_file {
 
         # do an ls of the current schema position
         # from the CDW pointer
-        foreach my $node ( keys %{ $CWD } ) {
+        foreach my $node ( sort keys %{ $CWD } ) {
             if ( $node =~ /com.infoblox/ ) {
                 # we either dump a set of DB objects
                 foreach my $obj ( sort @{ $SDB{$node} } ) {
@@ -4630,6 +4814,10 @@ sub list_sdb {
     }
 
     elsif ( $type eq ".com.infoblox.dns.cluster_dns_properties" ) {
+        # get the gridname ;
+        $name = $SDB{'.com.infoblox.one.cluster'}[$obj->{cluster}]->{name};
+    }
+    elsif ( $type eq ".com.infoblox.dns.cluster_dhcp_properties" ) {
         # get the gridname ;
         $name = $SDB{'.com.infoblox.one.cluster'}[$obj->{cluster}]->{name};
     }
@@ -5006,9 +5194,19 @@ sub dump_data {
             my @values ;
             # find all the sub objects
             foreach my $sobj ( @{ $obj->{$key} } ) {
+
+                my $type = $key ;
+                # what kind of secondary
+                if ( $sobj->{'__type'} =~ /Infoblox.DNS.Member/ ) {
+                    $type = "member secondary"
+                }
+                if ( $sobj->{'__type'} =~ /Infoblox.DNS.Nameserver/ ) {
+                    $type = "external secondary"
+                }
+
                 my $name = $sobj->{'name'};
                 my $ip = $sobj->{'ipv4addr'};
-                printf ( "%30s : %s(%s)\n", $key , $name,$ip ) ;
+                printf ( "%30s : %s(%s)\n", $type , $name,$ip ) ;
             }
         }
         # nested DHCP options
@@ -5427,7 +5625,7 @@ sub get_custom_options {
 }
 
 
-sub cidrtomask {
+sub cidr_to_mask {
     my ($cidr) = @_ ;
     my %clook = (
          '0' => 0 ,
@@ -5468,6 +5666,46 @@ sub cidrtomask {
     return ( $clook{$cidr} ) ;
 }
 
+sub mask_to_cidr {
+    my ($mask) = @_ ;
+    my %clook = (
+         '0' => 0 ,
+         '128.0.0.0' => 1 ,
+         '192.0.0.0' => 2 ,
+         '224.0.0.0' => 3 ,
+         '240.0.0.0' => 4 ,
+         '248.0.0.0' => 5 ,
+         '252.0.0.0' => 6 ,
+         '254.0.0.0' => 7 ,
+         '255.0.0.0' => 8 ,
+         '255.128.0.0' => 9 ,
+         '255.192.0.0' => 10 ,
+         '255.224.0.0' => 11 ,
+         '255.240.0.0' => 12 ,
+         '255.248.0.0' => 13 ,
+         '255.252.0.0' => 14 ,
+         '255.254.0.0' => 15 ,
+         '255.255.0.0' => 16 ,
+         '255.255.128.0' => 17 ,
+         '255.255.192.0' => 18 ,
+         '255.255.224.0' => 19 ,
+         '255.255.240.0' => 20 ,
+         '255.255.248.0' => 21 ,
+         '255.255.252.0' => 22 ,
+         '255.255.254.0' => 23 ,
+         '255.255.255.0' => 24 ,
+         '255.255.255.128' => 25 ,
+         '255.255.255.192' => 26 ,
+         '255.255.255.224' => 27 ,
+         '255.255.255.240' => 28 ,
+         '255.255.255.248' => 29 ,
+         '255.255.255.252' => 30 ,
+         '255.255.255.254' => 31 ,
+         '255.255.255.255' => 32 ,
+     );
+
+    return ( $clook{$mask} ) ;
+}
 
 sub by_ip {
     # used for sorting (by_ip)
@@ -5818,7 +6056,7 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> <n.n.n.n/mm> failover fixed",  
+           words => "<cr> <n.n.n.n/mm> failover fixed filter",  
            func => "cli_show_network", },
 
     'show network failover' => { 
@@ -5846,6 +6084,19 @@ my %COMMANDS = (
            func => "cli_show_fixed", },
     'show network fixed <mac>' => { 
            func => "cli_show_fixed", },
+
+    'show network filter' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_filter", },
+    'show network filter <name>' => { 
+           words => "<cr> entries|mac=<mac>|comment=<comment>",  
+           func => "cli_show_filter", },
+
+#     'show network filter <name> mac' => { 
+#            words => "<cr> <mac>",  
+#            func => "cli_show_filter", },
+#     'show network filter <name> mac <mac>' => { 
+#            func => "cli_show_filter", },
 
     'show network <n.n.n.n/mm> range' => { 
            words => "<cr> <ip>",  
@@ -5881,12 +6132,19 @@ my %COMMANDS = (
 
 # downloads
     'download' => { 
-           words => "export_dhcp_conf=<file> dhcp_conf=<file> database",  },
+           words => "support_bundle=<file> merge_log=<file> export_dhcp_conf=<file> dhcp_conf=<file> database",  },
 
     'download database' => { 
            words => "<file>",  },
     'download database <file>' => { 
            func => "cli_download_database", },
+
+    'download merge_log <file>' => { 
+           func => "cli_download_log", },
+    'download support_bundle <file>' => { 
+           words => "member=<ip>" },
+    'download support_bundle <file> member <ip>' => { 
+           func => "cli_download_log", },
 
 #     'download dhcp_conf' => { 
 #            words => "<file>",  },
@@ -6217,7 +6475,8 @@ my %COMMANDS = (
            words => "<cr> child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
     'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr> addreverse|disabled|comment=<comment>|member=<ip>|set=<name>|option=<name=value>",  
+           words => "<cr>
+           netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
@@ -6265,14 +6524,14 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
-           words => "<cr> comment=<comment>|info=<name=value>|option=<name=value>",  
+           words => "<cr> comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     #  - fixed without parent
     'configure network add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network add fixed <ip> <mac>' => { 
-           words => "<cr> comment=<comment>|info=<name=value>|option=<name=value>",  
+           words => "<cr> comment=<comment>|set=<name=value>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     'configure network <n.n.n.n/mm> add range' => { 
@@ -6353,6 +6612,12 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.24  2007/06/01 18:28:42  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: adds more options for fixed addrs, better reading of db
+# files
+#
 # Revision 3.23  2007/04/27 19:22:30  horne
 # BugId: 8205
 # Reviewer(s): Geoff, Dsmith
