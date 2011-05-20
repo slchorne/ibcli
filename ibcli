@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.22 2007/03/29 11:14:32 rpashby Exp $ ;
-my $REV = q$Revision: 3.22 $;
-# $Date: 2007/03/29 11:14:32 $
+my $ID  = q$Id: ibcli,v 3.23 2007/04/27 19:22:30 horne Exp $ ;
+my $REV = q$Revision: 3.23 $;
+# $Date: 2007/04/27 19:22:30 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -346,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.22 $.
+$Revision: 3.23 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -627,7 +627,7 @@ sub expand_line {
 
     &debug_cli (3,"linex input [$line]");
 
-    # protect stuff in quotes by inserting '%20s'
+    # protect stuff in quotes by urlencoding it
     # do this for all comments in the arg line
 
     my @commentargs = $line =~ /"([^"]*)"?/g;
@@ -649,7 +649,7 @@ sub expand_line {
             $line =~ s/"$ori_comment"/"$enc_comment"/;
         }
 
-        &debug_cli (3,"linex comment [$ori_comment][$enc_comment]");
+        &debug_cli (3,"linex enc-comment [$ori_comment][$enc_comment]");
 
     }
 
@@ -710,8 +710,8 @@ sub expand_line {
           # the bad word will be at the end of $expanded
           ( my $good = $line ) =~ s/(.*)$thisarg.*$/$1/;
 
-          # and unclean protected strings
-          $good =~ s/%20s/ /g ;
+#           # and unclean protected strings
+#           $good =~ s/%20s/ /g ;
 
           # and use this to put a marker at the right place
           my $slen = length ( $PROMPT) + length ( $good ) ;
@@ -738,8 +738,8 @@ sub expand_line {
     $expline =~ s/\s+$//;
     $matchline =~ s/\s+$//;
     # and unclean comments
-    $expline =~ s/%20s/ /g;
-    $matchline =~ s/%20s/ /g;
+#     $expline =~ s/%20s/ /g;
+#     $matchline =~ s/%20s/ /g;
 
     return ( $expline , $error , $matchline ) ;
 
@@ -1128,7 +1128,7 @@ sub do_func {
 
     # format the data for pretty printing
     if ( $DEBUG >= 2 ) {
-        &debug_cli (3,"obj in ----------- ($method)");
+        &debug_cli (2,"session method = ($method)");
         print Dumper ( \@data ) ;
     }
 
@@ -1141,8 +1141,8 @@ sub do_func {
           @ret_objects = $SESSION->$method ( @data ) ;
 
           
-          &debug_cli (2,"obj out -----------");
-          print Dumper ( \@ret_objects ) if $DEBUG >= 2 ;
+          &debug_cli (3,"obj out -----------");
+          print Dumper ( \@ret_objects ) if $DEBUG >= 3 ;
 
           # get errors
           my $result = $SESSION->status_code();
@@ -1175,6 +1175,8 @@ Don't expect the cli to work around requiring dumb extra arguments. When
 you look deep into the API you realise why they are there.
 
 =cut
+
+=head1 DNS Configuration
 
 =head2 Add a view to dns
 
@@ -1299,6 +1301,7 @@ sub cli_add_zone {
     my ($email)    = $line =~/ email (\S+)/ ;
     my ($serial)    = $line =~/ serial (\S+)/ ;
     my ($mname)    = $line =~/ mname (\S+)/ ;
+    my ($prefix)    = $line =~/ prefix (\S+)/ ;
 
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
     my (@forwarders) = $line =~/ forward_to (\S+)/g ;
@@ -1326,7 +1329,7 @@ sub cli_add_zone {
     my $obj = Infoblox::DNS::Zone->new ( "name" => $zone, );
 
     if ( $comment ) { $obj->comment ( $comment ) }
-
+    if ( $prefix ) { $obj->prefix ( $prefix ) }
 
     # find a member to be the primary (external or otherwise)
     # or is it a forward zone...
@@ -1704,6 +1707,9 @@ sub cli_add_host {
     foreach my $info ( @ipam ) {
         # break this onto name = value pairs
         my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
+
+        # convert the names to lowercase...
+        $name = lc ( $name ) ;
 
         # decode a quoted string
         my $cvalue = &decode_comment ( $value ) ;
@@ -2145,6 +2151,8 @@ sub cli_del_ptr {
 
 }
 
+=head1 DHCP Configuration
+
 =head2 Add a network
 
    conf network add 1.1.1.0/24
@@ -2303,9 +2311,11 @@ sub cli_delete_network {
 
 }
 
+#    [ ] change syntax
 =head2 Join Networks
 
-#    [ ] change syntax
+   ** This feature will soon change, use with caution **
+
    conf network 1.1.1.0/23 join /23 net 1.1.2.0/24
 
    # this will copy all the ranges etc from the network
@@ -2643,10 +2653,11 @@ Add a fixed address with comments
 sub cli_add_fixed_address {
     my ( $line ) = @_ ;
 
-    my ( $network ) = $line =~/ network (\S+)/ ;
+    my ( $network ) = $line =~/configure network ($REcidr)/ ;
     my ( $ip , $mac ) = $line =~/ add fixed (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     my @options  = $line =~/ option (\S+)/g ;
+    my @ipam  = $line =~/ info (\S+)/g ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -2660,10 +2671,14 @@ sub cli_add_fixed_address {
     &debug_cli(1,"addfix n($network) ip($ip) mac($mac) o(@options) c($comment)");
 
     my $obj = Infoblox::DHCP::FixedAddr->new (
-                  "network" => $network ,
+#                   "network" => $network ,
                   "ipv4addr" => $ip ,
                   "mac" => $mac ,
     );
+    # hack around adding fixed addrs with out a parent network...
+    unless ( $network eq "0.0.0.0/00" ) {
+        $obj->network ( $network ) ;
+    }
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
@@ -2691,7 +2706,29 @@ sub cli_add_fixed_address {
 
     }
     
-    
+    # now add IPAM info
+    foreach my $info ( @ipam ) {
+        # break this onto name = value pairs
+        my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
+        
+        # convert the names to lowercase...
+        $name = lc ( $name ) ;
+
+        &debug_cli(2,"addfix info ($name) v($value)");
+
+        # decode a quoted string
+        my $cvalue = &decode_comment ( $value ) ;
+
+        # and strip the quotes
+        $cvalue =~ s/^"//;
+        $cvalue =~ s/"$//;
+
+        &debug_cli(3,"addfix info($name) =($cvalue) [$value]");
+
+        # and set these directly
+        $obj->$name ( $cvalue );
+    }
+
     # addit
     &do_func("add",$obj);
 
@@ -3030,6 +3067,8 @@ sub cli_del_macfilteraddr {
 
 # admins and users
 
+=head1 Grid Configuration
+
 =head2 Adding Administrator groups
 
    configure admin add admin_group locals
@@ -3103,77 +3142,6 @@ sub cli_add_user {
 
 }
 
-# showing users
-
-=head2 Showing users and groups
-
-   show admin user <name>
-
-   show admin admin_group <name>
-
-=cut
-
-sub cli_show_admin {
-
-    my ( $line ) = @_ ;
-
-    my ( $type , $name ) = $line =~/^show admin (\S+) (\S+)/ ;
-
-    my %opthash ;
-
-    # do we get all values
-    my $search = ".*";
-    # or just one value
-    if ( $name ) { $search = $name ; }
-
-    if ( $type eq "user" ) {
-            %opthash = (
-                "object" => "Infoblox::Grid::Admin::User",
-                "name" => $search ,
-            );
-    }
-    else {
-            %opthash = (
-                "object" => "Infoblox::Grid::Admin::Group",
-                "name" => $search ,
-            );
-    }
-
-    my ( @results ) = &do_func("get", %opthash );
-
-    # walk the results
-    &dump_object ( @results ) ;
-
-}
-
-
-# global grid settings
-
-=head2 Show global Grid settings
-
-   show grid Infoblox
-
-=cut
-
-
-sub cli_show_grid {
-
-    my ( $line ) = @_ ;
-    # get the args from the line
-    ( my $gridname)  = $line =~/show grid (\S+)/ ;
-
-    # get the grid
-    my %opthash = (
-          "object" => "Infoblox::Cluster",
-          "name" => $gridname ,
-    );
-    my ( $grid ) = &do_func("get", %opthash );
-
-    if ( $grid ) {
-        &dump_object ( $grid ) ;
-    }
-
-}
 
 =head2 configure global Grid settings
 
@@ -3276,77 +3244,6 @@ sub cli_mod_grid {
         # push the changes, if we were ok
         &do_func("modify",$grid);
     }
-
-}
-
-# global member settings
-
-=head2 Show global Member settings
-
-Get a list of all grid members
-
-   show grid Infoblox member
-
-Get specific member details
-
-   show grid Infoblox member 45.0.12.20
-   
-
-=cut
-
-
-sub cli_show_member {
-
-    my ( $line ) = @_ ;
-    # get the args from the line
-    ( my $gridname)  = $line =~/show grid (\S+)/ ;
-
-    my ( $show_mems ) = $line =~/\b(member)\b/ ;
-    my ( $member ) = $line =~/member (\S+)/ ;
-
-    &debug_cli (2,"sgm g($gridname) sm($show_mems) m($member)");
-
-    # get all grid members
-    my %opthash = (
-          "object" => "Infoblox::Cluster::Member",
-          "name" => $gridname ,
-#           "cluster" => $gridname ,
-    );
-
-    # get all members
-    if ( $show_mems ) {
-        $opthash{'name'} = '.*'
-    }
-
-    # or get a member
-    if ( $member ) {
-        # then be specific
-        $opthash{'name'} = $member ;
-    }
-
-#     my ( $grid ) = &do_func("get", %opthash );
-    my @mems = &do_func("search", %opthash );
-
-    # for some reason search seems to be broken,
-    # so we will just filter after the search{}.
-
-#     if ( $grid ) {
-    &dump_object ( @mems ) ;
-
-#     if ( @mems ) {
-#         foreach my $mobj ( @mems ) {
-#             my $mname = $mobj->name();
-# 
-#             # just 1 member
-#             if ( $member ) {
-#                 next unless $member eq $mname ;
-#             }
-# 
-#             print "---\nMember : $mname\n";
-#             &dump_object ( $mobj ) ;
-# 
-#         }
-#     }
 
 }
 
@@ -3891,12 +3788,16 @@ sub cli_show_network {
         my @netlist ;
         foreach my $nobj (@nets) {
             my $name = $nobj->network();
+            my $comm = $nobj->comment();
 
+            $name = "$name ($comm)";
 
             # get the membership as well
             foreach my $sobj ( @{ $nobj->{'members'} } ) {
                 my $sname = $sobj->{'name'};
                 my $ip = $sobj->{'ipv4addr'};
+
+                # and append this as a string
                 my $mname = sprintf ( "%s(%s)", $sname,$ip ) ;
                 $name .= ", $mname";
             }
@@ -4087,9 +3988,14 @@ sub cli_show_fixed {
 #     );
 
     # get all fixed in a network ( 3.2r9 ? )
+    # to work around a bug, we have to protect the cidr
+    # and wildcard it
+    $net =~ s/\//\.\*/;
+
     my %opthash = (
            "object" => "Infoblox::DHCP::FixedAddr", 
            "network" => $net,
+#            "network" => "192.168.42.0.*24",
            "ipv4addr" => ".*",
     );
 
@@ -4116,9 +4022,9 @@ sub cli_show_fixed {
         my @fixedlist ;
         foreach my $nobj (@fixobjs) {
             my $net = $nobj->network();
-#             my $fip = $nobj->start_addr();
-#             my $lip = $nobj->end_addr();
-#             push @fixedlist , "  $net : $fip - $lip\n";
+            my $ip = $nobj->ipv4addr();
+            my $mac = $nobj->mac();
+            push @fixedlist , "  $net : $ip $mac\n";
         }
 
         # now print them (sorted)
@@ -4126,6 +4032,148 @@ sub cli_show_fixed {
 
     }
     
+}
+
+# global grid settings
+
+=head2 Show global Grid settings
+
+   show grid Infoblox
+
+=cut
+
+
+sub cli_show_grid {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/show grid (\S+)/ ;
+
+    # get the grid
+    my %opthash = (
+          "object" => "Infoblox::Cluster",
+          "name" => $gridname ,
+    );
+    my ( $grid ) = &do_func("get", %opthash );
+
+    if ( $grid ) {
+        &dump_object ( $grid ) ;
+    }
+
+}
+
+# global member settings
+
+=head2 Show global Member settings
+
+Get a list of all grid members
+
+   show grid Infoblox member
+
+Get specific member details
+
+   show grid Infoblox member 45.0.12.20
+   
+
+=cut
+
+
+sub cli_show_member {
+
+    my ( $line ) = @_ ;
+    # get the args from the line
+    ( my $gridname)  = $line =~/show grid (\S+)/ ;
+
+    my ( $show_mems ) = $line =~/\b(member)\b/ ;
+    my ( $member ) = $line =~/member (\S+)/ ;
+
+    &debug_cli (2,"sgm g($gridname) sm($show_mems) m($member)");
+
+    # get all grid members
+    my %opthash = (
+          "object" => "Infoblox::Cluster::Member",
+          "name" => $gridname ,
+#           "cluster" => $gridname ,
+    );
+
+    # get all members
+    if ( $show_mems ) {
+        $opthash{'name'} = '.*'
+    }
+
+    # or get a member
+    if ( $member ) {
+        # then be specific
+        $opthash{'name'} = $member ;
+    }
+
+#     my ( $grid ) = &do_func("get", %opthash );
+    my @mems = &do_func("search", %opthash );
+
+    # for some reason search seems to be broken,
+    # so we will just filter after the search{}.
+
+#     if ( $grid ) {
+    &dump_object ( @mems ) ;
+
+#     if ( @mems ) {
+#         foreach my $mobj ( @mems ) {
+#             my $mname = $mobj->name();
+# 
+#             # just 1 member
+#             if ( $member ) {
+#                 next unless $member eq $mname ;
+#             }
+# 
+#             print "---\nMember : $mname\n";
+#             &dump_object ( $mobj ) ;
+# 
+#         }
+#     }
+
+}
+
+# showing users
+
+=head2 Showing users and groups
+
+   show admin user <name>
+
+   show admin admin_group <name>
+
+=cut
+
+sub cli_show_admin {
+
+    my ( $line ) = @_ ;
+
+    my ( $type , $name ) = $line =~/^show admin (\S+) (\S+)/ ;
+
+    my %opthash ;
+
+    # do we get all values
+    my $search = ".*";
+    # or just one value
+    if ( $name ) { $search = $name ; }
+
+    if ( $type eq "user" ) {
+            %opthash = (
+                "object" => "Infoblox::Grid::Admin::User",
+                "name" => $search ,
+            );
+    }
+    else {
+            %opthash = (
+                "object" => "Infoblox::Grid::Admin::Group",
+                "name" => $search ,
+            );
+    }
+
+    my ( @results ) = &do_func("get", %opthash );
+
+    # walk the results
+    &dump_object ( @results ) ;
+
 }
 
 #
@@ -5770,7 +5818,7 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> <n.n.n.n/mm> failover",  
+           words => "<cr> <n.n.n.n/mm> failover fixed",  
            func => "cli_show_network", },
 
     'show network failover' => { 
@@ -5789,6 +5837,14 @@ my %COMMANDS = (
     'show network <n.n.n.n/mm> fixed <ip>' => { 
            func => "cli_show_fixed", },
     'show network <n.n.n.n/mm> fixed <mac>' => { 
+           func => "cli_show_fixed", },
+
+    'show network fixed' => { 
+           words => "<cr> <ip> <mac>",  
+           func => "cli_show_fixed", },
+    'show network fixed <ip>' => { 
+           func => "cli_show_fixed", },
+    'show network fixed <mac>' => { 
            func => "cli_show_fixed", },
 
     'show network <n.n.n.n/mm> range' => { 
@@ -6005,7 +6061,7 @@ my %COMMANDS = (
 
     'configure zone add <zone>' => { 
            words => "<cr>
-           nonauthorative|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
+           nonauthorative|prefix=<name>|view=<name>|comment=<comment>|mname=<name>|serial=<num>|email=<name>|nsgroup=<name>|import=<ip>|member=<ip>|delegate_to=<name,ip>|forward_to=<ip>|stealth_ext_secondary=<name,ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip>|stealth_secondary=<ip>",  
            func => "cli_add_zone", },
 
     'configure zone <zone>' => { 
@@ -6134,7 +6190,7 @@ my %COMMANDS = (
            func => "cli_delete_network", },
 
     'configure network add' => { 
-           words => "<n.n.n.n/mm> macfilter=<name> shared=<name>", },
+           words => "<n.n.n.n/mm> macfilter=<name> shared=<name> fixed", },
 
 # - macfilters -
     'configure network add macfilter <name>' => { 
@@ -6209,7 +6265,14 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
-           words => "<cr> comment=<comment>|option=<name=value>",  
+           words => "<cr> comment=<comment>|info=<name=value>|option=<name=value>",  
+           func => "cli_add_fixed_address", },
+
+    #  - fixed without parent
+    'configure network add fixed' => { 
+           words => "<ip>=<mac>",  },
+    'configure network add fixed <ip> <mac>' => { 
+           words => "<cr> comment=<comment>|info=<name=value>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     'configure network <n.n.n.n/mm> add range' => { 
@@ -6290,6 +6353,12 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.23  2007/04/27 19:22:30  horne
+# BugId: 8205
+# Reviewer(s): Geoff, Dsmith
+# Description: added 'prefix' for rfc 2317 zones, added IPAM for fixed
+# addrs
+#
 # Revision 3.22  2007/03/29 11:14:32  rpashby
 # BugId: 8205
 # Added view selection for delete zone
