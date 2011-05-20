@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.3 2006/05/01 22:48:18 horne Exp $ ;
-my $REV = q$Revision: 3.3 $;
-# $Date: 2006/05/01 22:48:18 $
+my $ID  = q$Id: ibcli,v 3.4 2006/05/01 22:58:26 horne Exp $ ;
+my $REV = q$Revision: 3.4 $;
+# $Date: 2006/05/01 22:58:26 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -344,7 +344,7 @@ my %COMMANDS = (
     'configure network add' => { 
            words => "<n.n.n.n/mm>", },
     'configure network add <n.n.n.n/mm>' => { 
-           words => "<cr> nozone|comment=<comment>|member=<ip>|option=<name,value>",  
+           words => "<cr> addreverse|comment=<comment>|member=<ip>|option=<name,value>",  
            func => "cli_add_network", },
 
     'configure network <n.n.n.n/mm>' => { 
@@ -630,7 +630,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.3 $
+$Revision: 3.4 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -2019,7 +2019,7 @@ sub cli_add_network {
     my ( $network ) = $line =~/ network add (\S+)/ ;
     my ( $parent )  = $line =~/ parent (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
-    my ( $nozone ) = $line =~/ (nozone)/ ;
+    my ( $addrev ) = $line =~/ (addreverse)/ ;
 
     my @options  = $line =~/ option (\S+)/g ;
     my @members  = $line =~/ member (\S+)/g ;
@@ -2032,11 +2032,12 @@ sub cli_add_network {
                    "network" => $network ,
                    "comment" => $comment ,
                    "network_container" => $parent ,
+                   "auto_create_reversezone" => "FALSE"
                 );
 
     # auto create reverses ?
-    if ( $nozone ) {
-        $net->auto_create_reversezone ( "FALSE" );
+    if ( $addrev ) {
+        $net->auto_create_reversezone ( "TRUE" );
     }
 
     # members :
@@ -3109,6 +3110,11 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.4  2006/05/01 22:58:26  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: reverse the default syntax for add zone
+#
 # Revision 3.3  2006/05/01 22:48:18  horne
 # BugId: 8205
 # Reviewer(s): geoff
