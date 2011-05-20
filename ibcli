@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.7 2006/06/05 17:40:34 horne Exp $ ;
-my $REV = q$Revision: 3.7 $;
-# $Date: 2006/06/05 17:40:34 $
+my $ID  = q$Id: ibcli,v 3.8 2006/06/18 04:44:50 horne Exp $ ;
+my $REV = q$Revision: 3.8 $;
+# $Date: 2006/06/18 04:44:50 $
 #
 
 # (c) Copyright: Geoff horne, SLC 2001-2005
@@ -72,7 +72,7 @@ use lib "lib" ;
 use Text::Abbrev ;
 use Data::Dumper ;
 use Getopt::Long;
-use Infoblox ;
+use Infoblox;
 
 # globals
 $Data::Dumper::Sortkeys = 1 ;
@@ -318,7 +318,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.7 $
+$Revision: 3.8 $
 there were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -588,10 +588,15 @@ sub expand_line {
     # do this for all args in the string...
 
     my @cargs = $line =~ /"([^"]*)"?/g;
-    foreach my $comment ( @cargs ) {
-        ( my $pcomment = $comment ) =~ s/\s/%20s/g;
-        if ($comment) {
-            $line =~ s/$comment/$pcomment/;
+    foreach my $ori_comment ( @cargs ) {
+        (my $new_comment = $ori_comment) =~ s/\[|\]|\(|\)/!/g;
+        ( my $pcomment = $new_comment ) =~ s/\s/%20s/g;
+        $ori_comment =~ s/\(/\\(/g;
+        $ori_comment =~ s/\)/\\)/g;
+        $ori_comment =~ s/\[/\\[/g;
+        $ori_comment =~ s/\]/\\]/g;
+        if ($ori_comment) {
+            $line =~ s/$ori_comment/$pcomment/;
         }
     }
 
@@ -606,22 +611,13 @@ sub expand_line {
        &debug_cli (3,"linex -------");
 
        my $origarg  = $thisarg ;
-#        # [ ] alternate words - we need to undo them here
-#        #     but we can't because the word wasnt expanded
-#        foreach my $alt ( keys %ALTERNATES ) {
-#           my $other = $ALTERNATES{$alt};
-#           if ( $other eq $origarg ) {
-#              # undo the alternate word
-#              $thisarg = $alt ;
-#           }
-#        }
 
        &debug_cli (3,"linex arg     a($thisarg)<-($origarg)");
 #        &debug_cli (3,"linex partial e[$expline]");
        &debug_cli (3,"linex partial m[$matchline]");
 
        # hide special chars (stops us exiting)
-       $thisarg =~ s/\[|\]|\(|\)/!/;
+       $thisarg =~ s/\[|\]|\(|\)/!/g;
 
        # we now have the short word, 
        # we have to look at the matchline to get some context
@@ -770,16 +766,6 @@ sub get_context {
     my @words ;
     if ( $COMMANDS{"$line"}{'words'} ) {
        my $wordlist = $COMMANDS{"$line"}{'words'} ;
-
-#        # [ ] alternate words - we could insert them here
-#        # but we need to un-insert them here as well
-#        foreach my $alt ( keys %ALTERNATES ) {
-#           my $other = $ALTERNATES{$alt};
-#           &debug_cli (4,"contxt alt ($alt) + ($other)");
-# 
-#           # and sub it in
-#           $wordlist =~ s/$alt /$alt $other /;
-#        }
 
        # We need to clean up some of the odd syntaxes the list
        # of words, so we do neat things before creating an array
@@ -967,6 +953,27 @@ sub expand_word {
 
     &debug_cli (5,"wordx arg [$inword] regex #$regex#");
 
+    # WGDH--
+    # now we do something tricky with alternates.
+    # We INJECT them into the list of legal words here, if the real word
+    # was legal. this lets us to the expansion.
+    # THEN, if we do expand the word, we undo it later.
+
+    my $altreal ;
+    my $altword ;
+    foreach my $realword ( keys %ALTERNATES ) {
+        my $alt = $ALTERNATES{$realword};
+	# if the real word is there, add an alternate
+        if ( grep ( /$realword$/ , @words ) ) {
+            push @words , $alt ;
+	    # save these
+	    $altreal = $realword ;
+	    $altword = $alt ;
+        }
+    }
+    &debug_cli (4,"wordx words [@words]");
+    # --WGDH--
+
     # generate abbreviations
     my %abbrevs = abbrev ( @words ) ;
     # if this is an abbrev of a word...
@@ -984,7 +991,7 @@ sub expand_word {
     }
     else {
 
-       # no match , find alternatives
+       # no match , resolve ambiguities
        @matches = sort grep ( /^$regex/ , @words ) ;
        my @specials = sort grep ( /^</ , @words ) ;
 
@@ -1029,8 +1036,19 @@ sub expand_word {
 
     }
 
+    # WGDH--
+    # now we UNDO the alternate words by substuting it back
+    # and we have to match on the expansion
+    if ( $expword =~ /^$altword/ ) {
+	# do these in the right order...
+	$expword =~ s/$altword/$altreal/;
+
+        &debug_cli (4,"wordx alt ($inword)->[$expword]");
+    }
+    # --WGDH
+
     # return the results
-    &debug_cli (4,"wordx word  ($inword)>[$expword]");
+    &debug_cli (4,"wordx word  ($inword)->[$expword]");
     return ( $completed , $spectype , $expword , @matches ) ;
 }
 
@@ -1987,8 +2005,10 @@ sub cli_add_sub_network {
 
     # we hack this by change the arg list to the correct syntax
     # and just calling cli_add_network
+    
 
     my ( $par , $sub ) = $line =~/ network (\S+) add network (\S+)/ ;
+
 
     $line =~ s/ network $par add network $sub/ network add $sub parent $par/;
 
@@ -2015,8 +2035,9 @@ sub cli_add_fixed_address {
     my ( $network ) = $line =~/ network (\S+)/ ;
     my ( $ip , $mac ) = $line =~/ add fixed (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+    my @options  = $line =~/ option (\S+)/g ;
 
-    &debug_cli(1,"addfix n($network) ip($ip) mac($mac) c($comment)");
+    &debug_cli(1,"addfix n($network) ip($ip) mac($mac) o(@options) c($comment)");
 
     my $obj = Infoblox::DHCP::FixedAddr->new (
                   "network" => $network ,
@@ -2026,6 +2047,31 @@ sub cli_add_fixed_address {
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
+    # options
+    if ( @options ) {
+
+       my @opt_list ;
+       foreach my $optval ( @options ) {
+          # set some custom options;
+          # split on the ','
+          my ( $opt , $val ) = $optval =~  /^(.*?)=(.*)/ ;
+   
+          &debug_cli(2,"addfix o($opt) v($val)");
+   
+          my ($opt_obj,$key)=make_dhcp_option($DEBUG,$opt,$val) ;
+
+          # only add options we recognise
+          if ( $opt_obj ) {
+            push @opt_list , $opt_obj ;
+          }
+
+       }
+
+       $obj->options ( \@opt_list ) ;
+
+    }
+    
+    
     # addit
     &do_func("add",$obj);
 
@@ -2177,6 +2223,114 @@ sub cli_del_dhcp_range {
     &do_func("remove",$obj);
 
 }
+
+=head2 Add a DHCP filter
+
+Filters can take many forms, so you need to be specific
+
+Add a mac address filter:
+
+    conf dhcpfilter add macfilter my_filter
+
+=cut
+
+sub cli_add_macfilter {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ macfilter (\S+)/ ;
+
+    &debug_cli (1,"addmfil n($name)");
+
+    #[ ] what about vendor prefix ?
+    my $obj = Infoblox::DHCP::Filter::MAC->new (
+                   "name" => $name ,
+                );
+
+    &do_func("add",$obj);
+
+}
+
+
+=head2 Remove a DHCP filter
+
+Add a mac address filter:
+
+    conf dhcpfilter del macfilter my_filter
+
+=cut
+
+sub cli_del_macfilter {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ macfilter (\S+)/ ;
+
+    &debug_cli (1,"delmfil n($name)");
+
+    #[ ] what about vendor prefix ?
+    my $obj = Infoblox::DHCP::Filter::MAC->new (
+                   "name" => $name ,
+                );
+
+    &do_func("remove",$obj);
+
+}
+
+=head2 Add a mac address to a filter
+
+    conf dhcpfilter my_filter add macaddress aa:bb:cc:11:22:33
+
+Add a mac address to a filter with comments
+
+    conf dhcpfilter my_filter add mac aa:bb:cc:11:22:33 comment "my comment"
+
+=cut
+
+sub cli_add_macfilteraddr {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ dhcpfilter (\S+)/ ;
+    my ( $mac ) = $line =~/ macaddress (\S+)/ ;
+    my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
+
+    &debug_cli (1,"addmaddr f($name) m($mac) c($comment)");
+
+    my $obj = Infoblox::DHCP::MAC->new (
+                   "filter" => $name ,
+                   "mac" => $mac ,
+                   "comment" => $comment ,
+                );
+
+    &do_func("add",$obj);
+
+}
+
+=head2 remove a mac address from a filter
+
+    conf dhcpfilter my_filter delete macaddress aa:bb:cc:11:22:33
+
+=cut
+
+sub cli_del_macfilteraddr {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ dhcpfilter (\S+)/ ;
+    my ( $mac ) = $line =~/ macaddress (\S+)/ ;
+
+    &debug_cli (1,"delmaddr f($name) m($mac)");
+
+    my $obj = Infoblox::DHCP::MAC->new (
+                   "filter" => $name ,
+                   "mac" => $mac ,
+                );
+
+    &do_func("remove",$obj);
+
+}
+
 
 # [ ] dns settings
 
@@ -2591,8 +2745,7 @@ sub cli_show_lease {
 
 sub cli_show_network {
     #
-    # splitting either creates ALL networks or only the ones
-    # we have to have (which could be none)
+    # try and shopw a network
 
     my ( $line ) = @_ ;
 
@@ -2601,17 +2754,20 @@ sub cli_show_network {
 
     &debug_cli(2,"shown n($net)");
 
+    my $search = ".*";
+    if ( $net ) { $search = $net ; }
+
     # get all the zones
     my %opthash = (
            "object" => "Infoblox::DHCP::Network", 
-           "network" => ".*" 
+           "network" => $search,
     );
 
     my @nets = &do_func("search", %opthash );
 
     my @netlist ;
-    foreach my $net (@nets) {
-      my $name = $net->name();
+    foreach my $nobj (@nets) {
+      my $name = $nobj->network();
       push @netlist , "  $name\n";
     }
 
@@ -2694,18 +2850,15 @@ sub cli_add_server {
       else {
          $ONLINE = 1 ;
          $PROMPT = "$user\@$server > " ;
-         $el->set_prompt ( $PROMPT );
+         # check for editline
+         if ( $USE_EL ) {
+             $el->set_prompt ( $PROMPT );
+         }
+         else {
+            print "$PROMPT";
+         }
       }
 
-#     if ( $ONLINE ) {
-#     }
-#     else {
-#       print "OFFLINE!\n" ;
-#     }
- 
-    # update the prompt ;
-
-    
 
 }
 
@@ -3202,6 +3355,7 @@ sub get_custom_options {
           $name = $lookup{$opt};
           
           # strip and clean the answers
+          $number =~ s/:.*//g;
           $number =~ s/\D//g;
           $name =~ s/.*: //;
        }
@@ -3381,6 +3535,8 @@ sub init_commands {
 #     so we need a val|val syntax and a val?|val? syntax
 #     ( use perlre's '?' for 0 or 1 )
 
+# comm list
+
 
 my %COMMANDS = (
 
@@ -3427,7 +3583,11 @@ my %COMMANDS = (
            func => "cli_show_zone", },
 
     'show network' => { 
+           words => "<cr> <n.n.n.n/mm>",  
            func => "cli_show_network", },
+    'show network <n.n.n.n/mm>' => { 
+           func => "cli_show_network", },
+
     'show lease' => { 
            words => "<ip> <mac>", },
 #            func => "cli_show_lease", },
@@ -3452,7 +3612,7 @@ my %COMMANDS = (
            func => "cli_restart", },
 
     'configure' => { 
-           words => "debug server zone network grid" , },
+           words => "debug server zone network grid dhcpfilter" , },
 
     'configure debug' => { 
            words => "<num>", },
@@ -3606,6 +3766,30 @@ my %COMMANDS = (
     'configure zone <zone> add cname <ip> <name> comment <comment>'=> { 
            func => "cli_add_ptr", },
 
+    'configure dhcpfilter' => { 
+           words => "<name> add delete", },
+    'configure dhcpfilter add' => { 
+           words => "macfilter=<name>", },
+    'configure dhcpfilter delete' => { 
+           words => "macfilter=<name>", },
+    'configure dhcpfilter add macfilter <name>' => { 
+           func => "cli_add_macfilter", },
+    'configure dhcpfilter delete macfilter <name>' => { 
+           func => "cli_del_macfilter", },
+
+   # [ ] comments..
+    'configure dhcpfilter <name>' => { 
+           words => "add delete", },
+    'configure dhcpfilter <name> add' => { 
+           words => "macaddress=<mac>", },
+    'configure dhcpfilter <name> delete' => { 
+           words => "macaddress=<mac>", },
+    'configure dhcpfilter <name> add macaddress <mac>' => { 
+           words => "<cr> comment=<comment>", 
+           func => "cli_add_macfilteraddr", },
+    'configure dhcpfilter <name> delete macaddress <mac>' => { 
+           func => "cli_del_macfilteraddr", },
+
     'configure network' => { 
            words => "add delete <n.n.n.n/mm>", },
 
@@ -3654,13 +3838,13 @@ my %COMMANDS = (
     'configure network <n.n.n.n/mm> add network' => { 
            words => "<n.n.n.n/mm>",  },
     'configure network <n.n.n.n/mm> add network <n.n.n.n/mm>' => { 
-#            words => "option member",  
+           words => "<cr> addreverse|comment=<comment>|member=<ip>|option=<name=value>",
            func => "cli_add_sub_network", },
 
     'configure network <n.n.n.n/mm> add fixed' => { 
            words => "<ip>=<mac>",  },
     'configure network <n.n.n.n/mm> add fixed <ip> <mac>' => { 
-           words => "<cr> comment=<comment>",  
+           words => "<cr> comment=<comment>|option=<name=value>",  
            func => "cli_add_fixed_address", },
 
     'configure network <n.n.n.n/mm> add range' => { 
@@ -3741,6 +3925,12 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.8  2006/06/18 04:44:50  horne
+# BugId: 8205
+# Reviewer(s): Geoff
+# Description: rolled in fixed for networks, added mac filter support
+# fixed bugs with winders editline, fixed show network
+#
 # Revision 3.7  2006/06/05 17:40:34  horne
 # BugId: 8205
 # Reviewer(s): Geoff
