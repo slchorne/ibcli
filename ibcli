@@ -1,11 +1,11 @@
 #!/usr/bin/perl
 #
-my $ID  = q$Id: ibcli,v 3.25 2007/06/01 20:51:49 horne Exp $ ;
-my $REV = q$Revision: 3.25 $;
-# $Date: 2007/06/01 20:51:49 $
+my $ID  = q$Id: ibcli,v 3.26 2007/06/06 20:08:52 rpashby Exp $ ;
+my $REV = q$Revision: 3.26 $;
+# $Date: 2007/06/06 20:08:52 $
 #
 
-# (c) Copyright: Geoff horne, SLC 2001-2005
+# (c) Copyright: Geoff horne, SLC 2001-2007
 #               All rights reserved
 #
 # THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS `AS IS' AND
@@ -346,7 +346,7 @@ The INFOBLOX CLI, a users guide
 =head1 Description
 
 This is 
-$Revision: 3.25 $.
+$Revision: 3.26 $.
 There were previous versions that were even worse, this one is pretty bad,
 it really is beta code.  But it is a start.
 
@@ -1972,7 +1972,7 @@ sub cli_del_mx {
 
    conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 addreverse
 
-   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 view "foo"
+   conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 view foo
 
    conf zone foo.com add bulkhost my_prefix 1.2.3.10 1.2.3.20 comment "bah"
 
@@ -1986,6 +1986,7 @@ sub cli_add_bulk {
     my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
     my ( $addrev ) = $line =~/ addreverse/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    my ( $vname )     = $line =~/view (\S+)/ ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
@@ -2002,6 +2003,10 @@ sub cli_add_bulk {
 
     if ( $comment ) { $obj->comment ( $comment ) }
     if ( $addrev ) { $obj->reverse ( "TRUE" ) }
+    if ( $vname ) {
+        my $view = Infoblox::DNS::View->new ( name => $vname, );
+        $obj->views ( [ $view ] ) ;
+    }
 
     # addit
     &do_func("add",$obj);
@@ -6420,15 +6425,18 @@ my %COMMANDS = (
     'configure zone <zone> add bulkhost <name> <ip>' => { 
            words => "<ip>", },
     'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
-           words => "<cr> addreverse|comment=<comment>", 
+           words => "<cr> addreverse|comment=<comment>|view=<name>", 
            func => "cli_add_bulk", },
-    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse'=> { 
-	   words => "<cr> comment=<comment>",
-           func => "cli_add_bulk", },
-    'configure zone <zone> add bulkhost <name> <ip> <ip> comment <comment>'=> { 
-           func => "cli_add_bulk", },
-    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse comment <comment>'=> { 
-           func => "cli_add_bulk", },
+#    'configure zone <zone> add bulkhost <name> <ip> <ip>' => { 
+#           words => "<cr> addreverse|comment=<comment>", 
+#           func => "cli_add_bulk", },
+#    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse'=> { 
+#	   words => "<cr> comment=<comment>",
+#           func => "cli_add_bulk", },
+#    'configure zone <zone> add bulkhost <name> <ip> <ip> comment <comment>'=> { 
+#           func => "cli_add_bulk", },
+#    'configure zone <zone> add bulkhost <name> <ip> <ip> addreverse comment <comment>'=> { 
+#           func => "cli_add_bulk", },
 
     'configure zone <zone> add cname' => { 
            words => "<name>", },
@@ -6623,6 +6631,15 @@ sub debug_cli {
 #############################
 
 # $Log: ibcli,v $
+# Revision 3.26  2007/06/06 20:08:52  rpashby
+# BugId: 8205
+# Added support for adding bulk hosts within a view
+#
+# Revision 3.26  2007/06/06 14:40:30  pashby
+# BugId: 8205
+# Reviewer(s): Ron
+# Description: added fix to enable adding bulk host in views
+#
 # Revision 3.25  2007/06/01 20:51:49  horne
 # BugId: 8205
 # Reviewer(s): Geoff
