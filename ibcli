@@ -1,14 +1,14 @@
 #!/usr/bin/perl
 #
+# Version control...
 my $ID  = q$Id$ ;
 my $SRTAG = q$Revision$ ;
 my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
 my $REV = "Revision 3.$SVNREV";
 # $Date$
-# $Revision$
 #
 
-# (c) Copyright: Geoff horne, SLC 2001-2009
+# (c) Copyright: Geoff horne, SLC 2001-2011
 #               All rights reserved
 #
 # THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS `AS IS' AND
@@ -115,6 +115,7 @@ my %SPECOPS = (
      '<name>' => '^\S+$',
      '<target>' => '^\S+$',
      '<value>' => '^\S+$',
+     '<object>' => '^\S+$',
      '<read,write,deny>' => '^\S+$',
      '<name=value>' => '^\S+=\S+$',
      '<canonical>' => '^\S+$',
@@ -470,26 +471,21 @@ a wrapper to any API we like, it is not really DNS specific.
 
 Simple example, adding a zone
 
-   server ? > conf server 10.0.1.224 user admin pass infoblox
-   admin@10.0.1.224 > conf zone add infoblox.com
-   admin@10.0.1.224 > conf zone add sales.infoblox.com
+  Start ibcli
+
+    ibcli -s 10.0.1.114 -u admin -p infoblox
+
+  Then run some commands
+
+    admin@10.0.1.224 > conf zone add infoblox.com
+    admin@10.0.1.224 > conf zone add sales.infoblox.com
 
 A more detailed example
 
-   server ? > conf server 10.0.1.224 user admin pass infoblox
    admin@10.0.1.224 > conf zone add com
    admin@10.0.1.224 > conf zone add foo.com
    admin@10.0.1.224 > conf zone foo.com add host test 1.2.3.4
    admin@10.0.1.224 > conf zone delete bar.com
-
-A complex example, multiple connections
-
-   server ? > conf server 10.0.1.224 user admin pass infoblox
-   admin@10.0.1.224 > conf zone add sales.foo.com
-
-   # now switch servers
-   admin@10.0.1.224 > conf server 10.0.1.200 user admin1 pass infoblox1
-   admin1@10.0.1.220 > conf zone add biz.foo.com
 
 =head1 Installation
 
@@ -498,9 +494,6 @@ It should run 'as is' from a uniz machine.
 If you have a windows OS then you will have a few hurdles to cross:
 
 =over
-
-#TODO some sort of testing
-
 
 =item * Rename the script to 'ibcli.pl'. 
 
@@ -517,7 +510,7 @@ you'll need:
 
    o Text::Abbrev
 
-   o Term::EditLine
+   o Term::EditLine (good luck with that)
 
 =back
 
@@ -1495,12 +1488,13 @@ sub cli_del_view {
 
     &debug_cli(1,"delv v($view)");
 
-    my $obj = Infoblox::DNS::View->new (
-                  "name" => "$view",
-    );
+    my ( $obj ) = &do_func("get", (
+            "object" => "Infoblox::DNS::View", 
+            "name" => $view
+        ));
 
-    # addit
-    &do_func("remove",$obj);
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -1552,13 +1546,13 @@ sub cli_del_shared_group {
 
     &debug_cli(1,"delv v($name)");
 
-    my $obj = Infoblox::DNS::SRG->new (
-                  "name" => "$name",
-    );
+    my ( $obj ) = &do_func("get", (
+            "object" => "Infoblox::DNS::SRG", 
+            "name" => $name
+        ));
 
-    # addit
-    &do_func("remove",$obj);
-
+    # trashit
+    &do_func("remove",$obj) if $obj;
 }
 
 =head2 Add a Zone
@@ -2057,26 +2051,21 @@ sub cli_delete_zone {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    ( my $zone)     = $line =~/ zone delete (\S+)/ ;
-    my (@views) = $line =~/ view (\S+)/g ;
-    &debug_cli(1,"remz n($zone) v(@views)");
+    ( my $zone) = $line =~/ zone delete (\S+)/ ;
+    ( my $view) = $line =~/ view (\S+)/ ;
+    $view = 'default' unless $view ;
 
-    my $obj = Infoblox::DNS::Zone->new (
-                  "name" => $zone,
+    &debug_cli(1,"remz n($zone) v($view)");
+
+    my %opthash = (
+        object => "Infoblox::DNS::Zone",
+        name => $zone,
     );
+    $opthash{'view'} = $view if $view ;
 
-    # do we remove it to a view ?
-    if ( @views ) {
-        my @view_objs ;
-        foreach my $vname ( @views ) {
-            my $vstring = decode_comment( $vname ) ;
-            my $view = Infoblox::DNS::View->new ( "name" => $vstring );
-            push @view_objs , $view ;
-        }
-        $obj->views ( \@view_objs ) ;
-    }
+    my ( $obj ) = &do_func("get",%opthash);
 
-    &do_func("remove",$obj);
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -2116,6 +2105,12 @@ sub cli_copy_zone {
 You can also call this as a grid command
 
     conf grid Infoblox dns add ns_group internal ...
+    
+If you want to modify a ns_group, secondaries and external_secondaries
+will get ADDED to the current list, (instead of replacing the current
+list)
+
+    conf zone mod ns_group Internal secondary 45.0.128.20
 
 =cut
 
@@ -2130,7 +2125,7 @@ sub cli_add_nsgroup {
     my ( $line ) = @_ ;
 
     # get the args from the line
-    my ($type , $name)     = $line =~/ zone|dns (add|modify) ns_group (\S+)/ ;
+    my ($type , $name)     = $line =~/ (add|modify) ns_group (\S+)/ ;
     my ($pri)      = $line =~/ primary (\S+)/ ;
     my ($stealth_pri)  = $line =~/ stealth_primary (\S+)/ ;
     my (@ext_pri) = $line =~/ ext_primary (\S+)/g ;
@@ -2139,10 +2134,12 @@ sub cli_add_nsgroup {
     my (@stealth_sec)     = $line =~/ stealth_secondary (\S+)/g ;
     my (@stealth_ext_sec) = $line =~/ stealth_ext_secondary (\S+)/g ;
 
-    &debug_cli (1,"addnsg n($name) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
+    &debug_cli (1,"addnsg t($type) n($name) p($pri) ep(@ext_pri) s(@sec) es(@ext_sec)");
 
     # create the zone...
     my $obj;
+
+    my @sec_svrs ;
 
     if ( $type eq "modify" ) {
         # get the zone 
@@ -2168,6 +2165,9 @@ sub cli_add_nsgroup {
         else {
             $obj = shift @groups ;
         }
+
+        # set some lists
+        @sec_svrs = @{ $obj->secondaries() };
 
     }
 
@@ -2226,8 +2226,6 @@ sub cli_add_nsgroup {
     }
 
     # find secondaries
-    my @sec_svrs ;
-
     foreach my $sec_ip ( @sec ) {
        # normaal members
        push @sec_svrs , Infoblox::DNS::Member->new(
@@ -2292,6 +2290,7 @@ sub cli_add_nsgroup {
     }
 
     # add any secondaries we found parsing the args
+#     print Dumper ( \@sec_svrs ) ;
      
     if ( @sec_svrs ) {
         $obj->secondaries ( \@sec_svrs ) ;
@@ -2320,11 +2319,13 @@ sub cli_del_nsgroup {
     ( my $name)     = $line =~/ zone delete ns_group (\S+)/ ;
     &debug_cli(1,"remnsg n($name)");
 
-    my $obj = Infoblox::Grid::DNS::Nsgroup->new (
-                  "name" => $name,
+    my %opthash = (
+        object => "Infoblox::Grid::DNS::Nsgroup",
+        name => $name,
     );
+    my ( $obj ) = &do_func("get",%opthash);
 
-    &do_func("remove",$obj);
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -2351,6 +2352,23 @@ mac address with ':<mac>' to the ipaddress
 To add hosts with fixed addresses, and a fixed addr template
 
    conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03 template mytemp
+
+Add Hosts with Fixed addreses and settings,
+The settings could be on the fixed address, or the host itself. So you
+have 2 directives
+
+ - to set something on the Fixed Address :
+ 
+   conf zone add host ... set <method>=<value>
+
+ - to set something on the Host Address :
+ 
+   conf zone add host ... set_host <method>=<value>
+
+Add hosts with fixed addresses and options.
+only the fixed addr can take options, so use the option directive
+
+   conf zone add host ... option <num>=<value>
 
 Add hosts with aliases (CNAMES)
 
@@ -2523,6 +2541,8 @@ sub cli_add_host {
 
     }
 
+#     print "ip[$ip] [@ips]\n";
+
     # everything here is conditional cos we may
     # be in modify mode
 
@@ -2599,30 +2619,21 @@ sub cli_del_host {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host ) = $line =~/host (\S+)/ ;
     my ( $vname )     = $line =~/ view (\S+)/ ;
+    $vname = 'default' unless $vname ;
 
     my $name = fqdn ( $host , $zone ) ;
 
-#     $host =~ s/"//g;
-#     $zone =~ s/"//g;
-#     my $name ;
-#     if ( $host and $zone ) { $name = "$host.$zone"; }
-#     elsif ( $host and ! $zone ) { $name = "$host"; }
-#     else { $name = $zone }
-
     &debug_cli(1,"delh n($name) ");
 
-    # create the object
-    my $obj = Infoblox::DNS::Host->new (
-                  "name" => "$name",
+    my %opthash = (
+        object => "Infoblox::DNS::Host",
+        name => $name,
     );
+    $opthash{'view'} = $vname if $vname ;
 
-    if ( $vname ) {
-        my $view = Infoblox::DNS::View->new ( name => $vname, );
-        $obj->views ( [ $view ] ) ;
-    }
+    my ( $obj ) = &do_func("get",%opthash);
 
-    # scrubit
-    &do_func("remove",$obj);
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -2715,22 +2726,23 @@ sub cli_del_a_rec {
 
     my $name = fqdn ( $host , $zone )  ;
 
-    my $obj = Infoblox::DNS::Record::A->new (
-                  "name" => "$name",
-                  "ipv4addr" => "$ip",
-    );
-
     # views
     my ( $view ) = $line =~/ view (\S+)/ ;
-    if ( $view ) {
-        my $view = Infoblox::DNS::View->new ( name => $view, );
-        $obj->views ( [ $view ] ) ;
-    }
+    $view = 'default' unless $view ;
 
     &debug_cli(1,"del_a n($name) n($ip) v($view)");
 
-    # addit
-    &do_func("remove",$obj);
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DNS::Record::A",
+        name => $name,
+        ipv4addr => $ip
+    );
+    $opthash{'view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -2805,22 +2817,24 @@ sub cli_del_aaaa {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $ip ) = $line =~/ aaaa (\S+) (\S+)/ ;
 
-    my $obj = Infoblox::DNS::Record::AAAA->new (
-                  "name" => "$host.$zone",
-                  "ipv6addr" => "$ip",
-    );
+    my $name = fqdn ( $host , $zone )  ;
 
-    # views
     my ( $view ) = $line =~/ view (\S+)/ ;
-    if ( $view ) {
-        my $view = Infoblox::DNS::View->new ( name => $view, );
-        $obj->views ( [ $view ] ) ;
-    }
+    $view = 'default' unless $view ;
 
-    &debug_cli(1,"del_4a n($host) n($ip) ");
+    &debug_cli(1,"del_a n($name) n($ip) v($view)");
 
-    # addit
-    &do_func("remove",$obj);
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DNS::Record::AAAA",
+        name => $name,
+        ipvvaddr => $ip
+    );
+    $opthash{'view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -2845,12 +2859,14 @@ sub cli_add_mx {
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
 
-    $host =~ s/"//g;
-    if ( $host ) { $host = "$host.$zone"; }
-    else { $host = $zone }
+    my $name = fqdn( $host , $zone ) ;
+
+#     $host =~ s/"//g;
+#     if ( $host ) { $host = "$host.$zone"; }
+#     else { $host = $zone }
 
     my $obj = Infoblox::DNS::Record::MX->new (
-                    "name" => "$host",
+                    "name" => $name,
                     "pref" => $pref ,
                     "exchanger" => $dest ,
                     "comment" => $comment,
@@ -2862,7 +2878,7 @@ sub cli_add_mx {
         require_api( "4.2r1-0" ) or return;
 
         $obj = Infoblox::DNS::SharedRecord::MX->new (
-                    "name" => "$host",
+                    "name" => $name,
                     "pref" => $pref ,
                     "exchanger" => $dest ,
                     "comment" => $comment,
@@ -2870,7 +2886,7 @@ sub cli_add_mx {
         );
     }
 
-    &debug_cli(1,"add_mx n($host) n($pref) c($comment)");
+    &debug_cli(1,"add_mx n($host) p($pref) c($comment)");
 
     if ( $comment ) { $obj->comment ( $comment ) }
 
@@ -2903,23 +2919,27 @@ sub cli_del_mx {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $host , $pref , $dest ) = $line =~/ mx (\S+) (\S+) (\S+)/ ;
 
-    my $obj = Infoblox::DNS::Record::MX->new (
-                    "name" => "$host.$zone",
-                    "pref" => $pref ,
-                    "exchanger" => $dest ,
+    my $name = fqdn( $host , $zone ) ;
+
+    my %opthash = (
+            "object" => "Infoblox::DNS::Record::MX",
+            "name" => $name,
+            "pref" => $pref ,
+            "exchanger" => $dest ,
     );
 
-    # views
     my ( $view ) = $line =~/ view (\S+)/ ;
     if ( $view ) {
-        my $view = Infoblox::DNS::View->new ( name => $view, );
-        $obj->views ( [ $view ] ) ;
+        $opthash{'network_view'} = $view ;
     }
+    my ( $obj ) = &do_func("get", %opthash );
 
-    &debug_cli(1,"del_mx n($host) n($pref) ");
+    &debug_cli(1,"del_mx n($host) p($pref) ");
 
     # addit
-    &do_func("remove",$obj);
+    if ( $obj ) {
+        &do_func("remove",$obj);
+    }
 
 }
 
@@ -3058,17 +3078,25 @@ sub cli_del_bulk {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $prefix , $fip , $lip ) = $line =~/ bulkhost (\S+) (\S+) (\S+)/ ;
 
-    &debug_cli(1,"delbh z($zone) p($prefix) n($fip,$lip) ");
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    $view = 'default' unless $view ;
 
-    my $obj = Infoblox::DNS::BulkHost->new (
-                   "zone" => $zone ,
-                   "prefix" => $prefix ,
-                   "start_addr" => $fip ,
-                   "end_addr" => $lip ,
-      );
+    &debug_cli(1,"delbh z($zone) v($view) p($prefix) n($fip,$lip) ");
 
-    # addit
-    &do_func("remove",$obj);
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DNS::BulkHost",
+        zone => $zone,
+       "prefix" => $prefix ,
+       "start_addr" => $fip ,
+       "end_addr" => $lip ,
+    );
+    $opthash{'view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -3132,28 +3160,34 @@ sub cli_del_cname {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
 
-    &debug_cli(1,"delcn z($zone) n($alias) cn($cname)");
-
-    my $obj = Infoblox::DNS::Record::CNAME->new (
-                  "name" => "$alias.$zone",
-                  "canonical" => "$cname",
-    );
-
-    # views
     my ( $view ) = $line =~/ view (\S+)/ ;
-    if ( $view ) {
-        my $view = Infoblox::DNS::View->new ( name => $view, );
-        $obj->views ( [ $view ] ) ;
-    }
+    $view = 'default' unless $view ;
 
-    # addit
-    &do_func("remove",$obj);
+    &debug_cli(1,"delcn z($zone) v($view) n($alias) cn($cname)");
+
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DNS::Record::CNAME",
+        "name" => "$alias.$zone",
+        "canonical" => "$cname",
+    );
+    $opthash{'view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
 =head2 Add a TXT record to a zone
 
    conf zone foo.com add TXT alias real.foo.com
+
+When adding SPF refords or other things with quotes in them, you have
+to protect the quotes by using ('') instead of (")
+
+    conf zone foo.com add TXT spf "''v=spf1'' ''+ip4:1.2.3.4''"
 
 =cut
 
@@ -3164,10 +3198,13 @@ sub cli_add_txt {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $name , $txt ) = $line =~/ txt (\S+) (\S+)/ ;
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
+    my ( $shared )  = $line =~/shared_record_group (\S+)/ ;
 
     # de-urlencode the name string
     $comment = &decode_comment ( $comment ) ;
     $txt = &decode_comment ( $txt ) ;
+
+    my $name = fqdn( $name , $zone ) ;
 
     # there is a 'bug/feature' in the api and individual words
     # get quotes indvidually. To stop this, you have to wrap
@@ -3179,14 +3216,28 @@ sub cli_add_txt {
 #     This example makes it single string:
 #            text    => '"v=spf1 mx ip4:193.15.4.5 ~all"',
 
-    $txt = "\"$txt\"";
+    # but some inputs WANT it quoted (arrg) so be smarter
+
+    $txt = "\"$txt\"" unless $txt =~ /".*"/ ;
 
     &debug_cli(1,"addtxt z($zone) n($name) t($txt) c($comment)");
 
     my $obj = Infoblox::DNS::Record::TXT->new (
-                    "name" => "$name.$zone",
+                    "name" => "$name",
                     "text" => "$txt",
     );
+
+    # overrwrite this for shared record groups
+    if ( $shared ) {
+        # version specific...
+        require_api( "4.2r1-0" ) or return;
+
+        $obj = Infoblox::DNS::SharedRecord::TXT->new (
+                  "name" => "$name",
+                  "text" => "$txt",
+                  "shared_record_group" => "$shared",
+        );
+    }
 
     # views
     my ( $vname )     = $line =~/ view (\S+)/ ;
@@ -3215,24 +3266,27 @@ sub cli_del_txt {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $name , $txt ) = $line =~/ txt (\S+) (\S+)/ ;
 
+    my $name = fqdn( $name , $zone ) ;
+
     $txt = &decode_comment ( $txt ) ;
 
-    &debug_cli(1,"addtxt z($zone) n($name) t($txt)");
-
-    my $obj = Infoblox::DNS::Record::TXT->new (
-                  "name" => "$name.$zone",
-                  "text" => "$txt",
-    );
-
-    # views
     my ( $view ) = $line =~/ view (\S+)/ ;
-    if ( $view ) {
-        my $view = Infoblox::DNS::View->new ( name => $view, );
-        $obj->views ( [ $view ] ) ;
-    }
+    $view = 'default' unless $view ;
 
-    # addit
-    &do_func("remove",$obj);
+    &debug_cli(1,"addtxt z($zone) v($view) n($name) t($txt)");
+
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DNS::Record::TXT",
+        "name" => "$name",
+        "text" => "$txt",
+    );
+    $opthash{'view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -3294,22 +3348,23 @@ sub cli_del_ptr {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $ip , $host ) = $line =~/ ptr_record (\S+) (\S+)/ ;
 
-    &debug_cli(1,"delptr n($zone) ip($ip) h($host)");
-
-    my $obj = Infoblox::DNS::Record::PTR->new (
-                  "ipv4addr" => $ip ,
-                  "ptrdname" => "$host",
-    );
-
-    # views
     my ( $view ) = $line =~/ view (\S+)/ ;
-    if ( $view ) {
-        my $view = Infoblox::DNS::View->new ( name => $view, );
-        $obj->views ( [ $view ] ) ;
-    }
+    $view = 'default' unless $view ;
 
-    # addit
-    &do_func("remove",$obj);
+    &debug_cli(1,"delptr n($zone) v($view) ip($ip) h($host)");
+
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DNS::Record::PTR",
+        ipv4addr => $ip,
+        ptrdname => $host,
+    );
+    $opthash{'view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -3772,6 +3827,7 @@ sub add_options {
     # then write a new array...
 
     # 1) get the CURRENT options.
+    #   (BTW, you can do thin in 1 line with map)
     my %opt_hash ;
     foreach my $opt ( @{ $obj->options() } ) {
         my $name = $opt->name();
@@ -3790,11 +3846,15 @@ sub add_options {
 
         &debug_cli(2,"addopt o($opt) v($val) k($key)");
 
-        # save it into the hash
-        $opt_hash{$key} = $opt_obj ;
+        # only add the option to the hash, if we found a match
+        if ( $opt_obj ) {
+            $opt_hash{$key} = $opt_obj ;
+        }
+
     }
 
     # 3) turn the hash into an array
+    #   ( [ ] can we do this with 'values()' ?? )
     my @new_list ;
     foreach my $okey ( keys %opt_hash ) {
         push @new_list , $opt_hash{$okey} ;
@@ -3826,18 +3886,22 @@ sub cli_delete_network {
         $network = "$network/$cidr";
     }
 
-    my $net = Infoblox::DHCP::Network->new (
-                   "network" => $network ,
-                );
-
-    # network views
-    my ( $view )  = $line =~/ view (\S+)/ ;
-    $view = &decode_comment ( $view ) ;
-    if ( $view ) { $net->network_view( $view ); }
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    $view = 'default' unless $view ;
 
     &debug_cli(1,"delnet n($network) v($view)");
 
-    &do_func("remove",$net);
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DHCP::Network",
+        network => $network,
+    );
+    $opthash{'network_view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -3854,12 +3918,16 @@ sub cli_del_network_template {
 
     &debug_cli(2,"delnett n($name)");
 
-    my $obj = Infoblox::DHCP::NetworkTemplate->new (
-                  "name" => $name ,
+    # find and remove
+    my %opthash = (
+        object => "Infoblox::DHCP::NetworkTemplate",
+        name => $name,
     );
 
-    # addit
-    &do_func("remove",$obj);
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -4255,13 +4323,21 @@ sub cli_delete_shared {
     # get the args from the line
     my ( $name ) = $line =~/ delete shared (\S+)/ ;
 
-    &debug_cli(1,"delsha n($name)");
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    $view = 'default' unless $view ;
 
-    my $net = Infoblox::DHCP::sharedNetwork->new (
-                   "name" => $name ,
-                );
+    &debug_cli(1,"delsha n($name) v($view)");
 
-    &do_func("remove",$net);
+    my %opthash = (
+        object => "Infoblox::DHCP::SharedNetwork",
+        name => $name,
+    );
+    $opthash{'network_view'} = $view if $view ;
+
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -4565,7 +4641,13 @@ sub cli_add_fixed_address {
 
           # only add options we recognise
           if ( $opt_obj ) {
+            &debug_cli(2,"goodfix o($opt) v($val)");
             push @opt_list , $opt_obj ;
+          }
+
+          # and some special cases...
+          if ( $opt =~ /next.*server/ ) {
+            $obj->nextserver( decode_comment($val) ) ;
           }
 
        }
@@ -4723,7 +4805,6 @@ or
 
 =cut
 
-# remove fixed does not work
 sub cli_del_fixed_address {
     my ( $line ) = @_ ;
 
@@ -4765,7 +4846,6 @@ sub cli_del_fixed_address {
 
 }
 
-# remove fixed does not work
 sub cli_del_fixed_template {
     my ( $line ) = @_ ;
 
@@ -4773,12 +4853,15 @@ sub cli_del_fixed_template {
 
     &debug_cli(2,"delfixt n($name)");
 
-    my $obj = Infoblox::DHCP::FixedAddrTemplate->new (
-                  "name" => $name ,
+    my %opthash = (
+        object => "Infoblox::DHCP::FixedAddrTemplate",
+        name => $name,
     );
 
-    # addit
-    &do_func("remove",$obj);
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -5059,19 +5142,22 @@ sub cli_del_dhcp_range {
     my ( $view )  = $line =~/ view (\S+)/ ;
     $view = &decode_comment ( $view ) ;
 
-    &debug_cli (1,"delrng s($fip) v($view)");
+    my ( $view ) = $line =~/ view (\S+)/ ;
+    $view = 'default' unless $view ;
 
-    my $obj = Infoblox::DHCP::Range->new (
+    &debug_cli (1,"delrng v($view) s($fip) v($view)");
+
+    my %opthash = (
+        object => "Infoblox::DHCP::Range",
                    "start_addr" => $fip ,
                    "end_addr" => $lip ,
-                );
+    );
+    $opthash{'network_view'} = $view if $view ;
 
-    # network views
-    if ( $view ) { $obj->network_view( $view ); }
+    my ( $obj ) = &do_func("get",%opthash);
 
-    if ( $obj ) {
-        &do_func("remove",$obj);
-    }
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -5117,11 +5203,15 @@ sub cli_del_macfilter {
     &debug_cli (1,"delmfil n($name)");
 
     #[ ] what about vendor prefix ?
-    my $obj = Infoblox::DHCP::Filter::MAC->new (
+    my %opthash = (
+        object => "Infoblox::DHCP::Filter::MAC",
                    "name" => $name ,
-                );
+    );
 
-    &do_func("remove",$obj);
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -5213,12 +5303,16 @@ sub cli_del_macfilteraddr {
 
     &debug_cli (1,"delmaddr f($name) m($mac)");
 
-    my $obj = Infoblox::DHCP::MAC->new (
+    my %opthash = (
+        object => "Infoblox::DHCP::MAC",
                    "filter" => $name ,
                    "mac" => $mac ,
-                );
+    );
 
-    &do_func("remove",$obj);
+    my ( $obj ) = &do_func("get",%opthash);
+
+    # trashit
+    &do_func("remove",$obj) if $obj;
 
 }
 
@@ -6883,6 +6977,8 @@ sub cli_del_member {
 
 DNS ACLs
 
+These will ADD the addresses to the acl, not replace the list
+
    conf grid <name> dns add acl allow transfer x.x.x.x/nn
    conf grid <name> dns add acl deny update x.x.x.x/nn
 
@@ -7236,6 +7332,10 @@ sub cli_show_zone {
     my ( $shared ) = $line =~/ shared_record_group (\S+)/ ;
 
     $view = &decode_comment ( $view ) ;
+    my $ucname = $name ;
+
+    # some crap is case inseneitive
+    my $capname = $name ;
     $name = lc( $name ) ;
     $type = lc( $type ) ;
 
@@ -7384,7 +7484,7 @@ sub cli_show_zone {
     elsif ( $type eq "ns_group" ) {
         # get nsgroup info
         my $search = ".*" ;
-        if ( $name ) { $search = $name }
+        if ( $name ) { $search = $capname }
 
         my %opthash = (
                "object" => "Infoblox::Grid::DNS::Nsgroup", 
@@ -7399,7 +7499,8 @@ sub cli_show_zone {
     elsif ( $type eq "shared_record_group" ) {
         # get nsgroup info
         my $search = ".*" ;
-        if ( $name ) { $search = $name }
+        if ( $name ) { $search = $ucname }
+        # ( keep the case )
 
         my %opthash = (
                "object" => "Infoblox::DNS::SRG", 
@@ -7740,7 +7841,7 @@ sub cli_show_network {
             }
 
             $name = " $name ($comm) ($view)";
-            if (  $nobj->{'__type'}  =~ /NetworkContainer/ ) {
+            if (  ref($nobj)  =~ /NetworkContainer/ ) {
                 $name =~ s/^ /+/;
             }
             
@@ -8767,6 +8868,8 @@ sub cli_add_server {
     my $ua = LWP::UserAgent->new;
     my $request = new HTTP::Request('GET', "https://$server/");
 
+    my $lerr ;
+
    # From the LWP FAQ, but needed to be changed
     eval {
         local $SIG{ALRM} = sub { die "timeout exceeded\n" };
@@ -8774,13 +8877,13 @@ sub cli_add_server {
         my $response = $ua->request($request);
         alarm 0;
         if ( $response->is_error ) {
-            my $error = $response->status_line;
-            die $error;
+            $lerr = $response->status_line;
+            die $lerr;
         }
     };
 
     if ( $@ ) {
-        print "  Error : server $server is not responding\n";
+        print "  Error : server $server is not responding : $lerr\n";
         exit ;
     }
 
@@ -8940,28 +9043,47 @@ sub cli_restart {
 
 }
 
+=head2 Download csv data for an object type
+
+  download csv <file> object <object>
+
+  download csv zonelist.csv object Infoblox::DNS::Zone
+
+=cut
+
 =head2 Export log files
 
-    download merge_log <file>
+  download merge_log <file>
 
 =cut
 
 sub cli_download_log {
 
     # we can probably make this generic
+    # ...
 
     my ( $line ) = @_ ;
     # get the args from the line
     ( my $type )  = $line =~/download (\S+)/ ;
     ( my $dest )  = $line =~/$type (\S+)/ ;
     ( my $member)  = $line =~/member (\S+)/ ;
+    ( my $object)  = $line =~/object (\S+)/ ;
     ( my $syslog)  = $line =~/\bsyslog\b/ ;
 
     my %opthash = (
           "path" => $dest ,
           "type" => $type ,
-          "format" => "tar",
     );
+
+    if ( $type =~ /log/ ) {
+        $opthash{'format'} = 'tar';
+    }
+
+    if ( $object ) {
+        $opthash{'object_type'} = $object ;
+        $opthash{'separator'} = 'comma' ;
+    }
+
     if ( $syslog ) {
     }
 
@@ -8969,7 +9091,6 @@ sub cli_download_log {
     if ( $member ) {
         $opthash{'member'} = $member ;
     }
-
 
     print "DOWNLOADING $type as $dest ...\n";
 
@@ -9674,17 +9795,17 @@ sub dump_data {
     print Dumper ( \$obj ) if $DEBUG > 3 ;
 
     # identify networks or containers
-    if ( $obj->{__type} ) {
-        if ( $obj->{__type} =~ /Infoblox.DHCP.NetworkContainer/ ) {
+    if ( ref($obj) ) {
+        if ( ref($obj) =~ /Infoblox.DHCP.NetworkContainer/ ) {
                 printf ( "%30s : %s\n", "type" , "NetworkContainer" ) ;
         }
-        if ( $obj->{__type} =~ /Infoblox.DHCP.Network/ ) {
+        if ( ref($obj) =~ /Infoblox.DHCP.Network/ ) {
                 printf ( "%30s : %s\n", "type" , "Network" ) ;
         }
     }
 
     # nasty hack to insert the hostname into a fixed address
-    if ( $obj->{__type} =~ /Infoblox.DHCP.FixedAddr/ ) {
+    if ( ref($obj) =~ /Infoblox.DHCP.FixedAddr/ ) {
         # get the name (fixed hosts do not have '/' in them)
 #         unless ( $obj->__key() =~ /\// ) {
 #             my $name = $obj->__key();
@@ -9820,7 +9941,7 @@ sub dump_data {
         elsif ( $key eq "permission_list" ) {
             my @values;
             foreach my $perm ( @{ $obj->{$key} } ) {
-                my $type = $perm->__type();
+                my $type = ref($perm);
                 $type =~ s/.com.infoblox.perl_api.//;
                 $type =~ s/\./::/g;
 
@@ -9852,9 +9973,13 @@ sub dump_data {
              or $key eq "match_members" ) {
             my @values ;
             # find all the names only
+
+#             print Dumper ( $obj->{$key} ) ;
+
             foreach my $sobj ( @{ $obj->{$key} } ) {
-                my $name = $sobj->{'ipv4addr'};
-                push @values , "$name" ;
+                my $name = $sobj->{'name'};
+                my $ip = $sobj->{'ipv4addr'};
+                push @values , "$name,$ip" ;
             }
 
             # remember it
@@ -9977,14 +10102,17 @@ sub dump_data {
             ) {
             my @values ;
             # find all the sub objects
+            # [ ] and group,sort them by type/name
+            my %sdata ;
+
             foreach my $sobj ( @{ $obj->{$key} } ) {
 
                 my $type = $key ;
                 # what kind of secondary
-                if ( $sobj->{'__type'} =~ /Infoblox.DNS.Member/ ) {
+                if ( ref($sobj) =~ /Infoblox.DNS.Member/ ) {
                     $type = "member secondary"
                 }
-                if ( $sobj->{'__type'} =~ /Infoblox.DNS.Nameserver/ ) {
+                if ( ref($sobj) =~ /Infoblox.DNS.Nameserver/ ) {
                     $type = "external secondary"
                 }
                 if ( $key eq "delegate_to" ) {
@@ -10005,8 +10133,19 @@ sub dump_data {
                     $type = "*LEAD $type";
                 }
 
-                printf ( "%30s : %s,%s\n", $type , $name,$ip ) ;
+#                 printf ( "%30s : %s,%s\n", $type , $name,$ip ) ;
+                my $l = sprintf ( "%s,%s", $name,$ip ) ;
+                push @{ $sdata{$type} }, $l;
+
             }
+
+            foreach my $t ( sort keys %sdata ) {
+                foreach my $vl ( sort @{ $sdata{$t} } ) {
+                    printf ( "%30s : %s\n", $t , $vl ) ;
+                }
+            }
+
+
         }
         # nested DHCP options
         elsif ( $key eq "options"
@@ -10200,7 +10339,7 @@ sub make_dhcp_option {
     # do a lookup to get the real name, (workaround laziness)
     # if the option name is JUST a number, we will try that first
     # and use the newer calls
-    my ( $onum , $oname ) = &get_custom_options ( $DEBUG , $opt ) ;
+    my ( $onum , $oname ) = get_custom_options( $DEBUG , $opt ) ;
     debug_cli(4,"mkdh: took option o($opt) > o#($onum)on($oname)=($val)");
 
     # this loop is the god, it renames a value and its type
@@ -11319,7 +11458,12 @@ my %COMMANDS = (
 
 # downloads
     'download' => { 
-           words => "lease_history=<file>|support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
+           words => "csv=<file>|lease_history=<file>|support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
+
+    'download csv <file>' => { 
+           words => "object=<object>",  },
+    'download csv <file> object <object>' => { 
+           func => "cli_download_log", },
 
     'download database' => { 
            words => "<file>",  },
@@ -11536,7 +11680,13 @@ my %COMMANDS = (
            words =>
            "stealth_ext_secondary=<name,ip>|lead=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_nsgroup", },
+
     'configure zone add ns_group <name>' => { 
+           words =>
+           "stealth_ext_secondary=<name,ip>|lead=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
+           func => "cli_add_nsgroup", },
+
+    'configure zone modify ns_group <name>' => { 
            words =>
            "stealth_ext_secondary=<name,ip>|lead=<ip>|ext_secondary=<name,ip>|ext_primary=<name,ip>|stealth_primary=<ip>|primary=<ip>|secondary=<ip,ip>", 
            func => "cli_add_nsgroup", },
@@ -11549,10 +11699,10 @@ my %COMMANDS = (
            words => "allow deny", },
 
     'configure grid <name> dns add acl allow' => { 
-           words => "recursion=<n.n.n.n/mm>|transfer=<n.n.n.n/mm>|update=<value>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           words => "recursion=<n.n.n.n/mm>|transfer=<value>|update=<value>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
            func => "cli_add_grid_dns_acl", },
     'configure grid <name> dns add acl deny' => { 
-           words => "transfer=<n.n.n.n/mm>|update=<n.n.n.n/mm>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
+           words => "transfer=<n.n.n.n/mm>|update=<value>|query=<n.n.n.n/mm>|forwarding=<n.n.n.n/mm>", 
            func => "cli_add_grid_dns_acl", },
 
     'configure grid <name> dhcp add' => { 
@@ -11603,7 +11753,7 @@ my %COMMANDS = (
     'configure zone add' => { 
            words => "<zone>|ns_group=<name>|view=<name>|shared_record_group=<name>", },
     'configure zone modify' => { 
-           words => "<zone>|view=<name>", },
+           words => "<zone>|ns_group=<name>|view=<name>", },
 
 # - views -
     'configure zone add view <name>' => { 
@@ -11794,7 +11944,7 @@ my %COMMANDS = (
     'configure zone <zone> add txt' => { 
            words => "<name>=<value>", },
     'configure zone <zone> add txt <name> <value>' => { 
-           words => "<cr> view=<name>|comment=<comment>", 
+           words => "<cr> shared_record_group=<name>|view=<name>|comment=<comment>", 
            func => "cli_add_txt", },
 
     'configure zone <zone> add mx' => { 
