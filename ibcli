@@ -1,10 +1,10 @@
 #!/usr/bin/perl
 #
 # Version control...
-my $ID  = q$Id$ ;
-my $SRTAG = q$Revision$ ;
-my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
-my $REV = "Revision 3.$SVNREV";
+my $ID  = ":Id: Sat, 16 Jul 2011 18:27:43 +0000 Geoff H ::";
+my $REV = ":Revision: r3.59 ::";
+# my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
+# my $REV = "Revision 3.$SVNREV";
 # $Date$
 #
 
