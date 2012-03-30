@@ -1,0 +1,26 @@
+#!/bin/sh
+
+if [ -z "$1" ] ; then
+    echo "usage: $0 <file>"
+    exit ;
+fi
+
+GIT=/usr/local/git/bin/git
+
+# hack in some RCS tagging stuff so we know what rev is in the file
+REV=`$GIT describe --tag`
+LOG=`$GIT log -n 1 --pretty=format:'%cD %an' $1`
+
+# i'm using my own RCS tagging here, so I can use better syntax
+perl -pi.orig \
+    -e "s/:Id:.*::/:Id: $LOG ::/;" \
+    -e "s/:Revision:.*::/:Revision: $REV ::/;" \
+    $1
+
+echo "$REV $LOG";
+
+# make the release notes etc
+./make-relnotes
+./make-docs
+
+
