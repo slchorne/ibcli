@@ -14,7 +14,8 @@ ndoc=".doc.latest"
 
 
 # checkout the base rev 
-svn cat -r HEAD $new > $old
+# svn cat -r HEAD $new > $old
+git show head:./$new > $old
 
 # perldoc $old > $odoc
 # perldoc $new > $ndoc

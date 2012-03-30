@@ -1,14 +1,13 @@
 #!/usr/bin/perl
 #
 # Version control... now using git
-my $ID  = ":Id: Sat, 16 Jul 2011 18:27:43 +0000 Geoff H ::";
+my $ID  = ":Id: Fri, 30 Mar 2012 14:23:36 -0700 Geoff H ::";
 my $REV = ":Revision: r3.59 ::";
 # my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
 # my $REV = "Revision 3.$SVNREV";
-# $Date$
-#
+# 
 
-# (c) Copyright: Geoff horne, SLC 2001-2011
+# (c) Copyright: Geoff horne, SLC 2001-2012
 #               All rights reserved
 #
 # THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS `AS IS' AND
@@ -1573,6 +1572,10 @@ Add a zone to specific members
 
    conf zone add foo.com primary 1.2.3.4 secondary 1.2.3.5 sec 1.2.3.6
 
+Add a zone to a specific view
+
+   conf zone add foo.com view internal
+
 Add a zone with extensible attributes
 
 You can add multiple attributes by having multiple 'info' pairs
@@ -2336,9 +2339,13 @@ sub cli_del_nsgroup {
 
    conf zone foo.com add host test 1.2.3.4 comment "this is a comment"
 
-Don't know the zones ? Then just leave it NULL
+If you don't know the zone, then just put in a blank and use a FQDN
 
    conf zone "" add host test.foo.com 1.2.3.4
+
+Add a host to a specific view
+
+   conf zone "" add host test.foo.com 1.2.3.4 view internal
 
 Add hosts with multiple ip addresses. seperate the values with a ','
 
@@ -3515,12 +3522,12 @@ must match a method in the API)
 If the method requires an ARRAY you have to specify this in the
 value by putting the values onside '[]' :
 
-   conf network ... set domain-name-servers="[10.216.2.8,10.204.3.162]"
+   conf network ... set some-method="[10.216.2.8,10.204.3.162]"
 
 even if you only have a single value, you still need to pass the
 value as an array :
 
-   conf network ... set routers="[10.216.2.8]"
+   conf network ... set some-method="[10.216.2.8]"
 
 =head2 Modifying Networks
 
@@ -3536,10 +3543,9 @@ the view to find the network to modify
    conf network modify 1.1.1.0/24 view default
 
 If you change things like options arrays, ALL the existing values will be
-replaced by the new list.  See 'addoption' below if you want to just
-append new options to the list :
+replaced by the new list.  
 
-If you want to just append a new option to an existing list, (or change
+So if you want to just append a new option to an existing list, (or change
 one of the current options you can use 'addoption'. This will KEEP the
 current options array intact.
 
@@ -3887,11 +3893,12 @@ sub cli_delete_network {
     }
 
     my ( $view ) = $line =~/ view (\S+)/ ;
-    $view = 'default' unless $view ;
+#     $view = 'default' unless $view ;
 
     &debug_cli(1,"delnet n($network) v($view)");
 
     # find and remove
+    print "Remove: Infoblox::DHCP::Network\n";
     my %opthash = (
         object => "Infoblox::DHCP::Network",
         network => $network,
@@ -3899,6 +3906,13 @@ sub cli_delete_network {
     $opthash{'network_view'} = $view if $view ;
 
     my ( $obj ) = &do_func("get",%opthash);
+
+    # see if it was a container instead
+    unless ( $obj ) {
+        print "Remove: Infoblox::DHCP::NetworkContainer\n";
+        $opthash{'object'} = "Infoblox::DHCP::NetworkContainer";
+        ( $obj ) = &do_func("get",%opthash);
+    }
 
     # trashit
     &do_func("remove",$obj) if $obj;
@@ -4901,7 +4915,7 @@ And add new filters to an existing range, you only have to specify start addr
 
    conf net mod range 10.1.1.20 macfilter <name>=<permission>
 
-   conf net add range 10.1.1.20 10.1.1.40 optfilter <name>=<permission>
+   conf net add range 10.1.1.20 10.1.1.40 filter_option <name>=<permission>
 
 =head2 Modifying Ranges
 
@@ -5646,6 +5660,36 @@ sub cli_show_schedule {
     my @dobjs = &do_func("search", %opthash );
 
     &dump_object ( @dobjs ) ;
+}
+
+=head2 Deleting scheduled updates
+
+    conf grid schedule delete <taskid>
+
+=cut
+
+sub cli_del_schedule {
+
+    my ( $line ) = @_ ;
+    my ( $id ) = $line =~/ delete (\d+)/ ;
+
+    if ( $id ) {
+
+        # create the search
+        my %opthash = (
+            object => "Infoblox::Grid::ScheduledTask", 
+            task_id => $id,
+        );
+    
+        # get what we need
+        my ( $task ) = &do_func("get", %opthash );
+
+        if ( $task ) {
+            &do_func("remove",$task);
+        }
+
+    }
+
 }
 
 
@@ -7767,6 +7811,10 @@ sub cli_show_lease {
 
    show network 45.200.100.128/25
 
+Show all the networks that have a common network_container
+
+   show network 45.0.0.0/16 subnets
+
 =cut
 
 sub cli_show_network {
@@ -7777,6 +7825,7 @@ sub cli_show_network {
 
     # get the args from the line
     my ( $net ) = $line =~/ network (\S+)/ ;
+    my ( $parent ) = $line =~/\bsubnets\b/ ;
 
     my $details ;
     if ( $net eq "details" ) {
@@ -7784,37 +7833,47 @@ sub cli_show_network {
         undef $net ;
     }
 
-    &debug_cli(2,"shown n($net)");
+    &debug_cli(2,"shown n($net) c($parent)");
+
+    # set a default search
+    my $otype = "Infoblox::DHCP::Network";
 
     # do we get all nets
     my $search = ".*";
-
     # or a specific list
     if ( $net ) { $search = $net ; }
 
     # get all the networks
-    print "Search : Infoblox::DHCP::Network:\n";
+    print "Search : $otype:\n";
     my %opthash = (
-           "object" => "Infoblox::DHCP::Network", 
-           "network" => $search,
+           "object" => $otype,
     );
 
-    # network views...
+    if ( $parent ) {
+        $opthash{'network_container'} = $search;
+#         $opthash{'network'} = ".*";
+#         $opthash{'view'} = 'default';
+    }
+    else {
+        $opthash{'network'} = $search;
+    }
+
+    # set network views...
     my ( $view )  = $line =~/ view (\S+)/ ;
     $view = &decode_comment ( $view ) ;
     if ( $view ) { $opthash{'network_view'} = $view ; }
 
-    my @nets = &do_func("search", %opthash );
+    # search networks
+    my @nets ;
+    my @subnets = &do_func("search", %opthash );
+    push @nets , @subnets ;
 
-    # search for containers..
-    print "Search : Infoblox::DHCP::NetworkContainer:\n";
+    # then switch to search for containers..
+    $otype = "Infoblox::DHCP::NetworkContainer";
+    print "Search : $otype:\n";
     if ( require_api ( "4.3r4-0" ) ) {
         # and all the containers
-        my %opthash = (
-            "object" => "Infoblox::DHCP::NetworkContainer", 
-            "network" => $search,
-        );
-        if ( $view ) { $opthash{'network_view'} = $view ; }
+        $opthash{'object'} = $otype;
 
         my @parents = &do_func("search", %opthash );
         push @nets , @parents ;
@@ -8010,7 +8069,7 @@ sub cli_show_failover {
     
 }
 
-=head2 Showing network option definitions
+=head2 Showing network option definitions (grid level)
 
    show network options
 
@@ -8056,6 +8115,7 @@ sub cli_show_dhcp_options {
 
 sub cli_show_netstats {
     #
+    # cli_show_network_stats
     # try and shopw a network
 
     my ( $line ) = @_ ;
@@ -8072,7 +8132,8 @@ sub cli_show_netstats {
 
     # get all the networks
     my %opthash = (
-           "object" => "Infoblox::DHCP::Statistics", 
+#            "object" => "Infoblox::DHCP::Statistics", 
+           "object" => "Infoblox::IPAM::Statistics", 
            "network" => $search,
     );
 
@@ -8101,6 +8162,10 @@ Show just the next available IP address
 
    show network 45.200.100.128/25 ipam next_available
 
+Show just the next available network
+
+   show network 45.200.100.128/25 ipam next_network
+
 =cut
 
 sub cli_show_ipam {
@@ -8111,6 +8176,50 @@ sub cli_show_ipam {
     my ( $type ) = $line =~/ ipam (\S+)/ ;
 
     &debug_cli(2,"netipam n($subnet) t($type)");
+
+    if ( $type =~ /next_network/ ) {
+        my ( $cidr ) = $line =~/ next_network (\S+)/ ;
+             $cidr =~ s/\///;
+
+        &debug_cli(2,"netipam n($subnet) c($cidr)");
+
+        if ( require_api ( "6.3" ) ) {
+            my ( $nobj ) = &do_func("get", (
+                    object   => "Infoblox::DHCP::Network",
+                    network  => $subnet,
+                    )
+                 );
+            unless ( $nobj ) {
+                # try and get a container...
+                ( $nobj ) = &do_func("get", (
+                    object   => "Infoblox::DHCP::NetworkContainer",
+                    network  => $subnet,
+                    )
+                 );
+            }
+
+            if ( $nobj ) {
+                # get the first one, we return a STRING if we don't
+                # specify the # of networks
+                my $nnet = $nobj->next_available_network( 
+                    # requested_num => 1,
+                    cidr => $cidr );
+
+                unless ( $nnet ) {
+                    print "Error: " . $SESSION->status_detail() . "\n";
+                }
+                else {
+                    print "  $subnet : $nnet\n";
+                }
+
+            }
+        }
+        else {
+            print "  Next Network not available in this version of NIOS\n";
+        }
+
+        return ;
+    }
 
     if ( $type =~ /next_available/ ) {
         # just get the next IP
@@ -10051,7 +10160,8 @@ sub dump_data {
 #                 push @values , $sobj->{'name'};
                 my $name = $sobj->{object_name};
                 my $type = $sobj->{object_type};
-                push @values , "$type : $name" ;
+                my $action = $sobj->{action};
+                push @values , "$action : $type : $name" ;
             }
 
             # remember it
@@ -10283,7 +10393,6 @@ sub add_ipam {
                 my $vals = $1 ;
                 my @a = split ( /\s*\,\s*/ , $vals ) ;
 #                 $cvalue = \@a ;
-                print "a[@a]\n";
                 $exts->{$name} = \@a ;
             }
             else {
@@ -11362,7 +11471,9 @@ my %COMMANDS = (
            func => "cli_show_dhcp_options", },
 
     'show network <n.n.n.n/mm>' => { 
-           words => "<cr> view=<name> ipam range fixed statistics",  
+           words => "<cr> view=<name> subnets ipam range fixed statistics",  
+           func => "cli_show_network", },
+    'show network <n.n.n.n/mm> subnets' => { 
            func => "cli_show_network", },
     'show network <n.n.n.n/mm> view <name>' => { 
            func => "cli_show_network", },
@@ -11373,11 +11484,13 @@ my %COMMANDS = (
            func => "cli_show_netstats", },
 
     'show network <n.n.n.n/mm> ipam' => { 
-           words => "used unused next_available",
+           words => "used unused next_network=</cidr> next_available",
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam used' => { 
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam unused' => { 
+           func => "cli_show_ipam", },
+    'show network <n.n.n.n/mm> ipam next_network </cidr>' => { 
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam next_available' => { 
            func => "cli_show_ipam", },
@@ -11601,7 +11714,13 @@ my %COMMANDS = (
 # - grid -
 
     'configure grid' => { 
-           words => "add <name>", },
+           words => "add schedule <name>", },
+
+# scheduled tasks
+    'configure grid schedule' => { 
+           words => "delete=<num>" },
+    'configure grid schedule delete <num>' => { 
+           func => "cli_del_schedule", },
 
 # add device types :
 # configure grid add device_type <name> label <orig>=<new-name>

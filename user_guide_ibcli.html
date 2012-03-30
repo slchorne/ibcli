@@ -47,6 +47,7 @@
 		<li><a href="#add_a_shared_record_group">Add a shared record group</a></li>
 		<li><a href="#add_a_zone">Add a Zone</a></li>
 		<li><a href="#remove_a_zone">Remove a zone</a></li>
+		<li><a href="#copy_a_zone_to_another_view">Copy a zone to another view</a></li>
 		<li><a href="#add_a_ns_group">Add a NS group</a></li>
 		<li><a href="#delete_a_ns_group">Delete a NS group</a></li>
 		<li><a href="#add_a_host_to_a_zone">Add a host to a zone</a></li>
@@ -75,7 +76,9 @@
 		<li><a href="#add_a_network_view">Add a network view</a></li>
 		<li><a href="#add_a_network">Add a network</a></li>
 		<li><a href="#modifying_networks">Modifying Networks</a></li>
+		<li><a href="#add_a_network_container">Add a network container</a></li>
 		<li><a href="#remove_a_network">Remove a network</a></li>
+		<li><a href="#remove_a_network_template">Remove a network Template</a></li>
 		<li><a href="#move_networks">Move Networks</a></li>
 		<li><a href="#join_networks">Join Networks</a></li>
 		<li><a href="#add_a_shared_network">Add a shared network</a></li>
@@ -86,7 +89,8 @@
 		<li><a href="#add_a_fixed_address">Add a fixed address</a></li>
 		<li><a href="#add_a_roaming_address__that_has_no_ip_addr_">Add a roaming address (that has no IP addr)</a></li>
 		<li><a href="#modify_a_fixed_address">Modify a fixed address</a></li>
-		<li><a href="#remove_a_fixed_address">Remove a fixed address</a></li>
+		<li><a href="#add_a_fixed_address_template">Add a fixed address Template</a></li>
+		<li><a href="#modify_a_fixed_address">Modify a fixed address</a></li>
 		<li><a href="#add_a_dhcp_range_to_a_network">Add a dhcp range to a network</a></li>
 		<li><a href="#modifying_ranges">Modifying Ranges</a></li>
 		<li><a href="#remove_a_dhcp_range">Remove a dhcp range</a></li>
@@ -99,10 +103,15 @@
 	<li><a href="#ipam_configuration">IPAM Configuration</a></li>
 	<ul>
 
+		<li><a href="#show_information_about_an_ip_address">Show information about an IP address</a></li>
+		<li><a href="#add_a_network_to_a_discovery_job">Add a network to a discovery job</a></li>
+		<li><a href="#show_a_discovery_job">Show a discovery job</a></li>
 		<li><a href="#adding_custom_metadata_fields">Adding custom metadata fields</a></li>
 		<li><a href="#showing_attributes_types">Showing attributes types</a></li>
 		<li><a href="#showing_device_types">Showing device types</a></li>
 		<li><a href="#showing_definitions_for_a_device_type">Showing definitions for a device type</a></li>
+		<li><a href="#showing_scheduled_updates">Showing scheduled updates</a></li>
+		<li><a href="#deleting_scheduled_updates">Deleting scheduled updates</a></li>
 	</ul>
 
 	<li><a href="#radius_configuration">RADIUS Configuration</a></li>
@@ -128,6 +137,7 @@
 		<li><a href="#configure_global_grid_settings">configure global Grid settings</a></li>
 		<li><a href="#configure_member_settings">configure Member settings</a></li>
 		<li><a href="#configure_member_dns_settings">Configure Member DNS settings</a></li>
+		<li><a href="#show_member_dns_settings">Show Member DNS settings</a></li>
 		<li><a href="#configure_member_dhcp_settings">Configure Member DHCP settings</a></li>
 		<li><a href="#adding_members">Adding members</a></li>
 		<li><a href="#removing_members">Removing members</a></li>
@@ -151,12 +161,12 @@
 		<li><a href="#showing_networks_templates">Showing networks templates</a></li>
 		<li><a href="#showing_network_views">Showing Network Views</a></li>
 		<li><a href="#showing_network_failover">Showing network failover</a></li>
-		<li><a href="#showing_network_option_definitions">Showing network option definitions</a></li>
+		<li><a href="#showing_network_option_definitions__grid_level_">Showing network option definitions (grid level)</a></li>
 		<li><a href="#showing_network_statistics">Showing network statistics</a></li>
 		<li><a href="#showing_network_ipam">Showing network IPAM</a></li>
 		<li><a href="#showing_ranges">Showing ranges</a></li>
 		<li><a href="#showing_fixed_addresses">Showing fixed addresses</a></li>
-		<li><a href="#showing_mac_filters">Showing MAC filters</a></li>
+		<li><a href="#showing_fixed_addresses_templates">Showing fixed addresses templates</a></li>
 		<li><a href="#show_global_grid_settings">Show global Grid settings</a></li>
 		<li><a href="#show_global_member_settings">Show global Member settings</a></li>
 		<li><a href="#showing_users_and_groups">Showing users and groups</a></li>
@@ -169,9 +179,11 @@
 		<li><a href="#connecting_to_the_mgmt__management__port">connecting to the MGMT (management) port</a></li>
 		<li><a href="#show_server_details">Show server details</a></li>
 		<li><a href="#restarting_services">Restarting services</a></li>
+		<li><a href="#download_csv_data_for_an_object_type">Download csv data for an object type</a></li>
 		<li><a href="#export_log_files">Export log files</a></li>
 		<li><a href="#download_the_database">Download the database</a></li>
 		<li><a href="#restore_the_database">Restore the database</a></li>
+		<li><a href="#upload_lease_data">Upload lease data</a></li>
 		<li><a href="#download_the_dhcp_configuration">Download the DHCP configuration</a></li>
 		<li><a href="#upload_the_dhcp_expert_mode_configuration">Upload the DHCP expert mode configuration</a></li>
 		<li><a href="#browse_and_load_a_datbase_backup">Browse and load a datbase backup</a></li>
@@ -199,10 +211,6 @@
 </p>
 <hr />
 <h1><a name="description">Description</a></h1>
-<p>This is 
-$Revision: 3.2 $.
-There were previous versions that were even worse, this one is pretty bad,
-it really is beta code.  But it is a start.</p>
 <p>The Ibcli is a simple command line tool that lets you do some (mostly)
 powerful things.  It leverages the Infoblox api but provides a wrapper to
 the more complex (and detailed) API calls that uses more simple command
@@ -248,24 +256,20 @@ a wrapper to any API we like, it is not really DNS specific.</p>
 <h1><a name="quickstart">Quickstart</a></h1>
 <p>Simple example, adding a zone</p>
 <pre>
-   server ? &gt; conf server 10.0.1.224 user admin pass infoblox
-   admin@10.0.1.224 &gt; conf zone add infoblox.com
-   admin@10.0.1.224 &gt; conf zone add sales.infoblox.com</pre>
+  Start ibcli</pre>
+<pre>
+    ibcli -s 10.0.1.114 -u admin -p infoblox</pre>
+<pre>
+  Then run some commands</pre>
+<pre>
+    admin@10.0.1.224 &gt; conf zone add infoblox.com
+    admin@10.0.1.224 &gt; conf zone add sales.infoblox.com</pre>
 <p>A more detailed example</p>
 <pre>
-   server ? &gt; conf server 10.0.1.224 user admin pass infoblox
    admin@10.0.1.224 &gt; conf zone add com
    admin@10.0.1.224 &gt; conf zone add foo.com
    admin@10.0.1.224 &gt; conf zone foo.com add host test 1.2.3.4
    admin@10.0.1.224 &gt; conf zone delete bar.com</pre>
-<p>A complex example, multiple connections</p>
-<pre>
-   server ? &gt; conf server 10.0.1.224 user admin pass infoblox
-   admin@10.0.1.224 &gt; conf zone add sales.foo.com</pre>
-<pre>
-   # now switch servers
-   admin@10.0.1.224 &gt; conf server 10.0.1.200 user admin1 pass infoblox1
-   admin1@10.0.1.220 &gt; conf zone add biz.foo.com</pre>
 <p>
 </p>
 <hr />
@@ -288,7 +292,7 @@ you'd ever need as a file namespace and 640K for ram...</p>
 <pre>
    o Text::Abbrev</pre>
 <pre>
-   o Term::EditLine</pre>
+   o Term::EditLine (good luck with that)</pre>
 </li>
 </ul>
 <p>
@@ -463,6 +467,13 @@ form n.n.n.n/mm it will assume it is a reverse zone</p>
 <p>Add a zone to specific members</p>
 <pre>
    conf zone add foo.com primary 1.2.3.4 secondary 1.2.3.5 sec 1.2.3.6</pre>
+<p>Add a zone to a specific view</p>
+<pre>
+   conf zone add foo.com view internal</pre>
+<p>Add a zone with extensible attributes</p>
+<p>You can add multiple attributes by having multiple 'info' pairs</p>
+<pre>
+   conf zone add foo.com ... info &lt;name&gt;=&lt;value&gt;</pre>
 <p>Add a zone with external primary</p>
 <pre>
    conf zone add foo.com ext_primary ns1.foo.com,1.2.3.4</pre>
@@ -473,14 +484,14 @@ form n.n.n.n/mm it will assume it is a reverse zone</p>
    conf zone add foo.com stealth_ext_primary ns0.foo.com,1.2.3.4</pre>
 <p>Add a zone with an nsgroup</p>
 <pre>
-   conf zone add foo.com nsgroup mygroup</pre>
+   conf zone add foo.com ns_group mygroup</pre>
 <p>Add a shared record group to a zone</p>
 <pre>
    conf zone modify foo.com shared_record_group mygroup
    conf zone add foo.com shared_record_group mygroup</pre>
 <p>Add a forwarding zone (and assign it to members)</p>
 <pre>
-   configure zone add fwd.foo.com forward_to 2.2.2.2 forward_to 3.3.3.3</pre>
+   conf zone add fwd.foo.com forward_to ns1.x.com,2.2.2.2 forward_to ns2.x.com,3.3.3.3 member 10.0.0.20</pre>
 <p>Add a delegated zone</p>
 <pre>
    configure zone add deleg.foo.com delegate_to ns1.s.foo.com,1.2.3.4</pre>
@@ -497,6 +508,10 @@ argument of the import source</p>
 <p>Import a reverse zone</p>
 <pre>
    conf zone add 10.0.1.0/24 import 45.0.1.220</pre>
+<p>Auto Generate hosts</p>
+<p>You can also just post process a zone and create host records</p>
+<pre>
+   conf zone mod foo.com generate_hosts</pre>
 <p>Set a random API method on a zone</p>
 <pre>
    conf zone add foo set &lt;method&gt;=&lt;value&gt;
@@ -517,20 +532,33 @@ values by a ',' (This mostly seems to work)</p>
    conf zone del 10.0.1.0/24</pre>
 <p>
 </p>
+<h2><a name="copy_a_zone_to_another_view">Copy a zone to another view</a></h2>
+<p>you need the source and destination zone and views</p>
+<pre>
+    conf zone copy &lt;zone&gt; view &lt;src_view&gt; to &lt;dst_zone&gt; dest_view &lt;dst_view&gt; 
+    conf zone copy zone.com view int to newzone.com dest_view external</pre>
+<p>
+</p>
 <h2><a name="add_a_ns_group">Add a NS group</a></h2>
 <pre>
-    conf zone add nsgroup internal primary 45.0.12.20 secondary 45.0.128.20</pre>
+    conf zone add ns_group internal primary 45.0.12.20 secondary 45.0.128.20</pre>
 <p>You can also call this as a grid command</p>
 <pre>
-    conf grid Infoblox dns add nsgroup internal ...</pre>
+    conf grid Infoblox dns add ns_group internal ...
+    
+If you want to modify a ns_group, secondaries and external_secondaries
+will get ADDED to the current list, (instead of replacing the current
+list)</pre>
+<pre>
+    conf zone mod ns_group Internal secondary 45.0.128.20</pre>
 <p>
 </p>
 <h2><a name="delete_a_ns_group">Delete a NS group</a></h2>
 <pre>
-    conf zone del nsgroup internal</pre>
+    conf zone del ns_group internal</pre>
 <p>You can also call this as a grid command</p>
 <pre>
-    conf grid Infoblox dns del nsgroup internal</pre>
+    conf grid Infoblox dns del ns_group internal</pre>
 <p>
 </p>
 <h2><a name="add_a_host_to_a_zone">Add a host to a zone</a></h2>
@@ -538,9 +566,12 @@ values by a ',' (This mostly seems to work)</p>
    conf zone foo.com add host test 1.2.3.4</pre>
 <pre>
    conf zone foo.com add host test 1.2.3.4 comment &quot;this is a comment&quot;</pre>
-<p>Don't know the zones ? Then just leave it NULL</p>
+<p>If you don't know the zone, then just put in a blank and use a FQDN</p>
 <pre>
    conf zone &quot;&quot; add host test.foo.com 1.2.3.4</pre>
+<p>Add a host to a specific view</p>
+<pre>
+   conf zone &quot;&quot; add host test.foo.com 1.2.3.4 view internal</pre>
 <p>Add hosts with multiple ip addresses. seperate the values with a ','</p>
 <pre>
    conf zone foo.com add host test 1.2.3.4,1.2.3.5</pre>
@@ -551,14 +582,34 @@ mac address with ':&lt;mac&gt;' to the ipaddress</p>
 <p>To add hosts with fixed addresses, and a fixed addr template</p>
 <pre>
    conf zone foo.com add host test 1.2.3.4:00:FE:00:01:02:03 template mytemp</pre>
+<p>Add Hosts with Fixed addreses and settings,
+The settings could be on the fixed address, or the host itself. So you
+have 2 directives</p>
+<pre>
+ - to set something on the Fixed Address :
+ 
+   conf zone add host ... set &lt;method&gt;=&lt;value&gt;</pre>
+<pre>
+ - to set something on the Host Address :
+ 
+   conf zone add host ... set_host &lt;method&gt;=&lt;value&gt;</pre>
+<p>Add hosts with fixed addresses and options.
+only the fixed addr can take options, so use the option directive</p>
+<pre>
+   conf zone add host ... option &lt;num&gt;=&lt;value&gt;</pre>
 <p>Add hosts with aliases (CNAMES)</p>
 <pre>
    conf zone foo.com add host test 1.2.3.4 alias www alias ftp</pre>
-<p>Adding hosts with IPAM information ( quotes may be required )
+<p>Adding hosts with IPAM or Extensible Attributes
 You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
 <pre>
-   conf zone info.com add host pc1 2.3.3.3 info Asset=23456-06
+   conf zone info.com add host pc1 2.3.3.3 info Asset=23456-06</pre>
+<p>Quotes are required of your value has spaces in it :</p>
+<pre>
    conf zone info.com add host pc2 2.3.3.3 info Custom1=&quot;Room 207&quot;</pre>
+<p>configuring a host for no dns (disable for dns)</p>
+<pre>
+   conf zone info.com add host pc2 2.3.3.3 ... nodns</pre>
 <p>
 </p>
 <h2><a name="modifying_hosts">Modifying hosts</a></h2>
@@ -654,6 +705,10 @@ You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
 <h2><a name="add_a_txt_record_to_a_zone">Add a TXT record to a zone</a></h2>
 <pre>
    conf zone foo.com add TXT alias real.foo.com</pre>
+<p>When adding SPF refords or other things with quotes in them, you have
+to protect the quotes by using ('') instead of (&quot;)</p>
+<pre>
+    conf zone foo.com add TXT spf &quot;''v=spf1'' ''+ip4:1.2.3.4''&quot;</pre>
 <p>
 </p>
 <h2><a name="remove_a_txt_record_from_a_zone">Remove a TXT Record from a zone</a></h2>
@@ -692,6 +747,9 @@ You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
 <p>Add a network witwith a reverse zone</p>
 <pre>
    conf network add 1.1.1.0/24 addreverse</pre>
+<p>Add a network to a network_view</p>
+<pre>
+   conf network add 1.1.1.0/24 view default</pre>
 <p>Add a network with members</p>
 <pre>
    conf network add 1.1.1.0/24 member 10.1.1.20 member 10.1.1.40</pre>
@@ -719,6 +777,14 @@ must match a method in the API)</p>
 <pre>
    conf network add 1.1.1.0/24 set &lt;method=value&gt;
    conf network add 1.1.1.0/24 set enable_ddns=FALSE</pre>
+<p>If the method requires an ARRAY you have to specify this in the
+value by putting the values onside '[]' :</p>
+<pre>
+   conf network ... set some-method=&quot;[10.216.2.8,10.204.3.162]&quot;</pre>
+<p>even if you only have a single value, you still need to pass the
+value as an array :</p>
+<pre>
+   conf network ... set some-method=&quot;[10.216.2.8]&quot;</pre>
 <p>
 </p>
 <h2><a name="modifying_networks">Modifying Networks</a></h2>
@@ -727,19 +793,38 @@ must match a method in the API)</p>
    conf network modify 1.1.1.0/24 set &lt;method=value&gt;</pre>
 <pre>
    conf network modify 1.1.1.0/24 option 82=&quot;some data&quot;</pre>
-<p>if you change things like options arrays, ALL the existing values will be
-replaced by the new list. See 'addoption' below if you want to just apend
-new options to the list :</p>
-<p>If you want to just append a new option to an existing list, (or change
+<p>You also can't change the network_view, but you will have to specify
+the view to find the network to modify</p>
+<pre>
+   conf network modify 1.1.1.0/24 view default</pre>
+<p>If you change things like options arrays, ALL the existing values will be
+replaced by the new list.</p>
+<p>So if you want to just append a new option to an existing list, (or change
 one of the current options you can use 'addoption'. This will KEEP the
 current options array intact.</p>
 <pre>
    conf network modify 1.1.1.0/24 addoption 82=&quot;some data&quot;</pre>
 <p>
 </p>
+<h2><a name="add_a_network_container">Add a network container</a></h2>
+<pre>
+   conf network add container 1.1.1.0/24
+   conf network modify container 1.1.1.0/24 comment &quot;new comment&quot;</pre>
+<p>Network containers can only have a view, comment, Extensible Attributes,
+or be disabled.</p>
+<p>You probably only need this function when you want to add a container
+OVER some existing networks. In most other cases (with NIOS 5x) you can
+just add networks and the right thing will happen.</p>
+<p>
+</p>
 <h2><a name="remove_a_network">Remove a network</a></h2>
 <pre>
    conf network del 1.1.1.0/24</pre>
+<p>
+</p>
+<h2><a name="remove_a_network_template">Remove a network Template</a></h2>
+<pre>
+   conf template del network my_template</pre>
 <p>
 </p>
 <h2><a name="move_networks">Move Networks</a></h2>
@@ -811,6 +896,13 @@ the parent network. All other options are the same as for adding networks</p>
 <p>The 'network' is actually optional, this syntax also works :</p>
 <pre>
    conf network add fixed 10.0.1.4 aa:bb:cc:11:22:33</pre>
+<p>To add the fixed addr with specific options</p>
+<pre>
+   conf network add fixed ... option &lt;name&gt;=&lt;value&gt; [opt &lt;name&gt;=value&gt;]
+   conf network add fixed 10.0.1.4 .. option 82=&quot;some data&quot;</pre>
+<p>To add the fixed addr to a specific view</p>
+<pre>
+   conf network add fixed 10.0.1.4 aa:bb:cc:11:22:33 view default</pre>
 <p>Add a fixed address with a Fixed Address Template</p>
 <pre>
    conf network 10.0.1.0/24 add fixed 10.0.1.4 aa:bb:cc:11:22:33 template mytemp</pre>
@@ -829,56 +921,75 @@ the parent network. All other options are the same as for adding networks</p>
 <p>You can also modify existing addresses with the same syntax</p>
 <pre>
    conf network 10.0.1.0/24 modify fixed 10.0.1.4 aa:bb:cc:11:22:33 ...</pre>
+<p>You also can't change the network_view, but you will have to specify
+the view to find the range to modify</p>
+<pre>
+   conf network modify fixed 10.0.1.4 view default</pre>
 <p>
 </p>
-<h2><a name="remove_a_fixed_address">Remove a fixed address</a></h2>
-<p>For some clever reason, you don't really need to specify the parent
-network to remove a fixed address, but we enforct it here to keep people
-sane (In reality, any bogus string for the network name will work)</p>
+<h2><a name="add_a_fixed_address_template">Add a fixed address Template</a></h2>
 <pre>
-   conf network 10.0.1.0 delete fixed 1.2.3.4</pre>
+   conf template add fixed &lt;name&gt; offset &lt;value&gt; ...
+   conf template add fixed router-a offset 1</pre>
+<p>Add a fixed address with comments</p>
+<pre>
+   conf template add fixed ... comment &quot;use this for routers&quot;</pre>
+<p>
+</p>
+<h2><a name="modify_a_fixed_address">Modify a fixed address</a></h2>
+<p>You can also modify existing addresses with the same syntax</p>
+<pre>
+   conf template modify fixed ...</pre>
 <p>
 </p>
 <h2><a name="add_a_dhcp_range_to_a_network">Add a dhcp range to a network</a></h2>
 <p>Dhcp ranges, by default, will get added to the Grid master unless you
 override that setting with the 'member &lt;ip&gt;' syntax</p>
 <pre>
-   conf network 10.1.1.1/24 add range 10.1.1.20 10.1.1.40</pre>
+   conf network add range 10.1.1.20 10.1.1.40</pre>
+<p>Add a range to a network view</p>
+<pre>
+   conf network add range 10.1.1.20 10.1.1.40 view default</pre>
 <p>Failover associations are an additional argument</p>
 <pre>
-   conf net 10.1.1.1/24 add range 10... failover &quot;my_peering&quot;</pre>
+   conf net add range 10... failover &quot;my_peering&quot;</pre>
 <p>As are adding the member</p>
 <pre>
-   conf net 10.1.1.1/24 add range 10... member 1.1.1.2</pre>
+   conf net add range 10... member 1.1.1.2</pre>
 <p>If no members are specified, the range will be added to the Grid
 master.  If you don't want to assign any members use '0.0.0.0'</p>
 <pre>
-   conf net 10.1.1.1/24 add range 10... member 0.0.0.0</pre>
+   conf net add range 10... member 0.0.0.0</pre>
 <p>You can also add exclusions</p>
 <pre>
-   conf net 10.1.1.1/24 add range 10... exclude 1.1.1.2,1.1.2.5</pre>
+   conf net add range 10... exclude 1.1.1.2,1.1.2.5</pre>
 <p>You can also add filters to a range (multiples are allowed)</p>
 <pre>
-   conf net 10.1.1.1/24 add range 10... macfilter &lt;name&gt;=&lt;permission&gt;</pre>
-<p>And add new filters to an existing range</p>
+   conf net add range 10... macfilter &lt;name&gt;=&lt;permission&gt;</pre>
+<p>And add new filters to an existing range, you only have to specify start addr</p>
 <pre>
-   conf net 10.1.1.1/24 mod range 10... macfilter &lt;name&gt;=&lt;permission&gt;</pre>
+   conf net mod range 10.1.1.20 macfilter &lt;name&gt;=&lt;permission&gt;</pre>
+<pre>
+   conf net add range 10.1.1.20 10.1.1.40 filter_option &lt;name&gt;=&lt;permission&gt;</pre>
 <p>
 </p>
 <h2><a name="modifying_ranges">Modifying Ranges</a></h2>
 <p>You cannot renumber a range, only modify the contents of it.</p>
 <pre>
-   conf network 1.1.1.0/24 modify range 10.. set &lt;method=value&gt;</pre>
+   conf network modify range 10.. set &lt;method=value&gt;</pre>
 <pre>
-   conf network 1.1.1.0/24 modify range 10.. option 82=&quot;some data&quot;</pre>
-<p>if you change things like options arrays, ALL the existing values will be
+   conf network modify range 10.. option 82=&quot;some data&quot;</pre>
+<p>You also can't change the network_view, but you will have to specify
+the view to find the range to modify</p>
+<pre>
+   conf network modify range 10.. view default ...</pre>
+<p>If you change things like options arrays, ALL the existing values will be
 replaced by the new list. 'modify' does not append to existing lists, it
 does a complete replacement of it.</p>
 <p>
 </p>
 <h2><a name="remove_a_dhcp_range">Remove a dhcp range</a></h2>
 <pre>
-   conf net 1.1.1.1/24 delete range 1.1.1.20 1.1.1.40
    conf net delete range 1.1.1.20 1.1.1.40</pre>
 <p>
 </p>
@@ -901,59 +1012,7 @@ does a complete replacement of it.</p>
     conf network filter my_filter add mac aa:bb:cc:11:22:33 comment &quot;my comment&quot;</pre>
 <p>Modify a filter entry</p>
 <pre>
-    conf network filter my_filter modify mac aa:bb:cc:11:22:33 comment &quot;my comment&quot;
-=cut</pre>
-<p>sub cli_add_macfilteraddr {
-    my ( $line ) = @_ ;</p>
-<pre>
-    # get the args from the line
-    my ( $name ) = $line =~/ filter (\S+)/ ;
-    my ( $type, $mac ) = $line =~/ (add|modify) macaddress (\S+)/ ;
-    my ( $comment ) = $line =~/ comment &quot;?([^&quot;]+)&quot;?/ ;</pre>
-<pre>
-    # de-urlencode the name string
-    $comment = &amp;decode_comment ( $comment ) ;
-    $name = &amp;decode_comment ( $name ) ;</pre>
-<pre>
-    # fix mac addresses that are missing ':'
-    unless ( $mac =~ /:/ ) {
-        $mac =~ s/(..)/$1:/g;
-        $mac =~ s/:$//;
-    }</pre>
-<pre>
-    &amp;debug_cli (1,&quot;addmaddr f($name) m($mac) c($comment)&quot;);</pre>
-<pre>
-    # get or add ?
-    my $obj ;
-    if ( $type eq 'modify' ) {
-        # get the current network
-        my %opthash = (
-            &quot;object&quot; =&gt; &quot;Infoblox::DHCP::MAC&quot;, 
-            &quot;filter&quot; =&gt; $name ,
-            &quot;mac&quot; =&gt; $mac ,
-        );</pre>
-<pre>
-        ( $obj ) = &amp;do_func(&quot;get&quot;, %opthash );</pre>
-<pre>
-        # check errors
-        if ( ! $obj ) {
-            print &quot;  mac $mac is not in the filter $name\n&quot;;
-            return ;
-        }
-    }
-    else {</pre>
-<pre>
-        $obj = Infoblox::DHCP::MAC-&gt;new (
-                   &quot;filter&quot; =&gt; $name ,
-                   &quot;mac&quot; =&gt; $mac ,
-#                    &quot;comment&quot; =&gt; $comment ,
-                );
-    }
-    if ( $comment ) { $obj-&gt;comment ( $comment ) }</pre>
-<pre>
-    # make the change
-    &amp;do_func($type,$obj);</pre>
-<p>}</p>
+    conf network filter my_filter modify mac aa:bb:cc:11:22:33 comment &quot;my comment&quot;</pre>
 <p>
 </p>
 <h2><a name="remove_a_mac_address_from_a_filter">remove a mac address from a filter</a></h2>
@@ -963,6 +1022,22 @@ does a complete replacement of it.</p>
 </p>
 <hr />
 <h1><a name="ipam_configuration">IPAM Configuration</a></h1>
+<p>
+</p>
+<h2><a name="show_information_about_an_ip_address">Show information about an IP address</a></h2>
+<pre>
+  show ipam address 1.2.3.4</pre>
+<p>
+</p>
+<h2><a name="add_a_network_to_a_discovery_job">Add a network to a discovery job</a></h2>
+<p>Each network gets added to the current discovery job</p>
+<pre>
+  configure ipam discovery add network 1.2.3.0/24</pre>
+<p>
+</p>
+<h2><a name="show_a_discovery_job">Show a discovery job</a></h2>
+<pre>
+  show ipam discovery</pre>
 <p>
 </p>
 <h2><a name="adding_custom_metadata_fields">Adding custom metadata fields</a></h2>
@@ -1008,6 +1083,18 @@ does a complete replacement of it.</p>
 <p>
 </p>
 <h2><a name="showing_definitions_for_a_device_type">Showing definitions for a device type</a></h2>
+<pre>
+    [ ] TBD</pre>
+<p>
+</p>
+<h2><a name="showing_scheduled_updates">Showing scheduled updates</a></h2>
+<pre>
+    show grid schedule</pre>
+<p>
+</p>
+<h2><a name="deleting_scheduled_updates">Deleting scheduled updates</a></h2>
+<pre>
+    conf grid schedule delete &lt;taskid&gt;</pre>
 <p>
 </p>
 <hr />
@@ -1067,65 +1154,7 @@ You can also add a comment</pre>
 <p>You can also modify admin groups (to add roles or perms)
 This will ADD to the current list(s), not replace it</p>
 <pre>
-   configure admin modify admin_group locals role &quot;DNS Admin&quot;
-=cut</pre>
-<p>sub cli_add_admin_group {
-    my ( $line ) = @_ ;</p>
-<pre>
-    # get the args from the line
-    my ( $type , $name ) = $line =~/ (add|modify) admin_group (\S+)/ ;
-    my ( $su ) = $line =~/\b(superuser)\b/ ;
-    my ( $disable ) = $line =~/\b(disabled)\b$/ ;</pre>
-<pre>
-    &amp;debug_cli (1,&quot;addgrp g($name)&quot;);</pre>
-<pre>
-    my $obj ;
-    if ( $type eq &quot;modify&quot; ) {
-        # this might become a subroutine
-        # get the object 
-        my %opthash = (
-            &quot;object&quot; =&gt; &quot;Infoblox::Grid::Admin::Group&quot;, 
-            &quot;name&quot; =&gt; $name
-        );
-        ( $obj ) = &amp;do_func(&quot;get&quot;, %opthash );</pre>
-<pre>
-        unless ( $obj ) {
-            print &quot;  Error : $name : No group found\n&quot;;
-            # exit here
-            return
-        }
-    }
-    else {
-        $obj = Infoblox::Grid::Admin::Group-&gt;new (
-                   &quot;name&quot; =&gt; $name ,
-                );
-    }</pre>
-<pre>
-    # de-urlencode the comment string
-    # and add an optional comment
-    my ( $comment ) = $line =~/comment &quot;?([^&quot;]+)&quot;?/ ;
-    $comment = &amp;decode_comment ( $comment ) ;
-    if ( $comment ) { $obj-&gt;comment ( $comment ) }</pre>
-<pre>
-    if ( $su ) { $obj-&gt;superuser ( &quot;TRUE&quot; ) }
-    if ( $disable ) { $obj-&gt;disabled ( &quot;TRUE&quot; ) }</pre>
-<pre>
-    # set some roles
-    my ( @roles ) = $line =~/\brole\s+(\S+)/g ;
-    if ( @roles ) {
-        my @rvalues ;
-        # get current settings
-        if ( $type eq 'modify' ) {
-            @rvalues = @{ $obj-&gt;roles() };
-        }
-        foreach my $rstring ( @roles ) {
-            push @rvalues , &amp;decode_comment ( $rstring ) ;
-        }
-        $obj-&gt;roles( \@rvalues ) ;
-    }</pre>
-<pre>
-    &amp;do_func($type,$obj);</pre>
-<p>}</p>
+   configure admin modify admin_group locals role &quot;DNS Admin&quot;</pre>
 <p>
 </p>
 <h2><a name="adding_administrator_roles">Adding Administrator Roles</a></h2>
@@ -1247,6 +1276,16 @@ them modify it, thus you need :
    conf member ns1.lab.com dns set forwarders=&quot;[1.1.1.1,4.2.2.2]&quot;</pre>
 <p>
 </p>
+<h2><a name="show_member_dns_settings">Show Member DNS settings</a></h2>
+<pre>
+   show member &lt;name&gt; dns</pre>
+<pre>
+   show member ns1.lab.com dns</pre>
+<p>You can also get there from the zone command</p>
+<pre>
+   show zone member ns1.lab.com</pre>
+<p>
+</p>
 <h2><a name="configure_member_dhcp_settings">Configure Member DHCP settings</a></h2>
 <p>Set an option</p>
 <pre>
@@ -1287,8 +1326,9 @@ them modify it, thus you need :
    conf grid &lt;name&gt; dns add default_ttl &lt;num&gt;
    conf grid &lt;name&gt; dns add recursion</pre>
 <pre>
-   conf grid &lt;name&gt; dns add nsgroup &lt;name&gt;</pre>
+   conf grid &lt;name&gt; dns add ns_group &lt;name&gt;</pre>
 <p>DNS ACLs</p>
+<p>These will ADD the addresses to the acl, not replace the list</p>
 <pre>
    conf grid &lt;name&gt; dns add acl allow transfer x.x.x.x/nn
    conf grid &lt;name&gt; dns add acl deny update x.x.x.x/nn</pre>
@@ -1363,9 +1403,9 @@ them modify it, thus you need :
     show zone foo.com</pre>
 <p>Show NameServer Groups</p>
 <pre>
-    show zone nsgroup</pre>
+    show zone ns_group</pre>
 <pre>
-    show zone nsgroup &lt;name&gt;</pre>
+    show zone ns_group &lt;name&gt;</pre>
 <p>Show Shared Record Groups</p>
 <pre>
     show zone shared_record_group</pre>
@@ -1416,13 +1456,16 @@ them modify it, thus you need :
    show network</pre>
 <pre>
    show network 45.200.100.128/25</pre>
+<p>Show all the networks that have a common network_container</p>
+<pre>
+   show network 45.0.0.0/16 subnets</pre>
 <p>
 </p>
 <h2><a name="showing_networks_templates">Showing networks templates</a></h2>
 <pre>
-   show network template</pre>
+   show template network</pre>
 <pre>
-   show network template &lt;name&gt;</pre>
+   show template network &lt;name&gt;</pre>
 <p>
 </p>
 <h2><a name="showing_network_views">Showing Network Views</a></h2>
@@ -1439,7 +1482,7 @@ them modify it, thus you need :
    show network failover</pre>
 <p>
 </p>
-<h2><a name="showing_network_option_definitions">Showing network option definitions</a></h2>
+<h2><a name="showing_network_option_definitions__grid_level_">Showing network option definitions (grid level)</a></h2>
 <pre>
    show network options</pre>
 <p>
@@ -1455,9 +1498,18 @@ them modify it, thus you need :
 <p>List ALL the used and unused addresses in a subnet</p>
 <pre>
    show network 45.200.100.128/25 ipam</pre>
-<p>Show just the unused addresses</p>
+<p>Show just the used addresses</p>
 <pre>
    show network 45.200.100.128/25 ipam used</pre>
+<p>Show just the used or free addresses</p>
+<pre>
+   show network 45.200.100.128/25 ipam unused</pre>
+<p>Show just the next available IP address</p>
+<pre>
+   show network 45.200.100.128/25 ipam next_available</pre>
+<p>Show just the next available network</p>
+<pre>
+   show network 45.200.100.128/25 ipam next_network</pre>
 <p>
 </p>
 <h2><a name="showing_ranges">Showing ranges</a></h2>
@@ -1470,24 +1522,35 @@ them modify it, thus you need :
 <p>
 </p>
 <h2><a name="showing_fixed_addresses">Showing fixed addresses</a></h2>
-<p>Show all fixed addresses in a network</p>
+<p>Show all fixed addresses</p>
 <pre>
    show network 45.200.100.128/25 fixed</pre>
+<p>Show all fixed addresses in a network.</p>
+<pre>
+   show network 45.200.100.128/25 fixed</pre>
+<p>The Network is optional unless you want to limit your search to just that
+network.  (The network was required in some older versions of NIOS)</p>
 <p>Show just a specific fixed address</p>
 <pre>
-   show network 45.200.100.128/25 fixed 161.245.254.130</pre>
+   show network fixed 161.245.254.130</pre>
+<p>You can also show fidex addresses by mac address</p>
+<pre>
+   show network fixed aa:bb:cc:11:22:33</pre>
+<p>Show a fixed address(s) in a network view. 
+(the IP or mac must come before the view statement)</p>
+<pre>
+   shoe network fixed view internal
+   shoe network fixed 1.2.3.4 view internal
+   shoe network 1.2.3.0/24 fixed view internal</pre>
 <p>
 </p>
-<h2><a name="showing_mac_filters">Showing MAC filters</a></h2>
-<p>Show all macfilter lists</p>
+<h2><a name="showing_fixed_addresses_templates">Showing fixed addresses templates</a></h2>
+<p>Show all fixed addresses in a network</p>
 <pre>
-   show network filter</pre>
-<p>Show the entries in a filter</p>
+   show template fixed</pre>
+<p>Show just a specific fixed address</p>
 <pre>
-   show network filter my_filter entries</pre>
-<p>Show the details of a filter entry in a filter</p>
-<pre>
-   show network filter my_filter mac aa:aa:aa:11:22:33</pre>
+   show template fixed &lt;name&gt;</pre>
 <p>
 </p>
 <h2><a name="show_global_grid_settings">Show global Grid settings</a></h2>
@@ -1498,13 +1561,27 @@ them modify it, thus you need :
 <h2><a name="show_global_member_settings">Show global Member settings</a></h2>
 <p>Get a list of all grid members</p>
 <pre>
-   show grid Infoblox member</pre>
-<p>Get a detailed list of all grid members</p>
+   show grid infoblox member</pre>
+<p>Get a list of all grid members matching a REGEX</p>
 <pre>
-   show grid Infoblox member detailed</pre>
-<p>Get specific member details</p>
+   show grid infoblox member &lt;regex&gt;</pre>
+<p>Get detailed info about a member</p>
 <pre>
-   show grid Infoblox member 45.0.12.20</pre>
+   show grid Infoblox member ns1.test.com detailed</pre>
+<p>Get service status or licenses for a member</p>
+<pre>
+   show grid Infoblox member ns1.test.com status
+   show grid Infoblox member ns1.test.com licenses</pre>
+<p>You can also filter this for a particular value
+(the value has to match something reported by the API)</p>
+<pre>
+
+   show grid Infoblox member ns1.test.com status memory
+   show grid Infoblox member ns1.test.com license KeystoneDVS</pre>
+<p>You can also use this to get a single status from ALL the grid members</p>
+<pre>
+   show grid Infoblox license KeystoneDVS
+   show grid Infoblox status KeystoneDVS</pre>
 <p>
 </p>
 <h2><a name="showing_users_and_groups">Showing users and groups</a></h2>
@@ -1537,7 +1614,7 @@ them modify it, thus you need :
 <p>If you are connecting to the MGMT port, you need to define the GRID MASTER
 IP address.  This is because it is different from the MGMT port and it is
 autoassigned to any zones, networks or ranges that do not specifically
-have a ember assignment</p>
+have a member assignment</p>
 <pre>
     configure master &lt;ip&gt;</pre>
 <p>Alternatively, you can add it as a keyword to the 'conf server' command :</p>
@@ -1568,9 +1645,16 @@ have a ember assignment</p>
    restart dns delay 10</pre>
 <p>
 </p>
+<h2><a name="download_csv_data_for_an_object_type">Download csv data for an object type</a></h2>
+<pre>
+  download csv &lt;file&gt; object &lt;object&gt;</pre>
+<pre>
+  download csv zonelist.csv object Infoblox::DNS::Zone</pre>
+<p>
+</p>
 <h2><a name="export_log_files">Export log files</a></h2>
 <pre>
-    download merge_log &lt;file&gt;</pre>
+  download merge_log &lt;file&gt;</pre>
 <p>
 </p>
 <h2><a name="download_the_database">Download the database</a></h2>
@@ -1583,6 +1667,11 @@ have a ember assignment</p>
 (the API and GUI has other options, but I can't see why you'd need them)</p>
 <pre>
     upload database &lt;file&gt;</pre>
+<p>
+</p>
+<h2><a name="upload_lease_data">Upload lease data</a></h2>
+<pre>
+    upload leases &lt;file&gt;</pre>
 <p>
 </p>
 <h2><a name="download_the_dhcp_configuration">Download the DHCP configuration</a></h2>
@@ -1623,7 +1712,9 @@ have a ember assignment</p>
 </p>
 <h2><a name="debugging__">Debugging :</a></h2>
 <pre>
-  configure debug &lt;level&gt;</pre>
+  configure debug &lt;level&gt;
+
+</pre>
 <p>The higher the debug level, the more junk gets spat to the tty. You
 probably don't want anything higher than (2) unless you are debugging the
 completion control parser.</p>

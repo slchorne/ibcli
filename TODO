@@ -1,3 +1,7 @@
+DVS info
+CVS : /export/CVS_Repository/infoblox/src/ibcli
+SVN : file:///export/SVN_Repository/src/ibcli/head
+
 missing features :
 
 [x] UTF-8 support
