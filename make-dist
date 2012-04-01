@@ -9,7 +9,7 @@ echo "Did you create a tag on the master recently for this REV?"
 echo "Please branch a new REV after this tag"
 echo "";
 echo "git checkin"
-echo "git branch master, merge, etc"
+echo "git checkout master, merge, etc"
 echo "git tag <rev>"
 echo "make-dist"
 echo "make-docs"
