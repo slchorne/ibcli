@@ -5,6 +5,21 @@ if [ -z "$1" ] ; then
     exit ;
 fi
 
+echo "Did you create a tag on the master recently for this REV?"
+echo "Please branch a new REV after this tag"
+echo "";
+echo "git checkin"
+echo "git checkout master, merge, etc"
+echo "git tag <rev>"
+echo "make-dist"
+echo "make-docs"
+echo "make-relnotes"
+echo "git checkout -b <new-rev>"
+echo "";
+
+exit ;
+
+
 GIT=/usr/local/git/bin/git
 
 # hack in some RCS tagging stuff so we know what rev is in the file
