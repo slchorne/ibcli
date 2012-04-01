@@ -81,7 +81,7 @@ makes a lot less sense than
   "configure telnet"
 
 ; Be lazy :
-IF we extent the first 3 rules even further then we we should not only
+If we extent the first 3 rules even further then we we should not only
 be intuitive, but ambiguous. If a command can have variants in the
 syntax, then why not support all the variants
      "conf vlan"
@@ -123,25 +123,26 @@ We keep the top level as simple as possible.
       restart
       history
 
-if we never need to add a command we ask ourselves 
+If we never need to add a command we ask ourselves 
 
      "Could this live under an existing command ?"
    
 ; Few branches per node :
-IF you wanted to create a function that added a vlan, what would make
+If you wanted to create a function that added a vlan, what would make
 more sense
      "add vlan <foo>"
 or
      "set vlan add <foo>"
 
-The first option seems better because it is simpler, but it breaks the
-first rule (by adding another top level command), and it breaks the second
-rule adding a lot of second level 'add' commands. "add vlan" by itself
-seems harmless, but what about when you need to add networks or zones
-or hosts or interfaces or ipaddresses or ACLS etc etc.
+The first option seems better because it is simpler, but what are you
+adding the vlan to?  And it breaks the first rule (by adding another top
+level command), and it breaks the second rule adding a lot of second level
+'add' commands.  "add vlan" by itself seems harmless, but what about when
+you need to add networks or zones or hosts or interfaces or ipaddresses or
+ACLS etc etc.
 
 By putting all vlan specific commands under the 'set vlan' you can now
-build a better tree commands and start to put things into context. you
+build a better tree of commands and start to put things into context.  you
 can break your commands out like this :
 
    configure zone add <zonevalue>
@@ -189,7 +190,7 @@ operations, leverage that :
      "set dhcp off"  - better
 
 ; 1 line to rule them all :
-IF you are going to do something, do it in one line. As you are more
+If you are going to do something, do it in one line. As you add more
 words to the command you are really adding more details, you are
 making a command more specific and giving it more context.
  
