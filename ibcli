@@ -4515,7 +4515,7 @@ Add a fixed address with comments
 
 =head2 Add a roaming address (that has no IP addr)
 
-You will need to specify the name instad of the IP address
+You will need to specify the name instead of the IP address
 
    conf network add fixed myroamer aa:bb:cc:11:22:33 
 
@@ -8464,9 +8464,9 @@ You can also show fidex addresses by mac address
 Show a fixed address(s) in a network view. 
 (the IP or mac must come before the view statement)
 
-   shoe network fixed view internal
-   shoe network fixed 1.2.3.4 view internal
-   shoe network 1.2.3.0/24 fixed view internal
+   show network fixed view internal
+   show network fixed 1.2.3.4 view internal
+   show network 1.2.3.0/24 fixed view internal
 
 =cut
 
