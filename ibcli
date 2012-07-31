@@ -1393,6 +1393,7 @@ sub cli_add_view {
     # get the args from the line
     my ( $type, $view )     = $line =~/ (add|modify) view (\S+)/ ;
     my ( $disable )     = $line =~/ (disabled)/ ;
+    my ( $enable  )     = $line =~/ (enabled)/ ;
     my @settings  = $line =~/ set (\S+)/g ;
 
     # get and de-urlencode the comment string
@@ -1436,6 +1437,7 @@ sub cli_add_view {
 
     if ( $comment ) { $obj->comment ( $comment ) }
     if ( $disable ) { $obj->disable ( "TRUE" ) }
+    if ( $enable  ) { $obj->enable  ( "FALSE" ) }
 
     if ( @settings ) {
 
@@ -10290,7 +10292,8 @@ sub dump_data {
         else {
             $data = $obj->{$key} ;
             # clean up any odd chars in the string
-            $data =~ s// /g;
+            $data =~ s/
+/ /g;
             $data =~ s/\n/ /g;
         }
 
