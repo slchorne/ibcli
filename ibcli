@@ -2399,9 +2399,9 @@ configuring a host for no dns (disable for dns)
 
 =head2 Modifying hosts
 
-You cannot rename a host, only modify the contents of it
-
    conf zone foo.com modify host test 1.2.3.4
+
+   conf zone foo.com modify host test 1.2.3.4 rename test2
 
    conf zone foo.com modify host test 1.2.3.4 comment "this is a comment"
 
@@ -2416,6 +2416,7 @@ sub cli_add_host {
     my ( $type , $host ) = $line =~/(\S+) host (\S+)/ ;
     my ( $j , $ip ) = $line =~/(add|modify) host \S+ ($REip\S*)/ ;
 
+    my ( $rename )    = $line =~/ rename (\S+)/;
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $vname )     = $line =~/ view (\S+)/ ;
     my ( $mac )     = $line =~/mac (\S+)/ ;
@@ -2572,6 +2573,8 @@ sub cli_add_host {
     if ( $nodns ) { $obj->configure_for_dns ( "FALSE" ) }
 
     if ( $ttl ) { $obj->ttl ( $ttl ) }
+
+    if ( $rename ) { $obj->name ( $rename ) } 
 
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
@@ -12038,7 +12041,7 @@ my %COMMANDS = (
            words => "<cr> at=<value>|template=<name>|<ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|nodns", 
            func => "cli_ins_host", },
     'configure zone <zone> modify host <name>' => { 
-           words => "<cr> at=<value>|template=<name>|<ip,ip>|host_set=<name=value>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|nodns", 
+           words => "<cr> at=<value>|template=<name>|<ip,ip>|host_set=<name=value>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|rename=<name>|disabled|nodns", 
            func => "cli_add_host", },
 
     'configure zone <zone> add host' => { 
