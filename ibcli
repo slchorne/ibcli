@@ -7,6 +7,9 @@ my $REV = ":Revision: r3.60 ::";
 # my $REV = "Revision 3.$SVNREV";
 # 
 
+# just do it, and get it over with
+$ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0;
+
 # (c) Copyright: Geoff horne, SLC 2001-2012
 #               All rights reserved
 #
@@ -3167,15 +3170,18 @@ sub cli_del_cname {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
 
+    my $name = fqdn( $alias , $zone ) ;
+
     my ( $view ) = $line =~/ view (\S+)/ ;
     $view = 'default' unless $view ;
 
-    &debug_cli(1,"delcn z($zone) v($view) n($alias) cn($cname)");
+    &debug_cli(1,"delcn n($name) z($zone) v($view) a($alias) cn($cname)");
 
     # find and remove
     my %opthash = (
         object => "Infoblox::DNS::Record::CNAME",
-        "name" => "$alias.$zone",
+#         "name" => "$alias.$zone",
+        "name" => "$name",
         "canonical" => "$cname",
     );
     $opthash{'view'} = $view if $view ;
@@ -9164,6 +9170,8 @@ sub cli_restart {
 
   download merge_log <file>
 
+  download log_files <file> <log_type> member <ip>
+
 =cut
 
 sub cli_download_log {
@@ -9177,6 +9185,7 @@ sub cli_download_log {
     ( my $dest )  = $line =~/$type (\S+)/ ;
     ( my $member)  = $line =~/member (\S+)/ ;
     ( my $object)  = $line =~/object (\S+)/ ;
+    ( my $subtype)  = $line =~/$type \S+ (\S+)/ ;
     ( my $syslog)  = $line =~/\bsyslog\b/ ;
 
     my %opthash = (
@@ -9186,6 +9195,7 @@ sub cli_download_log {
 
     if ( $type =~ /log/ ) {
         $opthash{'format'} = 'tar';
+        $opthash{'log_type'} = $subtype ;
     }
 
     if ( $object ) {
@@ -11571,7 +11581,7 @@ my %COMMANDS = (
 
 # downloads
     'download' => { 
-           words => "csv=<file>|lease_history=<file>|support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
+           words => "log_files=<file>|csv=<file>|lease_history=<file>|support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
 
     'download csv <file>' => { 
            words => "object=<object>",  },
@@ -11584,6 +11594,13 @@ my %COMMANDS = (
            func => "cli_download_database", },
 
     # they all call the same generic function
+    'download log_files <file>' => { 
+           words => "<value>" },
+    'download log_files <file> <value>' => { 
+           words => "member=<ip>"},
+    'download log_files <file> <value> member <ip>' => { 
+           func => "cli_download_log", },
+
     'download lease_history <file>' => { 
            func => "cli_download_log", },
     'download merge_log <file>' => { 
