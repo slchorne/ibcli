@@ -8177,6 +8177,10 @@ Show just the next available IP address
 
    show network 45.200.100.128/25 ipam next_available
 
+OR the next N addresses
+
+   show network 45.200.100.128/25 ipam next_available 5
+
 Show just the next available network
 
    show network 45.200.100.128/25 ipam next_network
