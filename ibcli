@@ -809,6 +809,12 @@ sub expand_line {
 
        my $origarg  = $thisarg ;
 
+       # convert the arg to lowercase, unless the arg is case
+       # sensitive...
+       unless ( $thisarg =~ /::/ ) {
+         $thisarg = lc($thisarg);
+       }
+
        &debug_cli (3,"linex arg     a($thisarg)<-($origarg)");
 #        &debug_cli (3,"linex partial e[$expline]");
        &debug_cli (3,"linex partial m[$matchline]");
@@ -819,7 +825,7 @@ sub expand_line {
 
        # we need the context so we know what the next word is
 
-       my ( @words ) = get_context ( $matchline ) ;
+       my ( @words ) = get_context( $matchline ) ;
 
        my ($done,$sptype,$expword,@matches) = &expand_word ($thisarg,@words) ;
 
@@ -2726,7 +2732,7 @@ sub cli_add_a_rec {
 
 =head2 Remove An A record from a zone
 
-   conf zone foo.com delete A test 1.2.3.4
+   conf zone foo.com delete a_rec test 1.2.3.4
 
 =cut
 
@@ -8186,6 +8192,126 @@ sub cli_show_ipam {
 
     &debug_cli(2,"netipam n($subnet) t($type)");
 
+    unless ( require_api ( "5.3" ) ) {
+        # call the original version of this command
+        __old_show_ipam( $line );
+        return;
+    }
+
+    # so re-write all this code to just use infoblox::ipam::address
+    # objects (and a few other things)
+
+    if ( $type =~ /next_network/ ) {
+        unless ( require_api ( "6.3" ) ) {
+            print "  Next Network not available in this version of NIOS\n";
+        }
+        else {
+            my ( $cidr ) = $line =~/ next_network (\S+)/ ;
+                $cidr =~ s/\///;
+
+            &debug_cli(2,"netipam n($subnet) c($cidr)");
+
+            my ( $nobj ) = &do_func("get", (
+                    object   => "Infoblox::DHCP::Network",
+                    network  => $subnet,
+                    )
+                 );
+            unless ( $nobj ) {
+                # try and get a container...
+                ( $nobj ) = &do_func("get", (
+                    object   => "Infoblox::DHCP::NetworkContainer",
+                    network  => $subnet,
+                    )
+                 );
+            }
+
+            if ( $nobj ) {
+                # get the first one, we return a STRING if we don't
+                # specify the # of networks
+                my $nnet = $nobj->next_available_network( 
+                    # requested_num => 1,
+                    cidr => $cidr );
+
+                unless ( $nnet ) {
+                    print "Error: " . $SESSION->status_detail() . "\n";
+                }
+                else {
+                    print "  $subnet : next avaiable : $nnet\n";
+                }
+
+            }
+        }
+
+        return ;
+    }
+
+    if ( $type =~ /next_available/ ) {
+        # the min rev for this part of the code is 5.3, so
+        # next_available is already there
+
+        my ( $num ) = $line =~/ next_available (\S+)/ ;
+        &debug_cli(2,"nextip n($subnet) n($num)");
+
+        my ( $nobj ) = &do_func("get", (
+                object   => "Infoblox::DHCP::Network",
+                network  => $subnet,
+                )
+             );
+        if ( $nobj ) {
+            my $nip = $nobj->next_available_ip( requested_num => $num );
+
+            # string or AREF ? it depends on the # of addresses
+            my $res ;
+            if ( $num > 1 ) {
+               $res = join( "," , @{ $nip });
+            }
+            else {
+                $res = $nip ;
+            }
+            print "  $subnet : $res\n";
+
+        }
+
+        return ;
+    }
+
+    # now just get uses or unused
+    my %opthash = (
+                    "object" => "Infoblox::IPAM::Address",
+                    "network" => $subnet,
+        );
+
+    # see if we need to filter the addresses
+    if ( $type ) {
+        $opthash{status} = $type ;
+    }
+
+    # get all the matching addrs
+    my @addrs = &do_func("get", %opthash );
+
+    # then list the results
+    foreach my $iobj ( @addrs ) {
+        my $ip = $iobj->ip_address();
+        my $status = $iobj->status();
+        my $types = $iobj->types();
+
+        $status .= "/$types" if $types ;
+
+        print "$ip : $status\n";
+    }
+
+}
+
+
+sub __old_show_ipam {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $subnet ) = $line =~/ network (\S+)/ ;
+    my ( $type ) = $line =~/ ipam (\S+)/ ;
+
+    &debug_cli(2,"netipam n($subnet) t($type)");
+
     if ( $type =~ /next_network/ ) {
         my ( $cidr ) = $line =~/ next_network (\S+)/ ;
              $cidr =~ s/\///;
@@ -8281,7 +8407,9 @@ sub cli_show_ipam {
     # now find all the fixed addresses
     # we have to fix a bug in the API
     my $snet = $subnet ;
-       $snet =~ s/\//\.\*/;
+#        $snet =~ s/\//\.\*/;
+
+    # 
 
     my @fixed = &do_func("search", (
                     "object" => "Infoblox::DHCP::FixedAddr",
@@ -8297,7 +8425,6 @@ sub cli_show_ipam {
         $used_ip{$ip} = "used/fixed" ;
     }
 
-
     # now walk the rest of the addresses looking for used/unused
     # get the first/last IP for the subnet
     my ( $network , $bcast ) = netbounds ( $subnet ) ;
@@ -8305,13 +8432,16 @@ sub cli_show_ipam {
     my $fabs = abs_ip( $network ) + 1 ;
     my $labs = abs_ip( $bcast ) - 1 ;
 
-#     foreach my $asip ( 0 .. 1 ) {
     foreach my $asip ( 0 .. $labs - $fabs ) {
         my $sip = ip_abs ( $asip  + $fabs ) ;
 
         # see if it is in use.
         if ( exists $used_ip{$sip} and $used_ip{$sip} =~ /used/ ) {
             next ;
+        }
+        else {
+            # free
+            $used_ip{$sip} = "unused" ;
         }
 
         # now do some DNS lookups
@@ -8324,7 +8454,7 @@ sub cli_show_ipam {
             # winders
             chomp ( $dns = `nslookup $sip $MASTER_IP` ) ;
         }
-    
+  
         # mark at the results
         if ( $dns =~ /timed out/i ) {
             $dns=~s/;//g;
@@ -8361,9 +8491,8 @@ sub cli_show_ipam {
         print "    $key : $used_ip{$key}\n";
     }
 
-#     print Dumper ( \%used_ip ) ;
-
 }
+
 
 
 =head2 Showing ranges
@@ -11506,6 +11635,9 @@ my %COMMANDS = (
     'show network <n.n.n.n/mm> ipam next_network </cidr>' => { 
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam next_available' => { 
+           words => "<cr> <value>",
+           func => "cli_show_ipam", },
+    'show network <n.n.n.n/mm> ipam next_available <value>' => { 
            func => "cli_show_ipam", },
 
 
