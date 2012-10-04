@@ -2,8 +2,27 @@
 
 if [ -z "$1" ] ; then
     echo "usage: $0 <file>"
+
+    echo "Did you create a tag on the master recently for this REV?"
+    echo "Please branch a new REV after this tag"
+    echo "";
+    echo "git checkin"
+    echo "git checkout master, merge, etc"
+    echo "git tag <rev>"
+    echo "make-dist <ibcli>"
+    echo "make-docs"
+    echo "make-relnotes"
+    echo "";
+    echo "update the web pages";
+    echo "git checkout gh-pages";
+    echo "git merge, push, etc";
+    echo "";
+    echo "git checkout -b <new-rev>"
+    echo "";
+
     exit ;
 fi
+
 
 GIT=/usr/local/git/bin/git
 
