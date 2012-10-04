@@ -7,6 +7,9 @@ my $REV = ":Revision: rev3.60 ::";
 # my $REV = "Revision 3.$SVNREV";
 # 
 
+# just do it, and get it over with
+$ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0;
+
 # (c) Copyright: Geoff horne, SLC 2001-2012
 #               All rights reserved
 #
@@ -806,6 +809,13 @@ sub expand_line {
 
        my $origarg  = $thisarg ;
 
+       # convert the arg to lowercase, 
+       # but this also LC's all RHS statements, so not the best idea
+#        unless ( $thisarg =~ /::/ 
+#         or $thisarg =~ /=/ ) {
+#          $thisarg = lc($thisarg);
+#        }
+
        &debug_cli (3,"linex arg     a($thisarg)<-($origarg)");
 #        &debug_cli (3,"linex partial e[$expline]");
        &debug_cli (3,"linex partial m[$matchline]");
@@ -816,7 +826,7 @@ sub expand_line {
 
        # we need the context so we know what the next word is
 
-       my ( @words ) = get_context ( $matchline ) ;
+       my ( @words ) = get_context( $matchline ) ;
 
        my ($done,$sptype,$expword,@matches) = &expand_word ($thisarg,@words) ;
 
@@ -1384,6 +1394,11 @@ Add a view disabled :
 You can also modify views
 
    conf zone modify view internal set match_clients=[1.1.1.1,2.2.2.2]
+
+And enable/disable it
+
+   conf zone modify view internal enabled
+   conf zone modify view internal disabled
 
 =cut
 
@@ -2398,9 +2413,9 @@ configuring a host for no dns (disable for dns)
 
 =head2 Modifying hosts
 
-You cannot rename a host, only modify the contents of it
-
    conf zone foo.com modify host test 1.2.3.4
+
+   conf zone foo.com modify host test 1.2.3.4 name test2
 
    conf zone foo.com modify host test 1.2.3.4 comment "this is a comment"
 
@@ -2415,6 +2430,7 @@ sub cli_add_host {
     my ( $type , $host ) = $line =~/(\S+) host (\S+)/ ;
     my ( $j , $ip ) = $line =~/(add|modify) host \S+ ($REip\S*)/ ;
 
+    my ( $rename )    = $line =~/ name (\S+)/;
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $vname )     = $line =~/ view (\S+)/ ;
     my ( $mac )     = $line =~/mac (\S+)/ ;
@@ -2572,6 +2588,8 @@ sub cli_add_host {
 
     if ( $ttl ) { $obj->ttl ( $ttl ) }
 
+    if ( $rename ) { $obj->name ( $rename ) }
+
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
     # set any values
@@ -2722,7 +2740,7 @@ sub cli_add_a_rec {
 
 =head2 Remove An A record from a zone
 
-   conf zone foo.com delete A test 1.2.3.4
+   conf zone foo.com delete a_rec test 1.2.3.4
 
 =cut
 
@@ -3169,15 +3187,18 @@ sub cli_del_cname {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $alias , $cname ) = $line =~/ cname (\S+) (\S+)/ ;
 
+    my $name = fqdn( $alias , $zone ) ;
+
     my ( $view ) = $line =~/ view (\S+)/ ;
     $view = 'default' unless $view ;
 
-    &debug_cli(1,"delcn z($zone) v($view) n($alias) cn($cname)");
+    &debug_cli(1,"delcn n($name) z($zone) v($view) a($alias) cn($cname)");
 
     # find and remove
     my %opthash = (
         object => "Infoblox::DNS::Record::CNAME",
-        "name" => "$alias.$zone",
+#         "name" => "$alias.$zone",
+        "name" => "$name",
         "canonical" => "$cname",
     );
     $opthash{'view'} = $view if $view ;
@@ -4517,7 +4538,7 @@ Add a fixed address with comments
 
 =head2 Add a roaming address (that has no IP addr)
 
-You will need to specify the name instad of the IP address
+You will need to specify the name instead of the IP address
 
    conf network add fixed myroamer aa:bb:cc:11:22:33 
 
@@ -7809,13 +7830,28 @@ sub cli_show_lease {
 
 =head2 Showing networks
 
-   show network
+    show network
 
-   show network 45.200.100.128/25
+    show network 45.200.100.128/25
 
 Show all the networks that have a common network_container
 
-   show network 45.0.0.0/16 subnets
+    show network 45.0.0.0/16 subnets
+
+Show networks with their details
+
+    show network details
+
+Show networks matching an Extensible Attribute, you can use
+multiple 'info' arguments
+    
+    show network info Site=west
+
+    show network info Site=west info Closet=24
+
+And show the detailed version of the above searches
+
+    show network info Site=west details
 
 =cut
 
@@ -7828,28 +7864,39 @@ sub cli_show_network {
     # get the args from the line
     my ( $net ) = $line =~/ network (\S+)/ ;
     my ( $parent ) = $line =~/\bsubnets\b/ ;
+    my ( $details ) = $line =~/\bdetails\b/ ;
+    my @ipam  = $line =~/ info (\S+)/g ;
 
-    my $details ;
+    # set a default search
+    my $otype = "Infoblox::DHCP::Network";
+
+    # do we want a detailed listing ?
     if ( $net eq "details" ) {
         $details = $net ;
         undef $net ;
     }
 
-    &debug_cli(2,"shown n($net) c($parent)");
+    my %opthash ;
 
-    # set a default search
-    my $otype = "Infoblox::DHCP::Network";
+    # now add IPAM info to filter the search
+    if ( $net eq "info" ) {
+        undef $net ;
+        if ( @ipam ) {
+            my $exts = __info_to_ipamhash( @ipam );
+            $opthash{'extensible_attributes'} = $exts ;
+        }
+    }
 
     # do we get all nets
     my $search = ".*";
     # or a specific list
     if ( $net ) { $search = $net ; }
 
-    # get all the networks
+    &debug_cli(2,"shown n($net) c($parent) i(@ipam)");
+
+    # NOW get all the networks
     print "Search : $otype:\n";
-    my %opthash = (
-           "object" => $otype,
-    );
+    $opthash{"object"} = $otype ;
 
     if ( $parent ) {
         $opthash{'network_container'} = $search;
@@ -7860,10 +7907,14 @@ sub cli_show_network {
         $opthash{'network'} = $search;
     }
 
+#     print Dumper ( \%opthash ) ;
+
     # set network views...
     my ( $view )  = $line =~/ view (\S+)/ ;
     $view = &decode_comment ( $view ) ;
     if ( $view ) { $opthash{'network_view'} = $view ; }
+
+#     $obj = add_ipam( $obj , @ipam ) ;
 
     # search networks
     my @nets ;
@@ -8164,6 +8215,10 @@ Show just the next available IP address
 
    show network 45.200.100.128/25 ipam next_available
 
+OR the next N addresses
+
+   show network 45.200.100.128/25 ipam next_available 5
+
 Show just the next available network
 
    show network 45.200.100.128/25 ipam next_network
@@ -8171,6 +8226,126 @@ Show just the next available network
 =cut
 
 sub cli_show_ipam {
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $subnet ) = $line =~/ network (\S+)/ ;
+    my ( $type ) = $line =~/ ipam (\S+)/ ;
+
+    &debug_cli(2,"netipam n($subnet) t($type)");
+
+    unless ( require_api ( "5.3" ) ) {
+        # call the original version of this command
+        __old_show_ipam( $line );
+        return;
+    }
+
+    # so re-write all this code to just use infoblox::ipam::address
+    # objects (and a few other things)
+
+    if ( $type =~ /next_network/ ) {
+        unless ( require_api ( "6.3" ) ) {
+            print "  Next Network not available in this version of NIOS\n";
+        }
+        else {
+            my ( $cidr ) = $line =~/ next_network (\S+)/ ;
+                $cidr =~ s/\///;
+
+            &debug_cli(2,"netipam n($subnet) c($cidr)");
+
+            my ( $nobj ) = &do_func("get", (
+                    object   => "Infoblox::DHCP::Network",
+                    network  => $subnet,
+                    )
+                 );
+            unless ( $nobj ) {
+                # try and get a container...
+                ( $nobj ) = &do_func("get", (
+                    object   => "Infoblox::DHCP::NetworkContainer",
+                    network  => $subnet,
+                    )
+                 );
+            }
+
+            if ( $nobj ) {
+                # get the first one, we return a STRING if we don't
+                # specify the # of networks
+                my $nnet = $nobj->next_available_network( 
+                    # requested_num => 1,
+                    cidr => $cidr );
+
+                unless ( $nnet ) {
+                    print "Error: " . $SESSION->status_detail() . "\n";
+                }
+                else {
+                    print "  $subnet : next avaiable : $nnet\n";
+                }
+
+            }
+        }
+
+        return ;
+    }
+
+    if ( $type =~ /next_available/ ) {
+        # the min rev for this part of the code is 5.3, so
+        # next_available is already there
+
+        my ( $num ) = $line =~/ next_available (\S+)/ ;
+        &debug_cli(2,"nextip n($subnet) n($num)");
+
+        my ( $nobj ) = &do_func("get", (
+                object   => "Infoblox::DHCP::Network",
+                network  => $subnet,
+                )
+             );
+        if ( $nobj ) {
+            my $nip = $nobj->next_available_ip( requested_num => $num );
+
+            # string or AREF ? it depends on the # of addresses
+            my $res ;
+            if ( $num > 1 ) {
+               $res = join( "," , @{ $nip });
+            }
+            else {
+                $res = $nip ;
+            }
+            print "  $subnet : $res\n";
+
+        }
+
+        return ;
+    }
+
+    # now just get uses or unused
+    my %opthash = (
+                    "object" => "Infoblox::IPAM::Address",
+                    "network" => $subnet,
+        );
+
+    # see if we need to filter the addresses
+    if ( $type ) {
+        $opthash{status} = $type ;
+    }
+
+    # get all the matching addrs
+    my @addrs = &do_func("get", %opthash );
+
+    # then list the results
+    foreach my $iobj ( @addrs ) {
+        my $ip = $iobj->ip_address();
+        my $status = $iobj->status();
+        my $types = $iobj->types();
+
+        $status .= "/$types" if $types ;
+
+        print "$ip : $status\n";
+    }
+
+}
+
+
+sub __old_show_ipam {
     my ( $line ) = @_ ;
 
     # get the args from the line
@@ -8274,7 +8449,9 @@ sub cli_show_ipam {
     # now find all the fixed addresses
     # we have to fix a bug in the API
     my $snet = $subnet ;
-       $snet =~ s/\//\.\*/;
+#        $snet =~ s/\//\.\*/;
+
+    # 
 
     my @fixed = &do_func("search", (
                     "object" => "Infoblox::DHCP::FixedAddr",
@@ -8290,7 +8467,6 @@ sub cli_show_ipam {
         $used_ip{$ip} = "used/fixed" ;
     }
 
-
     # now walk the rest of the addresses looking for used/unused
     # get the first/last IP for the subnet
     my ( $network , $bcast ) = netbounds ( $subnet ) ;
@@ -8298,13 +8474,16 @@ sub cli_show_ipam {
     my $fabs = abs_ip( $network ) + 1 ;
     my $labs = abs_ip( $bcast ) - 1 ;
 
-#     foreach my $asip ( 0 .. 1 ) {
     foreach my $asip ( 0 .. $labs - $fabs ) {
         my $sip = ip_abs ( $asip  + $fabs ) ;
 
         # see if it is in use.
         if ( exists $used_ip{$sip} and $used_ip{$sip} =~ /used/ ) {
             next ;
+        }
+        else {
+            # free
+            $used_ip{$sip} = "unused" ;
         }
 
         # now do some DNS lookups
@@ -8317,7 +8496,7 @@ sub cli_show_ipam {
             # winders
             chomp ( $dns = `nslookup $sip $MASTER_IP` ) ;
         }
-    
+  
         # mark at the results
         if ( $dns =~ /timed out/i ) {
             $dns=~s/;//g;
@@ -8354,9 +8533,8 @@ sub cli_show_ipam {
         print "    $key : $used_ip{$key}\n";
     }
 
-#     print Dumper ( \%used_ip ) ;
-
 }
+
 
 
 =head2 Showing ranges
@@ -8466,9 +8644,9 @@ You can also show fidex addresses by mac address
 Show a fixed address(s) in a network view. 
 (the IP or mac must come before the view statement)
 
-   shoe network fixed view internal
-   shoe network fixed 1.2.3.4 view internal
-   shoe network 1.2.3.0/24 fixed view internal
+   show network fixed view internal
+   show network fixed 1.2.3.4 view internal
+   show network 1.2.3.0/24 fixed view internal
 
 =cut
 
@@ -9166,6 +9344,8 @@ sub cli_restart {
 
   download merge_log <file>
 
+  download log_files <file> <log_type> member <ip>
+
 =cut
 
 sub cli_download_log {
@@ -9179,6 +9359,7 @@ sub cli_download_log {
     ( my $dest )  = $line =~/$type (\S+)/ ;
     ( my $member)  = $line =~/member (\S+)/ ;
     ( my $object)  = $line =~/object (\S+)/ ;
+    ( my $subtype)  = $line =~/$type \S+ (\S+)/ ;
     ( my $syslog)  = $line =~/\bsyslog\b/ ;
 
     my %opthash = (
@@ -9188,6 +9369,7 @@ sub cli_download_log {
 
     if ( $type =~ /log/ ) {
         $opthash{'format'} = 'tar';
+        $opthash{'log_type'} = $subtype ;
     }
 
     if ( $object ) {
@@ -10353,6 +10535,34 @@ sub add_settings {
 }
 
 # IPAM functions
+sub __info_to_ipamhash {
+    # convert 'info foo=bar' into a searchable hash
+    my @ipam = @_ ;
+    my $exts ;
+
+    foreach my $info ( @ipam ) {
+        # break this onto name = value pairs
+        my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
+
+        # decode a quoted string
+        my $cvalue = &decode_comment ( $value ) ;
+
+        # and decode the attribute name
+        $name = &decode_comment ( $name ) ;
+
+        # and strip the quotes
+        $cvalue =~ s/^"//;
+        $cvalue =~ s/"$//;
+
+        &debug_cli(3,"convi info($name) =($cvalue) [$value]");
+
+        # and store them in the hash
+        $exts->{$name}=$cvalue;
+    }
+    return ( $exts );
+
+}
+
 sub add_ipam {
     my ( $obj , @ipam ) = @_ ;
 
@@ -11454,7 +11664,11 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> views details <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           words => "<cr> info=<name=value> details views <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           func => "cli_show_network", },
+
+    'show network info <name=value>' => { 
+           words => "<cr> info=<name=value>|details",  
            func => "cli_show_network", },
 
     'show network details' => { 
@@ -11496,6 +11710,9 @@ my %COMMANDS = (
     'show network <n.n.n.n/mm> ipam next_network </cidr>' => { 
            func => "cli_show_ipam", },
     'show network <n.n.n.n/mm> ipam next_available' => { 
+           words => "<cr> <value>",
+           func => "cli_show_ipam", },
+    'show network <n.n.n.n/mm> ipam next_available <value>' => { 
            func => "cli_show_ipam", },
 
 
@@ -11574,7 +11791,7 @@ my %COMMANDS = (
 
 # downloads
     'download' => { 
-           words => "csv=<file>|lease_history=<file>|support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
+           words => "log_files=<file>|csv=<file>|lease_history=<file>|support_bundle=<file> merge_log=<file> expert_dhcp_conf=<file> dhcp_conf=<file> database",  },
 
     'download csv <file>' => { 
            words => "object=<object>",  },
@@ -11587,6 +11804,13 @@ my %COMMANDS = (
            func => "cli_download_database", },
 
     # they all call the same generic function
+    'download log_files <file>' => { 
+           words => "<value>" },
+    'download log_files <file> <value>' => { 
+           words => "member=<ip>"},
+    'download log_files <file> <value> member <ip>' => { 
+           func => "cli_download_log", },
+
     'download lease_history <file>' => { 
            func => "cli_download_log", },
     'download merge_log <file>' => { 
@@ -12024,7 +12248,7 @@ my %COMMANDS = (
            words => "<cr> at=<value>|template=<name>|<ip,ip>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|nodns", 
            func => "cli_ins_host", },
     'configure zone <zone> modify host <name>' => { 
-           words => "<cr> at=<value>|template=<name>|<ip,ip>|host_set=<name=value>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|disabled|nodns", 
+           words => "<cr> at=<value>|template=<name>|<ip,ip>|host_set=<name=value>|set=<name=value>|option=<name=value>|view=<name>|ttl=<num>|info=<name=value>|comment=<comment>|alias=<name>|name=<name>|disabled|nodns", 
            func => "cli_add_host", },
 
     'configure zone <zone> add host' => { 
