@@ -1,4 +1,38 @@
 
+New in Version 3.70
+
+    You can now enable and disable views
+
+       conf zone modify view internal enabled
+       conf zone modify view internal disabled
+
+    You can now rename Hosts
+
+       conf zone foo.com modify host test 1.2.3.4 name test2
+
+    Show networks with their details
+
+        show network details
+
+    Show networks matching an Extensible Attribute, 
+        you can use multiple 'info' arguments
+
+        show network info Site=west
+        show network info Site=west info Closet=24
+
+    And show the detailed version of the above searches
+
+        show network info Site=west details
+
+    Fixes to the IPAM searches, and you can now request 
+    multiple next_available IP addresses
+
+        show network 45.200.100.128/25 ipam next_available 5
+
+    You can now download log files from multiple grid members
+
+        download log_files <file> <log_type> member <ip>
+
 New in Version 3.60
 
   Deleting scheduled updates
@@ -15,63 +49,3 @@ New in Version 3.60
 
        show network 45.200.100.128/25 ipam next_network
 
-
-New in Version 3.50
-
-    Auto Generate hosts
-
-    You can post process a zone and create host records
-
-       conf zone mod foo.com generate_hosts
-
-  Copy a zone to another view
-
-    you need the source and destination zone and views
-
-        conf zone copy <zone> view <src_view> to <dst_zone> dest_view <dst_view> 
-        conf zone copy zone.com view int to newzone.com dest_view external
-
-  Show information about an IP address
-
-      show ipam address 1.2.3.4
-
-  Add a network to a discovery job
-
-    Each network gets added to the current discovery job
-
-      configure ipam discovery add network 1.2.3.0/24
-
-  Show a discovery job
-
-      show ipam discovery
-
-
-Other cosmetic cleanups :
-
-    Fixed the syntax for adding 'forward_to' zones
-
-       conf zone add fwd.foo.com forward_to ns1.x.com,2.2.2.2 member 10.0.0.20
-
-    Configuring a host for no dns (disable for dns)
-
-       conf zone info.com add host pc2 2.3.3.3 ... nodns
-
-    You no longer need the network when working with ranges or fixed
-    addresses
-
-       conf network add fixed ... option <name>=<value> [opt <name>=value>]
-       conf network add fixed 10.0.1.4 .. option 82="some data"
-
-       conf network add range 10.1.1.20 10.1.1.40
-       conf network add range 10.1.1.20 10.1.1.40 view default
-
-
-    Show Member DNS settings
-
-       show member <name> dns 
-
-       show member ns1.lab.com dns
-
-        ( You can also get there from the zone command )
-
-       show zone member ns1.lab.com

@@ -440,6 +440,10 @@ you look deep into the API you realise why they are there.</p>
 <p>You can also modify views</p>
 <pre>
    conf zone modify view internal set match_clients=[1.1.1.1,2.2.2.2]</pre>
+<p>And enable/disable it</p>
+<pre>
+   conf zone modify view internal enabled
+   conf zone modify view internal disabled</pre>
 <p>
 </p>
 <h2><a name="remove_a_view_from_dns">Remove a view from dns</a></h2>
@@ -613,9 +617,10 @@ You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
 <p>
 </p>
 <h2><a name="modifying_hosts">Modifying hosts</a></h2>
-<p>You cannot rename a host, only modify the contents of it</p>
 <pre>
    conf zone foo.com modify host test 1.2.3.4</pre>
+<pre>
+   conf zone foo.com modify host test 1.2.3.4 name test2</pre>
 <pre>
    conf zone foo.com modify host test 1.2.3.4 comment &quot;this is a comment&quot;</pre>
 <p>
@@ -638,7 +643,7 @@ You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
 </p>
 <h2><a name="remove_an_a_record_from_a_zone">Remove An A record from a zone</a></h2>
 <pre>
-   conf zone foo.com delete A test 1.2.3.4</pre>
+   conf zone foo.com delete a_rec test 1.2.3.4</pre>
 <p>
 </p>
 <h2><a name="add_an_aaaa_record_to_a_zone">Add an AAAA record to a zone</a></h2>
@@ -912,7 +917,7 @@ the parent network. All other options are the same as for adding networks</p>
 <p>
 </p>
 <h2><a name="add_a_roaming_address__that_has_no_ip_addr_">Add a roaming address (that has no IP addr)</a></h2>
-<p>You will need to specify the name instad of the IP address</p>
+<p>You will need to specify the name instead of the IP address</p>
 <pre>
    conf network add fixed myroamer aa:bb:cc:11:22:33</pre>
 <p>
@@ -1453,12 +1458,25 @@ them modify it, thus you need :
 </p>
 <h2><a name="showing_networks">Showing networks</a></h2>
 <pre>
-   show network</pre>
+    show network</pre>
 <pre>
-   show network 45.200.100.128/25</pre>
+    show network 45.200.100.128/25</pre>
 <p>Show all the networks that have a common network_container</p>
 <pre>
-   show network 45.0.0.0/16 subnets</pre>
+    show network 45.0.0.0/16 subnets</pre>
+<p>Show networks with their details</p>
+<pre>
+    show network details</pre>
+<p>Show networks matching an Extensible Attribute, you can use
+multiple 'info' arguments</p>
+<pre>
+
+    show network info Site=west</pre>
+<pre>
+    show network info Site=west info Closet=24</pre>
+<p>And show the detailed version of the above searches</p>
+<pre>
+    show network info Site=west details</pre>
 <p>
 </p>
 <h2><a name="showing_networks_templates">Showing networks templates</a></h2>
@@ -1507,6 +1525,9 @@ them modify it, thus you need :
 <p>Show just the next available IP address</p>
 <pre>
    show network 45.200.100.128/25 ipam next_available</pre>
+<p>OR the next N addresses</p>
+<pre>
+   show network 45.200.100.128/25 ipam next_available 5</pre>
 <p>Show just the next available network</p>
 <pre>
    show network 45.200.100.128/25 ipam next_network</pre>
@@ -1539,9 +1560,9 @@ network.  (The network was required in some older versions of NIOS)</p>
 <p>Show a fixed address(s) in a network view. 
 (the IP or mac must come before the view statement)</p>
 <pre>
-   shoe network fixed view internal
-   shoe network fixed 1.2.3.4 view internal
-   shoe network 1.2.3.0/24 fixed view internal</pre>
+   show network fixed view internal
+   show network fixed 1.2.3.4 view internal
+   show network 1.2.3.0/24 fixed view internal</pre>
 <p>
 </p>
 <h2><a name="showing_fixed_addresses_templates">Showing fixed addresses templates</a></h2>
@@ -1655,6 +1676,8 @@ have a member assignment</p>
 <h2><a name="export_log_files">Export log files</a></h2>
 <pre>
   download merge_log &lt;file&gt;</pre>
+<pre>
+  download log_files &lt;file&gt; &lt;log_type&gt; member &lt;ip&gt;</pre>
 <p>
 </p>
 <h2><a name="download_the_database">Download the database</a></h2>

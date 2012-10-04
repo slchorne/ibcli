@@ -12,6 +12,11 @@ if [ -z "$1" ] ; then
     echo "make-dist"
     echo "make-docs"
     echo "make-relnotes"
+    echo "";
+    echo "update the web pages";
+    echo "git checkout gh-pages";
+    echo "git merge, push, etc";
+    echo "";
     echo "git checkout -b <new-rev>"
     echo "";
 
