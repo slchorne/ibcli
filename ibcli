@@ -809,11 +809,12 @@ sub expand_line {
 
        my $origarg  = $thisarg ;
 
-       # convert the arg to lowercase, unless the arg is case
-       # sensitive...
-       unless ( $thisarg =~ /::/ ) {
-         $thisarg = lc($thisarg);
-       }
+       # convert the arg to lowercase, 
+       # but this also LC's all RHS statements, so not the best idea
+#        unless ( $thisarg =~ /::/ 
+#         or $thisarg =~ /=/ ) {
+#          $thisarg = lc($thisarg);
+#        }
 
        &debug_cli (3,"linex arg     a($thisarg)<-($origarg)");
 #        &debug_cli (3,"linex partial e[$expline]");
@@ -7822,13 +7823,28 @@ sub cli_show_lease {
 
 =head2 Showing networks
 
-   show network
+    show network
 
-   show network 45.200.100.128/25
+    show network 45.200.100.128/25
 
 Show all the networks that have a common network_container
 
-   show network 45.0.0.0/16 subnets
+    show network 45.0.0.0/16 subnets
+
+Show networks with their details
+
+    show network details
+
+Show networks matching an Extensible Attribute, you can use
+multiple 'info' arguments
+    
+    show network info Site=west
+
+    show network info Site=west info Closet=24
+
+And show the detailed version of the above searches
+
+    show network info Site=west details
 
 =cut
 
@@ -7841,28 +7857,39 @@ sub cli_show_network {
     # get the args from the line
     my ( $net ) = $line =~/ network (\S+)/ ;
     my ( $parent ) = $line =~/\bsubnets\b/ ;
+    my ( $details ) = $line =~/\bdetails\b/ ;
+    my @ipam  = $line =~/ info (\S+)/g ;
 
-    my $details ;
+    # set a default search
+    my $otype = "Infoblox::DHCP::Network";
+
+    # do we want a detailed listing ?
     if ( $net eq "details" ) {
         $details = $net ;
         undef $net ;
     }
 
-    &debug_cli(2,"shown n($net) c($parent)");
+    my %opthash ;
 
-    # set a default search
-    my $otype = "Infoblox::DHCP::Network";
+    # now add IPAM info to filter the search
+    if ( $net eq "info" ) {
+        undef $net ;
+        if ( @ipam ) {
+            my $exts = __info_to_ipamhash( @ipam );
+            $opthash{'extensible_attributes'} = $exts ;
+        }
+    }
 
     # do we get all nets
     my $search = ".*";
     # or a specific list
     if ( $net ) { $search = $net ; }
 
-    # get all the networks
+    &debug_cli(2,"shown n($net) c($parent) i(@ipam)");
+
+    # NOW get all the networks
     print "Search : $otype:\n";
-    my %opthash = (
-           "object" => $otype,
-    );
+    $opthash{"object"} = $otype ;
 
     if ( $parent ) {
         $opthash{'network_container'} = $search;
@@ -7873,10 +7900,14 @@ sub cli_show_network {
         $opthash{'network'} = $search;
     }
 
+#     print Dumper ( \%opthash ) ;
+
     # set network views...
     my ( $view )  = $line =~/ view (\S+)/ ;
     $view = &decode_comment ( $view ) ;
     if ( $view ) { $opthash{'network_view'} = $view ; }
+
+#     $obj = add_ipam( $obj , @ipam ) ;
 
     # search networks
     my @nets ;
@@ -10496,6 +10527,34 @@ sub add_settings {
 }
 
 # IPAM functions
+sub __info_to_ipamhash {
+    # convert 'info foo=bar' into a searchable hash
+    my @ipam = @_ ;
+    my $exts ;
+
+    foreach my $info ( @ipam ) {
+        # break this onto name = value pairs
+        my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
+
+        # decode a quoted string
+        my $cvalue = &decode_comment ( $value ) ;
+
+        # and decode the attribute name
+        $name = &decode_comment ( $name ) ;
+
+        # and strip the quotes
+        $cvalue =~ s/^"//;
+        $cvalue =~ s/"$//;
+
+        &debug_cli(3,"convi info($name) =($cvalue) [$value]");
+
+        # and store them in the hash
+        $exts->{$name}=$cvalue;
+    }
+    return ( $exts );
+
+}
+
 sub add_ipam {
     my ( $obj , @ipam ) = @_ ;
 
@@ -11597,7 +11656,11 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> views details <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           words => "<cr> info=<name=value> details views <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           func => "cli_show_network", },
+
+    'show network info <name=value>' => { 
+           words => "<cr> info=<name=value>|details",  
            func => "cli_show_network", },
 
     'show network details' => { 
