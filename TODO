@@ -28,9 +28,12 @@ missing features :
         [ ] pass the object to the sub
         [ ] add ipam if there are args in the line
 
+[ ] next_available N addresses
+    [ ] cleanup next-available code
+
 [ ] conf net mod xxx insert_option foo=bar
     [ ] add/remove an option from the custom list
-    [ ] ate there other arrays we need to support ?
+    [ ] are there other arrays we need to support ?
 
 [ ] re-parent networks
     [ ] move the child networks to a different view for short term
