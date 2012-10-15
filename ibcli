@@ -2,7 +2,7 @@
 #
 # Version control... now using git
 my $ID  = ":Id: Thu, 4 Oct 2012 12:03:10 -0700 Geoff H ::";
-my $REV = ":Revision: r3.70 ::";
+my $REV = ":Revision: r3.80b ::";
 # my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
 # my $REV = "Revision 3.$SVNREV";
 # 
@@ -279,7 +279,7 @@ if ( $M_ID ) {
 # [ ] broken in later revs of code
 my $host = Infoblox::DNS::Host->new ("name" => "name");
 my $CLIENT_REV = $host->{__version} ;
-unless ( $CLIENT_REV ) { $CLIENT_REV = "4.3.2.0" } ;
+unless ( $CLIENT_REV ) { $CLIENT_REV = "6.1.0.0" } ;
 
 # main loop
 
@@ -8292,6 +8292,7 @@ sub cli_show_ipam {
         # next_available is already there
 
         my ( $num ) = $line =~/ next_available (\S+)/ ;
+        $num = 1 unless $num ;
         &debug_cli(2,"nextip n($subnet) n($num)");
 
         my ( $nobj ) = &do_func("get", (
@@ -8300,7 +8301,14 @@ sub cli_show_ipam {
                 )
              );
         if ( $nobj ) {
-            my $nip = $nobj->next_available_ip( requested_num => $num );
+            # hack for old revs of code
+            my $nip ;
+            if ( $num eq '-1' ) {
+                $nip = $nobj->next_available_ip( requested_num => $num );
+            }
+            else {
+                $nip = $nobj->next_available_ip( );
+            }
 
             # string or AREF ? it depends on the # of addresses
             my $res ;
