@@ -10580,7 +10580,7 @@ sub add_ipam {
         }
     }
 
-    # add/relpace any new attributes
+    # add/replace any new attributes
     foreach my $info ( @ipam ) {
         # break this onto name = value pairs
         my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
