@@ -6004,7 +6004,8 @@ sub cli_add_admin_group {
     my ( $su ) = $line =~/\b(superuser)\b/ ;
     my ( $disable ) = $line =~/\b(disabled)\b$/ ;
 
-    $name = &decode_comment ( $name ) ;  # JFS 7/24/2012 - Need to have spaces allowed for names
+    # spaces allowed for names
+    $name = &decode_comment ( $name );
 
     &debug_cli (1,"addgrp g($name)");
 
@@ -6100,7 +6101,8 @@ sub cli_add_user {
     my ( $email ) = $line =~/ email (\S+)/ ;
     my ( $disable ) = $line =~/\b(disabled)\b$/ ;
 
-    $group = &decode_comment( $group ); # JFS 7/27/2012 - need multi-word groups
+    # need multi-word groups
+    $group = &decode_comment( $group );
 
     &debug_cli (1,"adduser u($user) p($pass) g($group)");
 
