@@ -2588,7 +2588,6 @@ sub cli_add_host {
 
     if ( $ttl ) { $obj->ttl ( $ttl ) }
 
-    if ( $rename ) { $obj->name ( $rename ) }
 
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
@@ -2602,14 +2601,24 @@ sub cli_add_host {
         $obj->views ( [ $view ] ) ;
     }
 
+    # rename-ing a host requires some finesse if the name is
+    # not a FQDN. (and we can't use the 'fqdn()' method)
+    if ( $rename ) { 
+        $rename = "$rename.$zone" unless $rename =~ /\./;
+        # be vrebose
+        print "  rename host to: $rename\n";
+#         &debug_cli(1,"addrn ($rename)");
+        $obj->name ( $rename ) 
+    }
+
     # now add IPAM info
     $obj = add_ipam( $obj , @ipam ) ;
 
     # addit ( the method is defined in $type );
     # make it schedulable
     my ( $at ) = $line =~/\bat (\S+)/ ;
-    &debug_cli(1,"addh at($at)");
     if ( $at ) {
+        &debug_cli(1,"addh at($at)");
         &do_func($type,$obj, scheduled_at => $at);
     }
     else {
@@ -2676,6 +2685,13 @@ To add the record to a shared record group (zone must be blank)
 
    conf zone "" add a_record test 1.2.3.4 shared_record_group mygroup
 
+You can also set values 
+    ... set param=val
+
+And EAs
+
+    ... info EA=value
+
 =cut
 
 # add an A record to a shared record group
@@ -2721,6 +2737,10 @@ sub cli_add_a_rec {
     # set any values
     my @settings  = $line =~/ set (\S+)/g ;
     if ( @settings ) { $obj = add_settings ( $obj , @settings ) }
+
+    # now add IPAM info
+    my @ipam  = $line =~/ info (\S+)/g ;
+    $obj = add_ipam( $obj , @ipam ) ;
 
     # views
     my ( $view ) = $line =~/ view (\S+)/ ;
@@ -7723,6 +7743,13 @@ sub cli_show_host {
     show record cname www.foo.com
     show record a_record test.foo.com
 
+    show record a_record test.foo.com view internal
+
+Searching by EA is tricky because of the parser, you have to give a
+name, but it will be ignored
+
+    show record a_record anyname info Site=west 
+
 =cut
 
 sub cli_show_record {
@@ -7740,6 +7767,7 @@ sub cli_show_record {
         aaaa => "Infoblox::DNS::Record::AAAA",
         mx => "Infoblox::DNS::Record::MX",
         txt => "Infoblox::DNS::Record::TXT",
+        ptr => "Infoblox::DNS::Record::PTR",
         srv => "Infoblox::DNS::Record::SRV",
     } ;
 
@@ -7756,19 +7784,39 @@ sub cli_show_record {
             "object" => $otype,
             "name" => $name,
             );
+
         if ( $view ) {
-            %opthash = (
-            "object" => $otype,
-            "name" => $name ,
-            view => $view,
-            );
+            $opthash{'view'} = $view ;
+        }
+
+        # now add IPAM info to filter the search
+        my @ipam  = $line =~/ info (\S+)/g ;
+        if ( @ipam ) {
+            delete $opthash{'name'} ;
+            my $exts = __info_to_ipamhash( @ipam );
+            $opthash{'extensible_attributes'} = $exts ;
+        }
+
+        # hack for PTR records
+        if ( $type =~ /ptr/i ) {
+            delete $opthash{'name'} ;
+            print "--test PTR\n";
+            if ( $name =~ /$REip/ ) {
+                $opthash{'ipv4addr'} = $name ;
+            }
+            elsif ( $name =~ /::/ ) {
+                $opthash{'ipv6addr'} = $name ;
+            }
+            else {
+                $opthash{'ptrdname'} = $name ;
+            }
         }
     
         print "Search records :\n";
         my @records = &do_func("search", %opthash );
         &dump_object ( @records ) ;
 
-        unless ( $otype =~ /cname|bulk/i ) {
+        unless ( $otype =~ /ptr|cname|bulk/i ) {
             # and do the search again for shared records
             $otype=~s/::Record/::SharedRecord/;
             $opthash{'object'} = $otype;
@@ -7865,7 +7913,6 @@ sub cli_show_network {
     my ( $net ) = $line =~/ network (\S+)/ ;
     my ( $parent ) = $line =~/\bsubnets\b/ ;
     my ( $details ) = $line =~/\bdetails\b/ ;
-    my @ipam  = $line =~/ info (\S+)/g ;
 
     # set a default search
     my $otype = "Infoblox::DHCP::Network";
@@ -7879,6 +7926,7 @@ sub cli_show_network {
     my %opthash ;
 
     # now add IPAM info to filter the search
+    my @ipam  = $line =~/ info (\S+)/g ;
     if ( $net eq "info" ) {
         undef $net ;
         if ( @ipam ) {
@@ -8301,9 +8349,9 @@ sub cli_show_ipam {
                 )
              );
         if ( $nobj ) {
-            # hack for old revs of code
+
             my $nip ;
-            if ( $num eq '-1' ) {
+            if ( $num > 1 ) {
                 $nip = $nobj->next_available_ip( requested_num => $num );
             }
             else {
@@ -11627,7 +11675,7 @@ my %COMMANDS = (
 
 # show DNS records
     'show record' => { 
-           words => "srv=<name>|cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
+           words => "info=<name=value>|view=<name>|ptr=<value>|srv=<name>|cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
            func => "cli_show_record", },
 
     'show zone' => { 
@@ -12268,7 +12316,7 @@ my %COMMANDS = (
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> shared_record_group=<name>|set=<name=value>|comment=<comment>|ttl=<num>|disabled|view=<name>",
+           words => "<cr> shared_record_group=<name>|info=<name=value>|set=<name=value>|comment=<comment>|ttl=<num>|disabled|view=<name>",
            func => "cli_add_a_rec", },
 
     'configure zone <zone> add aaaa' => { 
