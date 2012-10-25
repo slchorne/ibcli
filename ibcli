@@ -4374,14 +4374,14 @@ sub cli_add_shared {
 
 =cut
 
-sub cli_delete_shared {
+sub cli_delete_shared_network {
     my ( $line ) = @_ ;
 
     # get the args from the line
     my ( $name ) = $line =~/ delete shared (\S+)/ ;
 
     my ( $view ) = $line =~/ view (\S+)/ ;
-    $view = 'default' unless $view ;
+#     $view = 'default' unless $view ;
 
     &debug_cli(1,"delsha n($name) v($view)");
 
@@ -8032,6 +8032,78 @@ sub cli_show_network {
             print sort by_ip @netlist ; 
             print "$num networks found\n ";
         }
+    }
+    
+}
+
+=head2 Showing shared networks
+
+Show All shared networks
+
+   show network shared
+
+Show a specifc shared network
+
+   show network shared myShared
+
+   show template network <name>
+
+=cut
+
+sub cli_show_network_shared {
+    #
+    # try and shopw a network
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ shared (\S+)/ ;
+
+    &debug_cli(2,"showns t($name)");
+
+    # do we get all nets
+    my $search = ".*";
+
+    # or a specific list
+    if ( $name ) { $search = $name ; }
+
+    # get all the stiff
+    my %opthash = (
+           "object" => "Infoblox::DHCP::SharedNetwork", 
+           "name" => $search,
+    );
+
+    my @nets = &do_func("search", %opthash );
+
+    # dump the network(s) or just the list
+    if ( $name ) {
+        &dump_object ( @nets ) ;
+
+        # dump_object strips 'networks' for some reason, so we add it back in
+        # here
+        my @nlist = map { $_->network() } @{ $nets[0]->networks() } ;
+        my $netnames = "@nlist";
+        printf ( "%30s : %s\n", "networks" , $netnames ) ;
+
+    }
+    else {
+        # sput a summary list
+        # make a hash so we can sort it later, 
+
+        my %nhash ;
+        foreach my $nobj ( @nets ) {
+            my $name = $nobj ;
+            my @nlist = map { $_->network() } @{ $nobj->networks() } ;
+            $nhash{ $nobj->name() } = "@nlist" ;
+        }
+
+#         print Dumper ( \%nhash );
+
+        # now sort them
+        foreach my $nkey ( sort keys %nhash ) {
+            print "  $nkey: $nhash{$nkey}\n";
+        }
+
     }
     
 }
@@ -11726,15 +11798,14 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> info=<name=value> details views <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           words => "<cr> info=<name=value> details views <n.n.n.n/mm> ranges shared statistics lease options failover fixed filter",  
            func => "cli_show_network", },
 
-    'show network info <name=value>' => { 
-           words => "<cr> info=<name=value>|details",  
-           func => "cli_show_network", },
-
-    'show network details' => { 
-           func => "cli_show_network", },
+    'show network shared' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_network_shared", },
+    'show network shared <name>' => { 
+           func => "cli_show_network_shared", },
 
     'show network views' => { 
            words => "<cr> <name>",  
@@ -11748,6 +11819,13 @@ my %COMMANDS = (
 
     'show network options' => { 
            func => "cli_show_dhcp_options", },
+
+    'show network info <name=value>' => { 
+           words => "<cr> info=<name=value>|details",  
+           func => "cli_show_network", },
+
+    'show network details' => { 
+           func => "cli_show_network", },
 
     'show network <n.n.n.n/mm>' => { 
            words => "<cr> view=<name> subnets ipam range fixed statistics",  
@@ -12429,6 +12507,8 @@ my %COMMANDS = (
            func => "cli_delete_network", },
     'configure network delete <n.n.n.n/mm> netmask <ip>' => { 
            func => "cli_delete_network", },
+    'configure network delete shared <name>' => { 
+           func => "cli_delete_shared_network", },
 
     'configure network add' => { 
            words => "parent=<n.n.n.n/mm> container=<n.n.n.n/mm> view=<name> <n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed range", },
@@ -12502,6 +12582,8 @@ my %COMMANDS = (
     'configure network add shared <name>' => { 
            words => "<cr> view=<name>|child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
+
+# - networks
     'configure network add <n.n.n.n/mm>' => { 
            words => "<cr> view=<name>|info=<name=value>|template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|addoption=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
