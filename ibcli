@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 #
 # Version control... now using git
-my $ID  = ":Id: Thu, 4 Oct 2012 12:03:10 -0700 Geoff H ::";
+my $ID  = ":Id: Thu, 25 Oct 2012 12:16:13 -0700 Geoff H ::";
 my $REV = ":Revision: r3.80b ::";
 # my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
 # my $REV = "Revision 3.$SVNREV";
@@ -2603,11 +2603,13 @@ sub cli_add_host {
 
     # rename-ing a host requires some finesse if the name is
     # not a FQDN. (and we can't use the 'fqdn()' method)
-    if ( $rename ) { 
-        $rename = "$rename.$zone" unless $rename =~ /\./;
-        # be vrebose
-        print "  rename host to: $rename\n";
 #         &debug_cli(1,"addrn ($rename)");
+    if ( $rename ) { 
+        if ( $zone ) {
+            $rename = "$rename.$zone" unless $rename =~ /\./;
+        }
+        # be verbose
+        print "  rename host to: $rename\n";
         $obj->name ( $rename ) 
     }
 
@@ -2656,6 +2658,7 @@ sub cli_del_host {
     my ( $host ) = $line =~/host (\S+)/ ;
     my ( $vname )     = $line =~/ view (\S+)/ ;
     $vname = 'default' unless $vname ;
+    $vname = &decode_comment ( $vname );
 
     my $name = fqdn ( $host , $zone ) ;
 
@@ -5387,7 +5390,7 @@ sub cli_show_ipam_address {
     my ( $line ) = @_ ;
     my ( $ip ) = $line =~/ address (\S+)/ ;
 
-    # get the current discovery task
+    # get address
     my ( $tobj ) = &do_func("get" ,
             "object" => "Infoblox::IPAM::Address", 
             address => $ip ,
@@ -5408,6 +5411,11 @@ Each network gets added to the current discovery job
 
   configure ipam discovery add network 1.2.3.0/24
 
+And you also need to set the discovery member
+(you can only do this once, each member will overwrite the last one)
+
+  configure ipam discovery add member 192.168.1.2
+
 =cut
 
 sub cli_add_discovery {
@@ -5415,36 +5423,49 @@ sub cli_add_discovery {
 
     # get the args from the line
     my ( $net )     = $line =~/ add network (\S+)/ ;
-
-    # create the network opject handle
-    my $nobj = Infoblox::DHCP::Network->new (
-                "network" => $net
-    );
+    my ( $mem )     = $line =~/ add member (\S+)/ ;
 
     # get the current discovery task
-    my ( $tobj ) = &do_func("get" ,
+    my ( $dobj ) = &do_func("get" ,
             "object" => "Infoblox::IPAM::DiscoveryTask", 
         );
 
-    if ( $tobj ) {
+    unless ( $dobj ) {
+        print "  Error : No Discovery task found\n";
+        return ;
+    }
 
-        # check if a task is already running
-        if ( $tobj->status() =~ /In Progress|Paused/i ) {
-            print "  Error : a job is already running\n";
-            return ;
+    # check if a task is already running
+    if ( $dobj->status() =~ /In Progress|Paused/i ) {
+        print "  Error : a job is already running\n";
+        return ;
+    }
+
+    # set up some config options
+    if ( $mem ) {
+        # set the disco member
+        my $mobj = Infoblox::DHCP::Member->new("ipv4addr"=>$mem);
+        if ( $mobj ) {
+            # bad member assignments are ignored
+            $dobj->member( $mobj ) ;
         }
+    }
+
+    if ( $net ) {
+        # create the network opject handle
+        my $nobj = Infoblox::DHCP::Network->new (
+                "network" => $net
+        );
 
         # append the subnet
-        my @networks = @{ $tobj->networks() } ;
+        my @networks = @{ $dobj->networks() } ;
         push @networks , $nobj ;
-        $tobj->networks( \@networks ) ;
+        $dobj->networks( \@networks ) ;
+    }
 
-        # now save the change
-        &do_func("modify",$tobj);
-    }
-    else {
-        print "  Error : No Discovery task found\n";
-    }
+    # now save the change
+    &do_func("modify",$dobj);
+
 }
 
 =head2 Show a discovery job
@@ -7806,7 +7827,6 @@ sub cli_show_record {
         # hack for PTR records
         if ( $type =~ /ptr/i ) {
             delete $opthash{'name'} ;
-            print "--test PTR\n";
             if ( $name =~ /$REip/ ) {
                 $opthash{'ipv4addr'} = $name ;
             }
@@ -9463,6 +9483,41 @@ sub cli_restart {
 
     my @function=("restart",%opthash);
     &do_func(@function);
+
+}
+
+=head2 Starting Discovery jobs
+
+This will just start a discovery job if one is not already running
+
+    restart discovery
+
+You can't control the member from a restart, you have to do that from
+the discovery job
+
+=cut
+
+sub cli_restart_discovery {
+
+    my ( $line ) = @_ ;
+
+    ( my $service)  = $line =~/restart (\S+)/ ;
+    ( my $member)  = $line =~/member (\S+)/ ;
+
+    # check to see if it is already running...
+    my ( $dobj ) &do_func('get', 
+        "object" => "Infoblox::IPAM::DiscoveryTask" 
+    );
+    if ( $dobj->state() =~ /running/i ) {
+        print "Discovery task is already RUNNING\n";
+        return ;
+    }
+
+    # otherwise try and start/stop a discovery
+    my ( $dobj ) &do_func('network_discovery_control', 
+            action => "START",
+    );
+
 
 }
 
@@ -11976,7 +12031,9 @@ my %COMMANDS = (
            func => "cli_download_dhcp", },
 
     'restart' => { 
-           words => "dns dhcp",  },
+           words => "dns dhcp discovery",  },
+    'restart discovery' => { 
+           func => "cli_restart_discovery", },
     'restart dns' => { 
            words => "delay=<num>",  
            func => "cli_restart", },
