@@ -4906,6 +4906,11 @@ sub cli_add_dhcp_range {
     my ( $disable ) = $line =~/\b(disabled)\b/ ;
     if ( $disable ) { $obj->disable ( "TRUE" ) }
 
+
+    # now add IPAM info
+    my @ipam  = $line =~/ info (\S+)/g ;
+    $obj = add_ipam( $obj , @ipam ) ;
+
     # you can't assign failover and members, you have to choose one.
     if ( $failover ) { 
         # support spaces in the failover name
@@ -9426,6 +9431,11 @@ sub cli_upload_file {
           "path" => $dest,
     );
 
+    if ( $type =~ /csv/ ) {
+        $opthash{'continue_on_error'}='true';    
+        $opthash{'operation'}='insert';    
+    }
+
     print "Uploading $type from $dest ...\n";
 
     my @function=("import_data",%opthash);
@@ -11741,7 +11751,10 @@ my %COMMANDS = (
 
 # uploads
     'upload' => { 
-           words => "leases=<file> database=<file> expert_dhcp_conf=<file>",  },
+           words => "csv=<file> leases=<file> database=<file> expert_dhcp_conf=<file>",  },
+
+    'upload csv <file>' => { 
+           func => "cli_upload_file", },
 
     'upload leases <file>' => { 
            func => "cli_upload_file", },
@@ -12528,12 +12541,12 @@ my %COMMANDS = (
     'configure network add range' => {
            words => "<startip>=<endip>",  },
     'configure network add range <startip> <endip>' => {
-           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>|view=<name>",
+           words => "<cr> disabled|info=<name=value>|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>|view=<name>",
            func => "cli_add_dhcp_range", },
     'configure network modify range' => {
            words => "<startip>",  },
     'configure network modify range <startip>' => {
-           words => "<cr> view=<name>|disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>",  
+           words => "<cr> view=<name>|disabled|info=<name=value>|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
     # radius comm
