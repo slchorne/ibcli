@@ -1,4 +1,27 @@
 
+New in Version 3.80
+
+    You can set the discovery member (you can only do this
+    once, each member will overwrite the last one)
+
+      configure ipam discovery add member 192.168.1.2
+
+    Show All shared networks
+
+       show network shared
+
+    Show a specifc shared network
+
+       show network shared myShared
+
+       show template network <name>
+
+    Starting Discovery jobs
+
+        restart discovery
+
+    And numerous subtle fixes that you will never see
+
 New in Version 3.70
 
     You can now enable and disable views
@@ -33,19 +56,4 @@ New in Version 3.70
 
         download log_files <file> <log_type> member <ip>
 
-New in Version 3.60
-
-  Deleting scheduled updates
-
-        conf grid schedule delete <taskid>
-
-  Show all the networks that have a common network_container
-
-       show network 45.0.0.0/16 subnets
-
-  'Show network stats' now uses Infoblox::IPAM::Statistics
-
-   Show the next available network
-
-       show network 45.200.100.128/25 ipam next_network
 

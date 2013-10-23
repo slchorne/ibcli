@@ -10,8 +10,7 @@ if [ -z "$1" ] ; then
     echo "git checkout master, merge, etc"
     echo "git tag <rev>"
     echo "make-dist <ibcli>"
-    echo "make-docs"
-    echo "make-relnotes"
+    echo "(this will also make docs and relnotes)";
     echo "";
     echo "update the web pages";
     echo "git checkout gh-pages";
@@ -24,7 +23,7 @@ if [ -z "$1" ] ; then
 fi
 
 
-GIT=/usr/local/git/bin/git
+GIT=/usr/bin/git
 
 # hack in some RCS tagging stuff so we know what rev is in the file
 REV=`$GIT describe --tag`

@@ -1,10 +1,8 @@
 #!/usr/bin/perl
 #
 # Version control... now using git
-my $ID  = ":Id: Thu, 4 Oct 2012 12:03:10 -0700 Geoff H ::";
-my $REV = ":Revision: r3.70 ::";
-# my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
-# my $REV = "Revision 3.$SVNREV";
+my $ID  = ":Id: Wed, 23 Oct 2013 11:56:57 -0700 Geoff H ::";
+my $REV = ":Revision: r3.80 ::";
 # 
 
 # just do it, and get it over with
@@ -211,7 +209,7 @@ my $PROMPT = 'server ? > ';
 
 # initialise the CLI table ( have to do this first or we can't dump them )
 my %ALIASES ;
-my %COMMANDS = &init_commands ;
+my %COMMANDS = init_commands() ;
 
 # initialise editline ( or not ) and return a handler
 
@@ -246,7 +244,7 @@ if ( $LIST_COMM ) {
 
 # preload a backup file
 if ( $SDB_FILE ) {
-    &cli_load_db ( "configure file load $SDB_FILE" );
+    cli_load_db( "configure file load $SDB_FILE" );
 }
 
 ##########################################################
@@ -268,7 +266,7 @@ if ( $S_ID and $S_USER ) {
 # otherwise - we initialise and get going
 # do a connection from the git go ?
 if ( $S_ID and $S_PASS and $S_USER ) {
-   &cli_add_server ( "configure server $S_ID user $S_USER password $S_PASS" ) ;
+   cli_add_server( "configure server $S_ID user $S_USER password $S_PASS" ) ;
 }
 # switch the master IP for MGMT port connections
 if ( $M_ID ) {
@@ -279,7 +277,7 @@ if ( $M_ID ) {
 # [ ] broken in later revs of code
 my $host = Infoblox::DNS::Host->new ("name" => "name");
 my $CLIENT_REV = $host->{__version} ;
-unless ( $CLIENT_REV ) { $CLIENT_REV = "4.3.2.0" } ;
+unless ( $CLIENT_REV ) { $CLIENT_REV = "6.1.0.0" } ;
 
 # main loop
 
@@ -1409,12 +1407,13 @@ sub cli_add_view {
     my ( $type, $view )     = $line =~/ (add|modify) view (\S+)/ ;
     my ( $disable )     = $line =~/ (disabled)/ ;
     my ( $enable  )     = $line =~/ (enabled)/ ;
+    my @ipam  = $line =~/ info (\S+)/g ;
     my @settings  = $line =~/ set (\S+)/g ;
 
     # get and de-urlencode the comment string
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    $comment = &decode_comment ( $comment ) ;
-    $view = &decode_comment ( $view ) ;
+    $comment = decode_comment( $comment ) ;
+    $view = decode_comment( $view ) ;
 
     &debug_cli(1,"addv v($view) c($comment)");
 
@@ -1450,40 +1449,14 @@ sub cli_add_view {
 
     }
 
+    # now add IPAM info
+    $obj = add_ipam( $obj , @ipam ) ;
+
     if ( $comment ) { $obj->comment ( $comment ) }
     if ( $disable ) { $obj->disable ( "TRUE" ) }
     if ( $enable  ) { $obj->enable  ( "FALSE" ) }
 
-    if ( @settings ) {
-
-        foreach my $setval ( @settings ) {
-            # set some custom options;
-            # split on the ','
-            my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-            $val = &decode_comment ( $val ) ;
-
-            &debug_cli(2,"addzset s($set) v($val)");
-
-            # if the value is an array, we need to cast it accordingly
-            my @avals ;
-            if ( $val =~ /^\[/ ) {
-                $val =~ s/\[\s*//;
-                $val =~ s/\s*\]//;
-                @avals = split ( /\s*,\s*/ , $val );
-
-                &debug_cli(2,"addzsar s($set) va(@avals)");
-
-                # set this object
-                $obj->$set ( \@avals ) ;
-
-            }
-            else {
-                # and set this on the object
-                $obj->$set ( $val ) ;
-            }
-
-        }
-    }
+    if ( @settings ) { $obj = add_settings ( $obj , @settings ) }
 
     # addit
     &do_func($type,$obj);
@@ -1501,6 +1474,7 @@ sub cli_del_view {
 
     # get the args from the line
     my ( $view )     = $line =~/ view (\S+)/ ;
+    $view = decode_comment( $view ) ;
 
     &debug_cli(1,"delv v($view)");
 
@@ -1536,7 +1510,7 @@ sub cli_add_shared_group {
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     &debug_cli(1,"addv v($name) c($comment)");
 
@@ -1698,7 +1672,7 @@ sub cli_add_zone {
     # de-urlencode the name string
 #     if ( $comment ) { $obj->comment ( $comment ) }
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     # hack for in-addr.arpa syntax
     if ( $zone =~ /.in-addr.arpa$/i ) {
@@ -1754,36 +1728,7 @@ sub cli_add_zone {
     if ( $prefix ) { $obj->prefix ( $prefix ) }
 
     # [ ] make this a function...
-    if ( @settings ) {
-
-        foreach my $setval ( @settings ) {
-            # set some custom options;
-            # split on the ','
-            my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-            $val = &decode_comment ( $val ) ;
-
-            &debug_cli(2,"addzset s($set) v($val)");
-
-            # if the value is an array, we need to cast it accordingly
-            my @avals ;
-            if ( $val =~ /^\[/ ) {
-                $val =~ s/\[\s*//;
-                $val =~ s/\s*\]//;
-                @avals = split ( /\s*,\s*/ , $val );
-
-                &debug_cli(2,"addzsar s($set) va(@avals)");
-
-                # set this object
-                $obj->$set ( \@avals ) ;
-
-            }
-            else {
-                # and set this on the object
-                $obj->$set ( $val ) ;
-            }
-
-        }
-    }
+    if ( @settings ) { $obj = add_settings ( $obj , @settings ) }
 
     # find a member to be the primary (external or otherwise)
     # or is it a forward zone...
@@ -1868,7 +1813,7 @@ sub cli_add_zone {
 
     # using ns groups ?
     elsif ( $nsgroup ) {
-       $nsgroup = &decode_comment ( $nsgroup ) ;
+       $nsgroup = decode_comment( $nsgroup ) ;
        $obj->ns_group( $nsgroup ) ;
     }
 
@@ -2454,8 +2399,8 @@ sub cli_add_host {
     }
     
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
-    $vname = &decode_comment ( $vname ) ;
+    $comment = decode_comment( $comment ) ;
+    $vname = decode_comment( $vname ) ;
 
     my $name = fqdn ( $host , $zone ) ;
 
@@ -2519,19 +2464,7 @@ sub cli_add_host {
                         );
 
             # add setting to the fixed host
-            if ( @settings ) {
-
-                foreach my $setval ( @settings ) {
-                    # set some custom options;
-                    # split on the ','
-                    my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-   
-                    &debug_cli(2,"addhfix s($set) v($val)");
-   
-                    # and set this on the object
-                    $fobj->$set ( $val ) ;
-                }
-            }
+            if ( @settings ) { $fobj = add_settings ( $fobj , @settings ) }
 
             # fixed addr templates
             if ( $template ) { $obj->template ( $template ) }
@@ -2588,7 +2521,6 @@ sub cli_add_host {
 
     if ( $ttl ) { $obj->ttl ( $ttl ) }
 
-    if ( $rename ) { $obj->name ( $rename ) }
 
     if ( @aliases ) { $obj->aliases ( \@aliases ) }
 
@@ -2602,14 +2534,26 @@ sub cli_add_host {
         $obj->views ( [ $view ] ) ;
     }
 
+    # rename-ing a host requires some finesse if the name is
+    # not a FQDN. (and we can't use the 'fqdn()' method)
+#         &debug_cli(1,"addrn ($rename)");
+    if ( $rename ) { 
+        if ( $zone ) {
+            $rename = "$rename.$zone" unless $rename =~ /\./;
+        }
+        # be verbose
+        print "  rename host to: $rename\n";
+        $obj->name ( $rename ) 
+    }
+
     # now add IPAM info
     $obj = add_ipam( $obj , @ipam ) ;
 
     # addit ( the method is defined in $type );
     # make it schedulable
     my ( $at ) = $line =~/\bat (\S+)/ ;
-    &debug_cli(1,"addh at($at)");
     if ( $at ) {
+        &debug_cli(1,"addh at($at)");
         &do_func($type,$obj, scheduled_at => $at);
     }
     else {
@@ -2647,6 +2591,7 @@ sub cli_del_host {
     my ( $host ) = $line =~/host (\S+)/ ;
     my ( $vname )     = $line =~/ view (\S+)/ ;
     $vname = 'default' unless $vname ;
+    $vname = decode_comment( $vname );
 
     my $name = fqdn ( $host , $zone ) ;
 
@@ -2676,6 +2621,13 @@ To add the record to a shared record group (zone must be blank)
 
    conf zone "" add a_record test 1.2.3.4 shared_record_group mygroup
 
+You can also set values 
+    ... set param=val
+
+And EAs
+
+    ... info EA=value
+
 =cut
 
 # add an A record to a shared record group
@@ -2693,7 +2645,7 @@ sub cli_add_a_rec {
     my ( $ttl )     = $line =~/ ttl (\d+)/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     my $name = fqdn ( $host , $zone )  ;
 
@@ -2721,6 +2673,10 @@ sub cli_add_a_rec {
     # set any values
     my @settings  = $line =~/ set (\S+)/g ;
     if ( @settings ) { $obj = add_settings ( $obj , @settings ) }
+
+    # now add IPAM info
+    my @ipam  = $line =~/ info (\S+)/g ;
+    $obj = add_ipam( $obj , @ipam ) ;
 
     # views
     my ( $view ) = $line =~/ view (\S+)/ ;
@@ -2793,7 +2749,7 @@ sub cli_add_aaaa {
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     my $name = fqdn ( $host , $zone ) ;
 
@@ -2884,7 +2840,7 @@ sub cli_add_mx {
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     my $name = fqdn( $host , $zone ) ;
 
@@ -2995,7 +2951,7 @@ sub cli_add_srv_rec {
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     # scrub the host/zone for blanks
     my $name = fqdn ( $host , $zone ) ;
@@ -3068,7 +3024,7 @@ sub cli_add_bulk {
     my ( $vname )     = $line =~/ view (\S+)/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     &debug_cli(1,"addbh z($zone) p($prefix) n($fip,$lip) c($comment)");
 
@@ -3143,7 +3099,7 @@ sub cli_add_cname {
     my ( $ttl )     = $line =~/ ttl (\d+)/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     my $name = fqdn( $alias , $zone ) ;
 
@@ -3231,10 +3187,10 @@ sub cli_add_txt {
     my ( $shared )  = $line =~/shared_record_group (\S+)/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
-    $txt = &decode_comment ( $txt ) ;
+    $comment = decode_comment( $comment ) ;
+    $txt = decode_comment( $txt ) ;
 
-    my $name = fqdn( $name , $zone ) ;
+    $name = fqdn( $name , $zone ) ;
 
     # there is a 'bug/feature' in the api and individual words
     # get quotes indvidually. To stop this, you have to wrap
@@ -3296,9 +3252,9 @@ sub cli_del_txt {
     my ( $zone )     = $line =~/ zone (\S+)/ ;
     my ( $name , $txt ) = $line =~/ txt (\S+) (\S+)/ ;
 
-    my $name = fqdn( $name , $zone ) ;
+    $name = fqdn( $name , $zone ) ;
 
-    $txt = &decode_comment ( $txt ) ;
+    $txt = decode_comment( $txt ) ;
 
     my ( $view ) = $line =~/ view (\S+)/ ;
     $view = 'default' unless $view ;
@@ -3340,7 +3296,7 @@ sub cli_add_ptr {
     my ( $ttl )     = $line =~/ ttl (\d+)/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     &debug_cli(1,"addptr n($zone) ip($ip) h($host) c($comment)");
 
@@ -3420,7 +3376,7 @@ sub cli_add_network_view {
 
     # get and de-urlencode the comment string
     my ( $comment ) = $line =~/comment (\S+)/ ;
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     &debug_cli(1,"addnv v($view) c($comment)");
 
@@ -3459,36 +3415,7 @@ sub cli_add_network_view {
     if ( $comment ) { $obj->comment ( $comment ) }
     if ( $disable ) { $obj->disable ( "TRUE" ) }
 
-    if ( @settings ) {
-
-        foreach my $setval ( @settings ) {
-            # set some custom api methods;
-            # split on the ','
-            my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-            $val = &decode_comment ( $val ) ;
-
-            &debug_cli(2,"addzset s($set) v($val)");
-
-            # if the value is an array, we need to cast it accordingly
-            my @avals ;
-            if ( $val =~ /^\[/ ) {
-                $val =~ s/\[\s*//;
-                $val =~ s/\s*\]//;
-                @avals = split ( /\s*,\s*/ , $val );
-
-                &debug_cli(2,"addnvatt s($set) va(@avals)");
-
-                # set this object
-                $obj->$set ( \@avals ) ;
-
-            }
-            else {
-                # and set this on the object
-                $obj->$set ( $val ) ;
-            }
-
-        }
-    }
+    if ( @settings ) { $obj = add_settings ( $obj , @settings ) }
 
     # addit
     &do_func($type,$obj);
@@ -3607,7 +3534,7 @@ sub cli_add_network_container {
     # members are not required for containers
 
     # cleanup some stuff
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     &debug_cli (1,"addnetc t($type) n($network) v($view) c($comment)");
 
@@ -3683,8 +3610,8 @@ sub cli_add_network {
     my @members  = $line =~/ member (\S+)/g ;
 
     # de-urlencode the comment string
-    $comment = &decode_comment ( $comment ) ;
-    $view = &decode_comment ( $view ) ;
+    $comment = decode_comment( $comment ) ;
+    $view = decode_comment( $view ) ;
 
     &debug_cli (1,"addnet n($network) p($parent) m(@members) o(@options) c($comment)");
 
@@ -3817,22 +3744,7 @@ sub cli_add_network {
     $net = add_ipam( $net , @ipam ) ;
 
     # settings - these are additional fields that the API supports
-#     my @settings  = $line =~/ set (\S+)/g ;
-    if ( @settings ) {
-
-       my @set_list ;
-       foreach my $setval ( @settings ) {
-          # set some custom options;
-          # split on the ','
-          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-   
-          &debug_cli(2,"addnet s($set) v($val)");
-   
-          # and set this on the object
-          $net->$set ( $val ) ;
-       }
-
-    }
+    if ( @settings ) { $net = add_settings ( $net , @settings ) }
 
     # add the network 
     &do_func($type,$net);
@@ -4003,7 +3915,7 @@ sub cli_move_network {
     my ( $failover ) = $line =~/ failover (\S+)/ ;
     my @members  = $line =~/ member (\S+)/g ;
 
-    $failover = &decode_comment ( $failover ) ;
+    $failover = decode_comment( $failover ) ;
 
     &debug_cli(1,"movnet n($network) f($failover) m(@members)");
 
@@ -4148,7 +4060,7 @@ sub cli_join_network {
     my @subnets  = $line =~/ network (\S+)/g ;
 
     # de-urlencode the comment string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     # work out the new network name
     my $basenet = $subnets[0];
@@ -4284,13 +4196,13 @@ sub cli_add_shared {
     my $name = $+ ;
 
     # de-urlencode the name string
-    $name = &decode_comment ( $name ) ;
+    $name = decode_comment( $name ) ;
 
     $line =~/ comment "?([^"]+)"?/ ;
     my $comment = $+ ;
 
     # de-urlencode the comment string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     my @children  = $line =~/ child_network (\S+)/g ;
     my @options  = $line =~/ option (\S+)/g ;
@@ -4354,14 +4266,14 @@ sub cli_add_shared {
 
 =cut
 
-sub cli_delete_shared {
+sub cli_delete_shared_network {
     my ( $line ) = @_ ;
 
     # get the args from the line
     my ( $name ) = $line =~/ delete shared (\S+)/ ;
 
     my ( $view ) = $line =~/ view (\S+)/ ;
-    $view = 'default' unless $view ;
+#     $view = 'default' unless $view ;
 
     &debug_cli(1,"delsha n($name) v($view)");
 
@@ -4490,21 +4402,7 @@ sub cli_add_failover {
                 );
 
     # settings - these are additional fields that the API supports
-    if ( @settings ) {
-
-       my @set_list ;
-       foreach my $setval ( @settings ) {
-          # set some custom options;
-          # split on the ','
-          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-   
-          &debug_cli(2,"addnet s($set) v($val)");
-   
-          # and set this on the object
-          $fobj->$set ( $val ) ;
-       }
-
-    }
+    if ( @settings ) { $fobj = add_settings ( $fobj , @settings ) }
 
     # add the network 
     &do_func("add",$fobj);
@@ -4568,9 +4466,9 @@ sub cli_add_fixed_address {
     my @options  = $line =~/ option (\S+)/g ;
 
     # de-urlencode some strings
-    $comment = &decode_comment ( $comment ) ;
-    $name = &decode_comment ( $name ) ;
-    $view = &decode_comment ( $view ) ;
+    $comment = decode_comment( $comment ) ;
+    $name = decode_comment( $name ) ;
+    $view = decode_comment( $view ) ;
 
     # fix mac addresses that are missing ':'
     unless ( $mac =~ /:/ ) {
@@ -4698,20 +4596,7 @@ sub cli_add_fixed_address {
     $obj = add_ipam( $obj , @ipam ) ;
 
     # settings - these are additional fields that the API supports
-    if ( @settings ) {
-
-       foreach my $setval ( @settings ) {
-          # set some custom options;
-          # split on the ','
-          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-   
-          &debug_cli(2,"addfix s($set) v($val)");
-   
-          # and set this on the object
-          $obj->$set ( $val ) ;
-       }
-
-    }
+    if ( @settings ) { $obj = add_settings ( $obj , @settings ) }
 
 #     print Dumper ( $obj ) ;
 
@@ -4747,7 +4632,7 @@ sub cli_add_fixed_template {
     my @options  = $line =~/ option (\S+)/g ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     &debug_cli(1,"addfixt n($name) of($offset) o(@options) c($comment)");
 
@@ -4809,20 +4694,7 @@ sub cli_add_fixed_template {
     $obj = add_ipam( $obj , @ipam ) ;
 
     # settings - these are additional fields that the API supports
-    if ( @settings ) {
-
-       foreach my $setval ( @settings ) {
-          # set some custom options;
-          # split on the ','
-          my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-   
-          &debug_cli(2,"addfix s($set) v($val)");
-   
-          # and set this on the object
-          $obj->$set ( $val ) ;
-       }
-
-    }
+    if ( @settings ) { $obj = add_settings ( $obj , @settings ) }
 
     # addit
     &do_func($type,$obj);
@@ -4870,7 +4742,7 @@ sub cli_del_fixed_address {
 
     # network views...
     my ( $view )  = $line =~/ view (\S+)/ ;
-    $view = &decode_comment ( $view ) ;
+    $view = decode_comment( $view ) ;
     if ( $view ) { $opthash{'network_view'} = $view ; }
 
     # get the faddr, (which also reports an error if not found)
@@ -4974,8 +4846,8 @@ sub cli_add_dhcp_range {
     my ( $view )  = $line =~/ view (\S+)/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
-    $view = &decode_comment ( $view ) ;
+    $comment = decode_comment( $comment ) ;
+    $view = decode_comment( $view ) ;
 
     # arrays
     my @exclude  = $line =~/ exclude (\S+)/g ;
@@ -5032,10 +4904,15 @@ sub cli_add_dhcp_range {
     my ( $disable ) = $line =~/\b(disabled)\b/ ;
     if ( $disable ) { $obj->disable ( "TRUE" ) }
 
+
+    # now add IPAM info
+    my @ipam  = $line =~/ info (\S+)/g ;
+    $obj = add_ipam( $obj , @ipam ) ;
+
     # you can't assign failover and members, you have to choose one.
     if ( $failover ) { 
         # support spaces in the failover name
-        $failover = &decode_comment ( $failover ) ;
+        $failover = decode_comment( $failover ) ;
         $obj->failover_assoc ( $failover ) 
     }
     else {
@@ -5090,6 +4967,7 @@ sub cli_add_dhcp_range {
        foreach my $filter ( @macfilters ) {
           # split on the '='
           my ( $fname , $perm ) = $filter =~  /^(.*?)=(.*)/ ;
+          $fname = decode_comment( $fname ) ;
           if ( $perm =~ /allow/i ) { $perm = "grant" }
    
           &debug_cli(2,"addfil f($fname) p($perm)");
@@ -5177,9 +5055,8 @@ sub cli_del_dhcp_range {
     # get the args from the line
     my ( $fip, $lip )  = $line =~/ network delete range (\S+) (\S+)/ ;
     my ( $view )  = $line =~/ view (\S+)/ ;
-    $view = &decode_comment ( $view ) ;
+    $view = decode_comment( $view ) ;
 
-    my ( $view ) = $line =~/ view (\S+)/ ;
     $view = 'default' unless $view ;
 
     &debug_cli (1,"delrng v($view) s($fip) v($view)");
@@ -5211,7 +5088,7 @@ sub cli_add_macfilter {
 
     # get the args from the line
     my ( $name ) = $line =~/ macfilter (\S+)/ ;
-    $name = &decode_comment ( $name ) ;
+    $name = decode_comment( $name ) ;
 
     &debug_cli (1,"addmfil n($name)");
 
@@ -5275,8 +5152,8 @@ sub cli_add_macfilteraddr {
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
 
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
-    $name = &decode_comment ( $name ) ;
+    $comment = decode_comment( $comment ) ;
+    $name = decode_comment( $name ) ;
 
     # fix mac addresses that are missing ':'
     unless ( $mac =~ /:/ ) {
@@ -5367,7 +5244,7 @@ sub cli_show_ipam_address {
     my ( $line ) = @_ ;
     my ( $ip ) = $line =~/ address (\S+)/ ;
 
-    # get the current discovery task
+    # get address
     my ( $tobj ) = &do_func("get" ,
             "object" => "Infoblox::IPAM::Address", 
             address => $ip ,
@@ -5388,6 +5265,11 @@ Each network gets added to the current discovery job
 
   configure ipam discovery add network 1.2.3.0/24
 
+And you also need to set the discovery member
+(you can only do this once, each member will overwrite the last one)
+
+  configure ipam discovery add member 192.168.1.2
+
 =cut
 
 sub cli_add_discovery {
@@ -5395,36 +5277,49 @@ sub cli_add_discovery {
 
     # get the args from the line
     my ( $net )     = $line =~/ add network (\S+)/ ;
-
-    # create the network opject handle
-    my $nobj = Infoblox::DHCP::Network->new (
-                "network" => $net
-    );
+    my ( $mem )     = $line =~/ add member (\S+)/ ;
 
     # get the current discovery task
-    my ( $tobj ) = &do_func("get" ,
+    my ( $dobj ) = &do_func("get" ,
             "object" => "Infoblox::IPAM::DiscoveryTask", 
         );
 
-    if ( $tobj ) {
+    unless ( $dobj ) {
+        print "  Error : No Discovery task found\n";
+        return ;
+    }
 
-        # check if a task is already running
-        if ( $tobj->status() =~ /In Progress|Paused/i ) {
-            print "  Error : a job is already running\n";
-            return ;
+    # check if a task is already running
+    if ( $dobj->status() =~ /In Progress|Paused/i ) {
+        print "  Error : a job is already running\n";
+        return ;
+    }
+
+    # set up some config options
+    if ( $mem ) {
+        # set the disco member
+        my $mobj = Infoblox::DHCP::Member->new("ipv4addr"=>$mem);
+        if ( $mobj ) {
+            # bad member assignments are ignored
+            $dobj->member( $mobj ) ;
         }
+    }
+
+    if ( $net ) {
+        # create the network opject handle
+        my $nobj = Infoblox::DHCP::Network->new (
+                "network" => $net
+        );
 
         # append the subnet
-        my @networks = @{ $tobj->networks() } ;
+        my @networks = @{ $dobj->networks() } ;
         push @networks , $nobj ;
-        $tobj->networks( \@networks ) ;
+        $dobj->networks( \@networks ) ;
+    }
 
-        # now save the change
-        &do_func("modify",$tobj);
-    }
-    else {
-        print "  Error : No Discovery task found\n";
-    }
+    # now save the change
+    &do_func("modify",$dobj);
+
 }
 
 =head2 Show a discovery job
@@ -5556,7 +5451,7 @@ sub cli_add_device_types {
     my @labels  = $line =~/ label (\S+)/g ;
 
     # remove '%20' crud from dev types with spaces in them
-    $dev = &decode_comment ( $dev ) ;
+    $dev = decode_comment( $dev ) ;
 
     &debug_cli (1,"adddev d($dev) l(@labels)");
 
@@ -5735,7 +5630,7 @@ sub cli_add_radius_user {
 
     my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
     # de-urlencode the name string
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     &debug_cli (1,"addRuser n($name) p($pass) c($comment)");
 
@@ -5868,7 +5763,7 @@ sub cli_add_radius_device {
         # comments ??
         my ( $comment ) = $line =~/ comment "?([^"]+)"?/ ;
         # de-urlencode the name string
-        $comment = &decode_comment ( $comment ) ;
+        $comment = decode_comment( $comment ) ;
         if ( $comment ) { $obj->comment ( $comment ) }
 
         &do_func("add",$obj);
@@ -5984,6 +5879,9 @@ sub cli_add_admin_group {
     my ( $su ) = $line =~/\b(superuser)\b/ ;
     my ( $disable ) = $line =~/\b(disabled)\b$/ ;
 
+    # spaces allowed for names
+    $name = decode_comment( $name );
+
     &debug_cli (1,"addgrp g($name)");
 
     my $obj ;
@@ -6011,7 +5909,7 @@ sub cli_add_admin_group {
     # de-urlencode the comment string
     # and add an optional comment
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
     if ( $comment ) { $obj->comment ( $comment ) }
 
     if ( $su ) { $obj->superuser ( "TRUE" ) }
@@ -6026,7 +5924,7 @@ sub cli_add_admin_group {
             @rvalues = @{ $obj->roles() };
         }
         foreach my $rstring ( @roles ) {
-            push @rvalues , &decode_comment ( $rstring ) ;
+            push @rvalues , decode_comment( $rstring ) ;
         }
         $obj->roles( \@rvalues ) ;
     }
@@ -6046,14 +5944,14 @@ sub cli_add_admin_role {
 
     # get the args from the line
     my ( $type , $name ) = $line =~/ (add|modify) role (\S+)/ ;
-    $name = &decode_comment ( $name ) ;
+    $name = decode_comment( $name ) ;
 
     &debug_cli (1,"addrole n($name)");
 
     my $obj = Infoblox::Grid::Admin::Role->new ( "name" => $name );
 
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
     if ( $comment ) { $obj->comment ( $comment ) }
 
     &do_func($type,$obj);
@@ -6077,6 +5975,9 @@ sub cli_add_user {
     my ( $group ) = $line =~/ group (\S+)/ ;
     my ( $email ) = $line =~/ email (\S+)/ ;
     my ( $disable ) = $line =~/\b(disabled)\b$/ ;
+
+    # need multi-word groups
+    $group = &decode_comment( $group );
 
     &debug_cli (1,"adduser u($user) p($pass) g($group)");
 
@@ -6118,7 +6019,7 @@ sub cli_add_user {
     # de-urlencode the comment string
     # and add an optional comment
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
     if ( $comment ) { $obj->comment ( $comment ) }
 
     &do_func($type,$obj);
@@ -6178,8 +6079,8 @@ sub cli_add_permission {
     my ( $view ) = $line =~/ view (\S+)/ ;
     my ( $sub ) = $line =~/ sub_object (\S+)/ ;
 
-    $oname = &decode_comment ( $oname ) ;
-    $role = &decode_comment ( $role ) ;
+    $oname = decode_comment( $oname ) ;
+    $role = decode_comment( $role ) ;
 
     &debug_cli (1,"addperm t($otype) n($oname) p($perm) r($role) g($group) s($sub)");
 
@@ -6551,34 +6452,7 @@ sub cli_mod_grid {
 
         # settings - these are additional fields that the API supports
         my @settings  = $line =~/ set (\S+)/g ;
-        if ( @settings ) {
-
-            foreach my $setval ( @settings ) {
-
-                # split on the ','
-                my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-                $val = &decode_comment ( $val ) ;
-
-                &debug_cli(2,"addset s($set) v($val)");
-
-                # if the value is an array, we need to cast it accordingly
-                if ( $val =~ /^\[/ ) {
-                    $val =~ s/\[\s*//;
-                    $val =~ s/\s*\]//;
-                    my @avals = split ( /\s*,\s*/ , $val );
-
-                    &debug_cli(2,"addsar s($set) va(@avals)");
-
-                    # set this object
-                    $grid->$set ( \@avals ) ;
-                }
-                else {
-                    # and set this on the object
-                    $grid->$set ( $val ) ;
-                }
-
-            }
-        } # if settings
+        if ( @settings ) { $grid = add_settings ( $grid , @settings ) }
 
         # push the changes, if we were ok
         &do_func("modify",$grid);
@@ -6619,7 +6493,7 @@ sub cli_mod_member {
     my ($haaddr)    = $line =~/ hapair (\S+)/ ;
     my ($harid)    = $line =~/ routerid (\S+)/ ;
     my ($comment)    = $line =~/ comment (\S+)/ ;
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     # find some booleans
     my $use_ntp ;
@@ -6706,34 +6580,7 @@ sub cli_mod_member_dns {
     if ( $memobj ) {
 
         # settings - these are additional fields that the API supports
-        if ( @settings ) {
-
-            foreach my $setval ( @settings ) {
-
-                # split on the ','
-                my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-                $val = &decode_comment ( $val ) ;
-
-                &debug_cli(2,"addset s($set) v($val)");
-
-                # if the value is an array, we need to cast it accordingly
-                if ( $val =~ /^\[/ ) {
-                    $val =~ s/\[\s*//;
-                    $val =~ s/\s*\]//;
-                    my @avals = split ( /\s*,\s*/ , $val );
-
-                    &debug_cli(2,"addsar s($set) va(@avals)");
-
-                    # set this object
-                    $memobj->$set ( \@avals ) ;
-                }
-                else {
-                    # and set this on the object
-                    $memobj->$set ( $val ) ;
-                }
-
-            }
-        } # if settings
+        if ( @settings ) { $memobj = add_settings ( $memobj , @settings ) }
         
         # push the changes, if we were ok
         &do_func("modify",$memobj);
@@ -6834,34 +6681,7 @@ sub cli_mod_member_dhcp {
         }
 
         # settings - these are additional fields that the API supports
-        if ( @settings ) {
-
-            foreach my $setval ( @settings ) {
-
-                # split on the ','
-                my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-                $val = &decode_comment ( $val ) ;
-
-                &debug_cli(2,"addset s($set) v($val)");
-
-                # if the value is an array, we need to cast it accordingly
-                if ( $val =~ /^\[/ ) {
-                    $val =~ s/\[\s*//;
-                    $val =~ s/\s*\]//;
-                    my @avals = split ( /\s*,\s*/ , $val );
-
-                    &debug_cli(2,"addsar s($set) va(@avals)");
-
-                    # set this object
-                    $memobj->$set ( \@avals ) ;
-                }
-                else {
-                    # and set this on the object
-                    $memobj->$set ( $val ) ;
-                }
-
-            }
-        } # if settings
+        if ( @settings ) { $memobj = add_settings ( $memobj , @settings ) }
         
         # push the changes, if we were ok
         &do_func("modify",$memobj);
@@ -6911,7 +6731,7 @@ sub cli_add_member {
 
     # get and de-urlencode the comment string
     my ( $comment ) = $line =~/comment "?([^"]+)"?/ ;
-    $comment = &decode_comment ( $comment ) ;
+    $comment = decode_comment( $comment ) ;
 
     # break ip into ip and mask
     my ( $ip , $cidr ) = split ( /\// , $vip ) ;
@@ -7199,7 +7019,7 @@ sub cli_add_option_def {
     my ( $space ) = $line =~/ space (\S+)/ ;
 
     # [ ] can't add 'array of IP address'
-    $type = &decode_comment ( $type ) ;
+    $type = decode_comment( $type ) ;
     
     &debug_cli (1,"adddef n($name) #($num) t($type)");
 
@@ -7398,7 +7218,7 @@ sub cli_show_zone {
     my ( $detailed ) = $line =~/\bdetailed\b/ ;
     my ( $shared ) = $line =~/ shared_record_group (\S+)/ ;
 
-    $view = &decode_comment ( $view ) ;
+    $view = decode_comment( $view ) ;
     my $ucname = $name ;
 
     # some crap is case inseneitive
@@ -7639,7 +7459,7 @@ sub cli_show_view {
 
     # get the args from the line
     my ( $name ) = $line =~/ views (\S+)/ ;
-    $name = &decode_comment ( $name ) ;
+    $name = decode_comment( $name ) ;
 
     &debug_cli(2,"showv t($name)");
 
@@ -7690,6 +7510,7 @@ sub cli_show_host {
     my ( $view ) = $line =~/ view (\S+)/ ;
     my ( $ip ) = $line =~/ ipv4addr (\S+)/ ;
     my ( $mac ) = $line =~/ mac (\S+)/ ;
+    $view = decode_comment( $view ) ;
 
     &debug_cli(2,"showh n($fqdn) v($view) i($ip)");
 
@@ -7723,6 +7544,13 @@ sub cli_show_host {
     show record cname www.foo.com
     show record a_record test.foo.com
 
+    show record a_record test.foo.com view internal
+
+Searching by EA is tricky because of the parser, you have to give a
+name, but it will be ignored
+
+    show record a_record anyname info Site=west 
+
 =cut
 
 sub cli_show_record {
@@ -7740,6 +7568,7 @@ sub cli_show_record {
         aaaa => "Infoblox::DNS::Record::AAAA",
         mx => "Infoblox::DNS::Record::MX",
         txt => "Infoblox::DNS::Record::TXT",
+        ptr => "Infoblox::DNS::Record::PTR",
         srv => "Infoblox::DNS::Record::SRV",
     } ;
 
@@ -7756,19 +7585,38 @@ sub cli_show_record {
             "object" => $otype,
             "name" => $name,
             );
+
         if ( $view ) {
-            %opthash = (
-            "object" => $otype,
-            "name" => $name ,
-            view => $view,
-            );
+            $opthash{'view'} = $view ;
+        }
+
+        # now add IPAM info to filter the search
+        my @ipam  = $line =~/ info (\S+)/g ;
+        if ( @ipam ) {
+            delete $opthash{'name'} ;
+            my $exts = __info_to_ipamhash( @ipam );
+            $opthash{'extensible_attributes'} = $exts ;
+        }
+
+        # hack for PTR records
+        if ( $type =~ /ptr/i ) {
+            delete $opthash{'name'} ;
+            if ( $name =~ /$REip/ ) {
+                $opthash{'ipv4addr'} = $name ;
+            }
+            elsif ( $name =~ /::/ ) {
+                $opthash{'ipv6addr'} = $name ;
+            }
+            else {
+                $opthash{'ptrdname'} = $name ;
+            }
         }
     
         print "Search records :\n";
         my @records = &do_func("search", %opthash );
         &dump_object ( @records ) ;
 
-        unless ( $otype =~ /cname|bulk/i ) {
+        unless ( $otype =~ /ptr|cname|bulk/i ) {
             # and do the search again for shared records
             $otype=~s/::Record/::SharedRecord/;
             $opthash{'object'} = $otype;
@@ -7865,7 +7713,6 @@ sub cli_show_network {
     my ( $net ) = $line =~/ network (\S+)/ ;
     my ( $parent ) = $line =~/\bsubnets\b/ ;
     my ( $details ) = $line =~/\bdetails\b/ ;
-    my @ipam  = $line =~/ info (\S+)/g ;
 
     # set a default search
     my $otype = "Infoblox::DHCP::Network";
@@ -7879,6 +7726,7 @@ sub cli_show_network {
     my %opthash ;
 
     # now add IPAM info to filter the search
+    my @ipam  = $line =~/ info (\S+)/g ;
     if ( $net eq "info" ) {
         undef $net ;
         if ( @ipam ) {
@@ -7911,7 +7759,7 @@ sub cli_show_network {
 
     # set network views...
     my ( $view )  = $line =~/ view (\S+)/ ;
-    $view = &decode_comment ( $view ) ;
+    $view = decode_comment( $view ) ;
     if ( $view ) { $opthash{'network_view'} = $view ; }
 
 #     $obj = add_ipam( $obj , @ipam ) ;
@@ -7978,6 +7826,78 @@ sub cli_show_network {
             print sort by_ip @netlist ; 
             print "$num networks found\n ";
         }
+    }
+    
+}
+
+=head2 Showing shared networks
+
+Show All shared networks
+
+   show network shared
+
+Show a specifc shared network
+
+   show network shared myShared
+
+   show template network <name>
+
+=cut
+
+sub cli_show_network_shared {
+    #
+    # try and shopw a network
+
+    my ( $line ) = @_ ;
+
+    # get the args from the line
+    my ( $name ) = $line =~/ shared (\S+)/ ;
+
+    &debug_cli(2,"showns t($name)");
+
+    # do we get all nets
+    my $search = ".*";
+
+    # or a specific list
+    if ( $name ) { $search = $name ; }
+
+    # get all the stiff
+    my %opthash = (
+           "object" => "Infoblox::DHCP::SharedNetwork", 
+           "name" => $search,
+    );
+
+    my @nets = &do_func("search", %opthash );
+
+    # dump the network(s) or just the list
+    if ( $name ) {
+        &dump_object ( @nets ) ;
+
+        # dump_object strips 'networks' for some reason, so we add it back in
+        # here
+        my @nlist = map { $_->network() } @{ $nets[0]->networks() } ;
+        my $netnames = "@nlist";
+        printf ( "%30s : %s\n", "networks" , $netnames ) ;
+
+    }
+    else {
+        # sput a summary list
+        # make a hash so we can sort it later, 
+
+        my %nhash ;
+        foreach my $nobj ( @nets ) {
+            my $name = $nobj ;
+            my @nlist = map { $_->network() } @{ $nobj->networks() } ;
+            $nhash{ $nobj->name() } = "@nlist" ;
+        }
+
+#         print Dumper ( \%nhash );
+
+        # now sort them
+        foreach my $nkey ( sort keys %nhash ) {
+            print "  $nkey: $nhash{$nkey}\n";
+        }
+
     }
     
 }
@@ -8050,7 +7970,7 @@ sub cli_show_network_views {
 
     # get the args from the line
     my ( $name ) = $line =~/ views (\S+)/ ;
-    $name = &decode_comment ( $name ) ;
+    $name = decode_comment( $name ) ;
 
     &debug_cli(2,"showv t($name)");
 
@@ -8292,6 +8212,7 @@ sub cli_show_ipam {
         # next_available is already there
 
         my ( $num ) = $line =~/ next_available (\S+)/ ;
+        $num = 1 unless $num ;
         &debug_cli(2,"nextip n($subnet) n($num)");
 
         my ( $nobj ) = &do_func("get", (
@@ -8300,7 +8221,14 @@ sub cli_show_ipam {
                 )
              );
         if ( $nobj ) {
-            my $nip = $nobj->next_available_ip( requested_num => $num );
+
+            my $nip ;
+            if ( $num > 1 ) {
+                $nip = $nobj->next_available_ip( requested_num => $num );
+            }
+            else {
+                $nip = $nobj->next_available_ip( );
+            }
 
             # string or AREF ? it depends on the # of addresses
             my $res ;
@@ -8587,7 +8515,7 @@ sub cli_show_range {
 
     # network views...
     my ( $view )  = $line =~/ view (\S+)/ ;
-    $view = &decode_comment ( $view ) ;
+    $view = decode_comment( $view ) ;
     if ( $view ) { $opthash{'network_view'} = $view ; }
 
     # get what we need
@@ -8677,7 +8605,7 @@ sub cli_show_fixed {
 
     # network views...
     my ( $view )  = $line =~/ view (\S+)/ ;
-    $view = &decode_comment ( $view ) ;
+    $view = decode_comment( $view ) ;
     if ( $view ) { $opthash{'network_view'} = $view ; }
     if ( $fixed =~ /view/ ) { undef $fixed ; }
 
@@ -9071,7 +8999,7 @@ sub cli_show_admin {
 
     my ( $type ) = $line =~/^show admin (\S+)/ ;
     my ( $name ) = $line =~/^show admin \S+ (\S+)/ ;
-    $name = &decode_comment ( $name ) ;
+    $name = decode_comment( $name ) ;
 
     &debug_cli (2,"show adm t($type) u($name)");
 
@@ -9332,6 +9260,41 @@ sub cli_restart {
 
 }
 
+=head2 Starting Discovery jobs
+
+This will just start a discovery job if one is not already running
+
+    restart discovery
+
+You can't control the member from a restart, you have to do that from
+the discovery job
+
+=cut
+
+sub cli_restart_discovery {
+
+    my ( $line ) = @_ ;
+
+#     ( my $service)  = $line =~/restart (\S+)/ ;
+#     ( my $member)  = $line =~/member (\S+)/ ;
+
+    # check to see if it is already running...
+    my ( $dobj ) = do_func('get', 
+        "object" => "Infoblox::IPAM::DiscoveryTask" 
+    );
+    if ( $dobj->state() =~ /running/i ) {
+        print "Discovery task is already RUNNING\n";
+        return ;
+    }
+
+#     # otherwise try and start/stop a discovery
+    my ( $dres ) = do_func('network_discovery_control', 
+            action => "START",
+    );
+
+
+}
+
 =head2 Download csv data for an object type
 
   download csv <file> object <object>
@@ -9465,6 +9428,11 @@ sub cli_upload_file {
           "type" => $type,
           "path" => $dest,
     );
+
+    if ( $type =~ /csv/ ) {
+        $opthash{'continue_on_error'}='true';    
+        $opthash{'operation'}='insert';    
+    }
 
     print "Uploading $type from $dest ...\n";
 
@@ -10506,7 +10474,7 @@ sub add_settings {
             # set some custom methods;
             # split on the ','
             my ( $set , $val ) = $setval =~  /^(.*?)=(.*)/ ;
-            $val = &decode_comment ( $val ) ;
+            $val = decode_comment( $val ) ;
 
             &debug_cli(2,"add setting s($set) v($val)");
 
@@ -10545,10 +10513,10 @@ sub __info_to_ipamhash {
         my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
 
         # decode a quoted string
-        my $cvalue = &decode_comment ( $value ) ;
+        my $cvalue = decode_comment( $value ) ;
 
         # and decode the attribute name
-        $name = &decode_comment ( $name ) ;
+        $name = decode_comment( $name ) ;
 
         # and strip the quotes
         $cvalue =~ s/^"//;
@@ -10580,16 +10548,16 @@ sub add_ipam {
         }
     }
 
-    # add/relpace any new attributes
+    # add/replace any new attributes
     foreach my $info ( @ipam ) {
         # break this onto name = value pairs
         my ( $name , $value ) = $info =~ /(\S+?)=(.*)/;
 
         # decode a quoted string
-        my $cvalue = &decode_comment ( $value ) ;
+        my $cvalue = decode_comment( $value ) ;
 
         # and decode the attribute name
-        $name = &decode_comment ( $name ) ;
+        $name = decode_comment( $name ) ;
 
         # and strip the quotes
         $cvalue =~ s/^"//;
@@ -10647,7 +10615,7 @@ sub make_dhcp_option {
 
     # initially clean the value
     $val =~ s/"//g;
-    $val = &decode_comment ( $val ) ;
+    $val = decode_comment( $val ) ;
 
     # strip the vendor class from the option name
     # we will add it back in once we've cleaned up the option
@@ -11619,7 +11587,7 @@ my %COMMANDS = (
 
 # show DNS records
     'show record' => { 
-           words => "srv=<name>|cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
+           words => "info=<name=value>|view=<name>|ptr=<value>|srv=<name>|cname=<name>|a_record=<name>|aaaa=<name>|bulkhost=<name=>|txt=<name>|mx=<name>", 
            func => "cli_show_record", },
 
     'show zone' => { 
@@ -11664,15 +11632,14 @@ my %COMMANDS = (
 
 # show networks
     'show network' => { 
-           words => "<cr> info=<name=value> details views <n.n.n.n/mm> ranges statistics lease options failover fixed filter",  
+           words => "<cr> info=<name=value> details views <n.n.n.n/mm> ranges shared statistics lease options failover fixed filter",  
            func => "cli_show_network", },
 
-    'show network info <name=value>' => { 
-           words => "<cr> info=<name=value>|details",  
-           func => "cli_show_network", },
-
-    'show network details' => { 
-           func => "cli_show_network", },
+    'show network shared' => { 
+           words => "<cr> <name>",  
+           func => "cli_show_network_shared", },
+    'show network shared <name>' => { 
+           func => "cli_show_network_shared", },
 
     'show network views' => { 
            words => "<cr> <name>",  
@@ -11686,6 +11653,13 @@ my %COMMANDS = (
 
     'show network options' => { 
            func => "cli_show_dhcp_options", },
+
+    'show network info <name=value>' => { 
+           words => "<cr> info=<name=value>|details",  
+           func => "cli_show_network", },
+
+    'show network details' => { 
+           func => "cli_show_network", },
 
     'show network <n.n.n.n/mm>' => { 
            words => "<cr> view=<name> subnets ipam range fixed statistics",  
@@ -11775,7 +11749,10 @@ my %COMMANDS = (
 
 # uploads
     'upload' => { 
-           words => "leases=<file> database=<file> expert_dhcp_conf=<file>",  },
+           words => "csv=<file> leases=<file> database=<file> expert_dhcp_conf=<file>",  },
+
+    'upload csv <file>' => { 
+           func => "cli_upload_file", },
 
     'upload leases <file>' => { 
            func => "cli_upload_file", },
@@ -11836,7 +11813,9 @@ my %COMMANDS = (
            func => "cli_download_dhcp", },
 
     'restart' => { 
-           words => "dns dhcp",  },
+           words => "dns dhcp discovery",  },
+    'restart discovery' => { 
+           func => "cli_restart_discovery", },
     'restart dns' => { 
            words => "delay=<num>",  
            func => "cli_restart", },
@@ -12103,10 +12082,10 @@ my %COMMANDS = (
 
 # - views -
     'configure zone add view <name>' => { 
-           words => "<cr> set=<name=value>|disabled|comment=<comment>",
+           words => "<cr> info=<name=value>|set=<name=value>|disabled|comment=<comment>",
            func => "cli_add_view", },
     'configure zone modify view <name>' => { 
-           words => "<cr> set=<name=value>|disabled|comment=<comment>",
+           words => "<cr> info=<name=value>|set=<name=value>|disabled|comment=<comment>",
            func => "cli_add_view", },
 #     'configure zone add view <name> disabled' => { 
 #            func => "cli_add_view", },
@@ -12260,7 +12239,7 @@ my %COMMANDS = (
     'configure zone <zone> add a_record' => { 
            words => "<name>=<ip>", },
     'configure zone <zone> add a_record <name> <ip>' => { 
-           words => "<cr> shared_record_group=<name>|set=<name=value>|comment=<comment>|ttl=<num>|disabled|view=<name>",
+           words => "<cr> shared_record_group=<name>|info=<name=value>|set=<name=value>|comment=<comment>|ttl=<num>|disabled|view=<name>",
            func => "cli_add_a_rec", },
 
     'configure zone <zone> add aaaa' => { 
@@ -12352,8 +12331,16 @@ my %COMMANDS = (
     'configure ipam discovery' => { 
            words => "add", },
     'configure ipam discovery add' => { 
-           words => "network=<n.n.n.n/mm>", },
+           words => "network member", },
+
+    'configure ipam discovery add network' => { 
+           words => "<n.n.n.n/mm>", },
     'configure ipam discovery add network <n.n.n.n/mm>' => { 
+           func => "cli_add_discovery", },
+
+    'configure ipam discovery add member' => { 
+           words => "<ip_or_name>", },
+    'configure ipam discovery add member <ip_or_name>' => { 
            func => "cli_add_discovery", },
 
 # network objects
@@ -12367,6 +12354,8 @@ my %COMMANDS = (
            func => "cli_delete_network", },
     'configure network delete <n.n.n.n/mm> netmask <ip>' => { 
            func => "cli_delete_network", },
+    'configure network delete shared <name>' => { 
+           func => "cli_delete_shared_network", },
 
     'configure network add' => { 
            words => "parent=<n.n.n.n/mm> container=<n.n.n.n/mm> view=<name> <n.n.n.n/mm> space=<name> optiondef=<name> failover=<name> macfilter=<name> shared=<name> fixed range", },
@@ -12440,6 +12429,8 @@ my %COMMANDS = (
     'configure network add shared <name>' => { 
            words => "<cr> view=<name>|child_network=<n.n.n.n/mm>|comment=<comment>|member=<ip>|option=<name=value>",  
            func => "cli_add_shared", },
+
+# - networks
     'configure network add <n.n.n.n/mm>' => { 
            words => "<cr> view=<name>|info=<name=value>|template=<name>|netmask=<ip>|addreverse|disabled|comment=<comment>|member=<ip>|set=<name=value>|addoption=<name=value>|option=<name=value>",  
            func => "cli_add_network", },
@@ -12548,12 +12539,12 @@ my %COMMANDS = (
     'configure network add range' => {
            words => "<startip>=<endip>",  },
     'configure network add range <startip> <endip>' => {
-           words => "<cr> disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>|view=<name>",
+           words => "<cr> disabled|info=<name=value>|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>|view=<name>",
            func => "cli_add_dhcp_range", },
     'configure network modify range' => {
            words => "<startip>",  },
     'configure network modify range <startip>' => {
-           words => "<cr> view=<name>|disabled|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>",  
+           words => "<cr> view=<name>|disabled|info=<name=value>|comment=<comment>|exclude=<ip,ip>|failover=<value>|member=<ip>|option=<name=value>|filter_option=<name=value>|macfilter=<name=value>",  
            func => "cli_add_dhcp_range", },
 
     # radius comm
