@@ -54,6 +54,8 @@ missing features :
 
 -----------
 
+[x] show/delete shared networks
+
 [x] TTL for A/PTR/CNAME
 
 [x] modify a fixed address

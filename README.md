@@ -11,6 +11,8 @@ without actually writing any perl.
 The full documentation is perldoc in the code itself, also
 [available here](http://slchorne.github.com/ibcli/user_guide_ibcli.html)
 
+The latest version is r3.80
+
 ### Forking
 
 The last significant update to ibcli was nearly a year ago, So I'm
