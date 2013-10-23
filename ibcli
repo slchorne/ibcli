@@ -1,10 +1,8 @@
 #!/usr/bin/perl
 #
 # Version control... now using git
-my $ID  = ":Id: Thu, 25 Oct 2013 12:16:13 -0700 Geoff H ::";
+my $ID  = ":Id: Wed, 23 Oct 2013 11:56:57 -0700 Geoff H ::";
 my $REV = ":Revision: r3.80 ::";
-# my ( $SVNREV ) = $SRTAG =~ /(\d+)/;
-# my $REV = "Revision 3.$SVNREV";
 # 
 
 # just do it, and get it over with

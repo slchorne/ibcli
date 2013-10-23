@@ -4,7 +4,7 @@
 <head>
 <title>user_guide.html</title>
 <meta http-equiv="content-type" content="text/html; charset=utf-8" />
-<link rev="made" href="mailto:_postfix@neige.apple.com" />
+<link rev="made" href="mailto:_mdnsresponder@b1017.apple.com" />
 </head>
 
 <body style="background-color: white">
@@ -158,6 +158,7 @@
 		<li><a href="#showing_records">Showing records</a></li>
 		<li><a href="#showing_leases">Showing leases</a></li>
 		<li><a href="#showing_networks">Showing networks</a></li>
+		<li><a href="#showing_shared_networks">Showing shared networks</a></li>
 		<li><a href="#showing_networks_templates">Showing networks templates</a></li>
 		<li><a href="#showing_network_views">Showing Network Views</a></li>
 		<li><a href="#showing_network_failover">Showing network failover</a></li>
@@ -179,6 +180,7 @@
 		<li><a href="#connecting_to_the_mgmt__management__port">connecting to the MGMT (management) port</a></li>
 		<li><a href="#show_server_details">Show server details</a></li>
 		<li><a href="#restarting_services">Restarting services</a></li>
+		<li><a href="#starting_discovery_jobs">Starting Discovery jobs</a></li>
 		<li><a href="#download_csv_data_for_an_object_type">Download csv data for an object type</a></li>
 		<li><a href="#export_log_files">Export log files</a></li>
 		<li><a href="#download_the_database">Download the database</a></li>
@@ -220,15 +222,14 @@ without actually writing any perl.</p>
 <p>So why do this, what is this CLI for ? Well there were a few primary
 reasons:</p>
 <dl>
-<dt><strong><a name="quick_changes_are_now_easy" class="item">Quick changes are now easy,</a></strong>
+<dt><strong><a name="quick_changes_are_now_easy" class="item">Quick changes are now easy,</a></strong></dt>
 
 <dd>
 <p>You don't need to wait for a GUI to start or get the right version
 of java functional, this allows you to quickly get into the database
 and make some simple and efficient changes</p>
 </dd>
-</li>
-<dt><strong><a name="abstract_command_set" class="item">Abstract command set</a></strong>
+<dt><strong><a name="abstract_command_set" class="item">Abstract command set</a></strong></dt>
 
 <dd>
 <p>Now you don't need to know the intricacies of the API, a few simple
@@ -240,13 +241,11 @@ to write software to parse the data, eg PERL) but it may still help
 and end user that can convert this data in to the CLI command set
 but not know enough to write PERL.</p>
 </dd>
-</li>
-<dt><strong><a name="customers_wanted_it" class="item">Customers wanted it</a></strong>
+<dt><strong><a name="customers_wanted_it" class="item">Customers wanted it</a></strong></dt>
 
 <dd>
 <p>Need I say more ?</p>
 </dd>
-</li>
 </dl>
 <p>Lastly, why is this called 'ibcli' and not 'DNScli' ? Well, this is just
 a wrapper to any API we like, it is not really DNS specific.</p>
@@ -332,47 +331,39 @@ MANY servers from the one CLI.</p>
 <hr />
 <h1><a name="command_line_options">Command line options</a></h1>
 <dl>
-<dt><strong><a name="s_server" class="item">-s &lt;server&gt;</a></strong>
+<dt><strong><a name="s_server" class="item">-s &lt;server&gt;</a></strong></dt>
 
 <dd>
 <p>Connect to this server</p>
 </dd>
-</li>
-<dt><strong><a name="u_username" class="item">-u &lt;username&gt;</a></strong>
+<dt><strong><a name="u_username" class="item">-u &lt;username&gt;</a></strong></dt>
 
 <dd>
 <p>Connect as this user</p>
 </dd>
-</li>
-<dt><strong><a name="p_password" class="item">-p &lt;password&gt;</a></strong>
+<dt><strong><a name="p_password" class="item">-p &lt;password&gt;</a></strong></dt>
 
 <dd>
 <p>Connect with this password</p>
 </dd>
-</li>
-<dt><strong><a name="w" class="item">'-w'</a></strong>
+<dt><strong><a name="w" class="item">'-w'</a></strong></dt>
 
 <dd>
 <p>Print a CGI header instead of the normal header</p>
 </dd>
-</li>
-<dt><strong><a name="e_command" class="item">-e &lt;command&gt;</a></strong>
+<dt><strong><a name="e_command" class="item">-e &lt;command&gt;</a></strong></dt>
 
 <dd>
 <p>Run a single command and exit. The command must be quoted (for obvious reasons). 
 For example</p>
-</dd>
-<dd>
 <pre>
   % ./ibcli -e 'show zone'</pre>
 </dd>
-</li>
-<dt><strong><a name="b_f_file" class="item">-b|f &lt;file&gt;</a></strong>
+<dt><strong><a name="b_f_file" class="item">-b|f &lt;file&gt;</a></strong></dt>
 
 <dd>
 <p>load a database backup file for browsing</p>
 </dd>
-</li>
 </dl>
 <p>
 </p>
@@ -639,6 +630,11 @@ You add multiple fields with additional 'info &lt;name=value&gt;' pairs</p>
 <p>To add the record to a shared record group (zone must be blank)</p>
 <pre>
    conf zone &quot;&quot; add a_record test 1.2.3.4 shared_record_group mygroup</pre>
+<p>You can also set values 
+    ... set param=val</p>
+<p>And EAs</p>
+<pre>
+    ... info EA=value</pre>
 <p>
 </p>
 <h2><a name="remove_an_a_record_from_a_zone">Remove An A record from a zone</a></h2>
@@ -1038,6 +1034,10 @@ does a complete replacement of it.</p>
 <p>Each network gets added to the current discovery job</p>
 <pre>
   configure ipam discovery add network 1.2.3.0/24</pre>
+<p>And you also need to set the discovery member
+(you can only do this once, each member will overwrite the last one)</p>
+<pre>
+  configure ipam discovery add member 192.168.1.2</pre>
 <p>
 </p>
 <h2><a name="show_a_discovery_job">Show a discovery job</a></h2>
@@ -1444,6 +1444,12 @@ them modify it, thus you need :
 <pre>
     show record cname www.foo.com
     show record a_record test.foo.com</pre>
+<pre>
+    show record a_record test.foo.com view internal</pre>
+<p>Searching by EA is tricky because of the parser, you have to give a
+name, but it will be ignored</p>
+<pre>
+    show record a_record anyname info Site=west</pre>
 <p>
 </p>
 <h2><a name="showing_leases">Showing leases</a></h2>
@@ -1477,6 +1483,17 @@ multiple 'info' arguments</p>
 <p>And show the detailed version of the above searches</p>
 <pre>
     show network info Site=west details</pre>
+<p>
+</p>
+<h2><a name="showing_shared_networks">Showing shared networks</a></h2>
+<p>Show All shared networks</p>
+<pre>
+   show network shared</pre>
+<p>Show a specifc shared network</p>
+<pre>
+   show network shared myShared</pre>
+<pre>
+   show template network &lt;name&gt;</pre>
 <p>
 </p>
 <h2><a name="showing_networks_templates">Showing networks templates</a></h2>
@@ -1664,6 +1681,14 @@ have a member assignment</p>
 <p>IF you want to delay the restart you can do that also</p>
 <pre>
    restart dns delay 10</pre>
+<p>
+</p>
+<h2><a name="starting_discovery_jobs">Starting Discovery jobs</a></h2>
+<p>This will just start a discovery job if one is not already running</p>
+<pre>
+    restart discovery</pre>
+<p>You can't control the member from a restart, you have to do that from
+the discovery job</p>
 <p>
 </p>
 <h2><a name="download_csv_data_for_an_object_type">Download csv data for an object type</a></h2>

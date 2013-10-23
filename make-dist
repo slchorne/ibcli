@@ -23,7 +23,7 @@ if [ -z "$1" ] ; then
 fi
 
 
-GIT=/usr/local/git/bin/git
+GIT=/usr/bin/git
 
 # hack in some RCS tagging stuff so we know what rev is in the file
 REV=`$GIT describe --tag`
